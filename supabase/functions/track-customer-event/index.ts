@@ -27,7 +27,7 @@ const FUNCTION_NAME = 'track-customer-event';
 // Access-Control-Allow-Origin. Defaults to the local Vite dev server only.
 // CORS limits browsers only; rate limiting remains the real abuse control.
 const ALLOWED_ORIGINS = new Set(
-  (Deno.env.get('ALLOWED_ORIGINS') ?? 'http://localhost:5173')
+  (Deno.env.get('ALLOWED_ORIGINS') ?? 'http://localhost:5173,http://127.0.0.1:5173')
     .split(',')
     .map((origin) => origin.trim())
     .filter((origin) => origin.length > 0),
