@@ -150,6 +150,7 @@ export default function CustomerReviewPage() {
         {step === 'experience' && (
           <ExperienceStep
             key={mode}
+            category={business.category}
             mode={mode}
             initialText={experience}
             onModeChange={setMode}
