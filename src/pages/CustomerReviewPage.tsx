@@ -45,7 +45,7 @@ export default function CustomerReviewPage() {
         void businessRepository.trackEvent({
           businessId: found.id,
           eventType: 'qr_scan',
-          metadata: { source },
+          metadata: { source, slug: found.slug },
         });
       }
     }
@@ -97,6 +97,7 @@ export default function CustomerReviewPage() {
         business: targetBiz,
         experience: text,
         attempt: nextAttempt,
+        mode,
       });
 
       setReview(draft.text);
@@ -135,6 +136,7 @@ export default function CustomerReviewPage() {
     void businessRepository.trackEvent({
       businessId: business.id,
       eventType: 'google_redirect_click',
+      metadata: { slug: business.slug },
     });
   }
 

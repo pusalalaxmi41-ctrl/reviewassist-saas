@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { Business, BusinessMetrics, AnalyticsEvent, CustomerDraftRecord } from '../types/business';
 import { businessRepository } from '../services/storage';
+import { isSupabaseConfigured } from '../lib/supabase';
 import { categoryLabels } from '../services/business/mockBusinesses';
 import { AnalyticsView } from '../components/dashboard/AnalyticsView';
 import { QRCodeManager } from '../components/dashboard/QRCodeManager';
@@ -122,9 +123,21 @@ export default function BusinessDashboard() {
       <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-100/70 px-4 py-2 text-xs text-slate-600">
         <span className="flex items-center gap-1.5 font-medium">
           <Database className="h-3.5 w-3.5 text-indigo-600" />
-          Storage Abstraction: Local browser storage simulating Supabase tables (Isolated by Business ID: <code className="font-mono text-indigo-700 font-bold">{currentBusiness.id}</code>)
+          {isSupabaseConfigured ? (
+            <>
+              Connected to Live Supabase PostgreSQL &amp; Edge Functions (Business ID:{' '}
+              <code className="font-mono text-indigo-700 font-bold">{currentBusiness.id}</code>)
+            </>
+          ) : (
+            <>
+              Local Demo Mode (Business ID:{' '}
+              <code className="font-mono text-indigo-700 font-bold">{currentBusiness.id}</code>)
+            </>
+          )}
         </span>
-        <span className="text-[11px] text-slate-400 hidden sm:inline">Supabase schema ready</span>
+        <span className="text-[11px] text-emerald-700 font-medium hidden sm:inline">
+          {isSupabaseConfigured ? 'RLS + Edge Functions Active' : 'Local Storage'}
+        </span>
       </div>
 
       {/* Top Header & Tenant Switcher */}

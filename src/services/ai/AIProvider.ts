@@ -1,11 +1,13 @@
-import type { Business } from '../../types/business';
+import type { Business, ExperienceInputMode } from '../../types/business';
 
 export interface ReviewDraftRequest {
-  business: Pick<Business, 'name' | 'category'>;
+  business: Pick<Business, 'name' | 'category'> & Partial<Pick<Business, 'slug'>>;
   /** The customer's own words. The only source of facts for the review. */
   experience: string;
   /** 0 for the first draft, incremented on "Generate again". */
   attempt?: number;
+  /** Input mode ('text' | 'voice') forwarded to the server-side draft recorder. */
+  mode?: ExperienceInputMode;
 }
 
 export interface ReviewDraft {
