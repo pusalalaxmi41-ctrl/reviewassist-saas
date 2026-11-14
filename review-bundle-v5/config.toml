@@ -1,0 +1,51 @@
+# ============================================================================
+# ReviewAssist — Supabase Local & Deployment Configuration
+# Path: supabase/config.toml
+# ============================================================================
+project_id = "jwgofsrubthumuymhzva"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173/**"]
+jwt_expiry = 3600
+enable_signup = true
+
+# ============================================================================
+# Edge Function Settings
+#
+# Why verify_jwt = false is required for these three public customer endpoints:
+# 1. Customers visiting /r/:businessSlug do not sign in (no user session JWT).
+# 2. The project uses Supabase's new publishable key format (sb_publishable_...),
+#    which is an opaque API key rather than a signed HS256 JWT.
+# 3. With verify_jwt = true at the gateway, requests without a legacy JWT are
+#    rejected before reaching the function. Setting verify_jwt = false allows
+#    public customer requests to reach the function, where request-level rate
+#    limiting, input validation, and service_role RPC restrictions are enforced.
+# ============================================================================
+
+[functions.public-business-lookup]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/public-business-lookup/index.ts"
+
+[functions.generate-review-draft]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/generate-review-draft/index.ts"
+
+[functions.track-customer-event]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/track-customer-event/index.ts"
