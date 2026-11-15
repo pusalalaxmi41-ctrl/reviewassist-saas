@@ -27,6 +27,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import {
   getAdminRepository,
   mockAdminRepository,
@@ -118,9 +119,12 @@ export default function AdminPanelPage() {
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
 
-  const [repoMode, setRepoMode] = useState<'mock' | 'supabase'>(
-    import.meta.env.VITE_ADMIN_DATA_SOURCE === 'supabase' ? 'supabase' : 'mock',
-  );
+  const [repoMode, setRepoMode] = useState<'mock' | 'supabase'>(() => {
+    const envSource = import.meta.env.VITE_ADMIN_DATA_SOURCE;
+    if (envSource === 'mock') return 'mock';
+    if (envSource === 'supabase') return 'supabase';
+    return isSupabaseConfigured ? 'supabase' : 'mock';
+  });
   const repo = useMemo(() => getAdminRepository(repoMode), [repoMode]);
 
   const [activeNav, setActiveNav] = useState<AdminNavSection>('dashboard');
