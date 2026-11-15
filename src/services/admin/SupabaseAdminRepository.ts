@@ -15,9 +15,11 @@ import type {
 import type { IAdminRepository } from './AdminRepository';
 
 interface RpcClientRow {
-  business_id: string;
+  id?: string;
+  business_id?: string;
   slug: string;
-  business_name: string;
+  name?: string;
+  business_name?: string;
   category: BusinessCategory;
   city: string;
   google_review_url: string;
@@ -35,7 +37,8 @@ interface RpcClientRow {
   owner_id: string;
   owner_email: string;
   owner_created_at?: string;
-  last_sign_in_at: string | null;
+  owner_last_sign_in_at?: string | null;
+  last_sign_in_at?: string | null;
   total_count?: number;
 }
 
@@ -54,9 +57,9 @@ interface RpcAuditLogRow {
 
 function mapRpcClientRow(row: RpcClientRow): AdminClientRecord {
   return {
-    id: row.business_id,
+    id: row.id ?? row.business_id ?? '',
     slug: row.slug,
-    name: row.business_name,
+    name: row.name ?? row.business_name ?? '',
     category: row.category,
     city: row.city,
     googleReviewUrl: row.google_review_url,
@@ -74,7 +77,7 @@ function mapRpcClientRow(row: RpcClientRow): AdminClientRecord {
     ownerId: row.owner_id,
     ownerEmail: row.owner_email,
     ownerCreatedAt: row.owner_created_at ?? row.created_at,
-    ownerLastSignInAt: row.last_sign_in_at,
+    ownerLastSignInAt: row.owner_last_sign_in_at ?? row.last_sign_in_at ?? null,
   };
 }
 
@@ -116,15 +119,20 @@ export class SupabaseAdminRepository implements IAdminRepository {
     }
 
     const payload = data as {
-      total: number;
-      pending: number;
-      active: number;
-      suspended: number;
-      rejected: number;
-      disabled_accounts: number;
-      pending_deletion_accounts: number;
-      signups_per_day: DailySignupPoint[];
+      total?: number;
+      pending?: number;
+      active?: number;
+      suspended?: number;
+      rejected?: number;
+      disabledAccounts?: number;
+      disabled_accounts?: number;
+      pendingDeletionAccounts?: number;
+      pending_deletion_accounts?: number;
+      signupsPerDay?: DailySignupPoint[];
+      signups_per_day?: DailySignupPoint[];
     };
+
+    const signups = payload?.signupsPerDay ?? payload?.signups_per_day;
 
     return {
       total: Number(payload?.total ?? 0),
@@ -132,10 +140,16 @@ export class SupabaseAdminRepository implements IAdminRepository {
       active: Number(payload?.active ?? 0),
       suspended: Number(payload?.suspended ?? 0),
       rejected: Number(payload?.rejected ?? 0),
-      disabledAccounts: Number(payload?.disabled_accounts ?? 0),
-      pendingDeletionAccounts: Number(payload?.pending_deletion_accounts ?? 0),
-      signupsPerDay: Array.isArray(payload?.signups_per_day)
-        ? payload.signups_per_day.map((pt) => ({
+      disabledAccounts: Number(
+        payload?.disabledAccounts ?? payload?.disabled_accounts ?? 0,
+      ),
+      pendingDeletionAccounts: Number(
+        payload?.pendingDeletionAccounts ??
+          payload?.pending_deletion_accounts ??
+          0,
+      ),
+      signupsPerDay: Array.isArray(signups)
+        ? signups.map((pt) => ({
             date: String(pt.date),
             count: Number(pt.count ?? 0),
           }))
