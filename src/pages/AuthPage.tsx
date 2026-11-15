@@ -15,6 +15,7 @@ export default function AuthPage() {
 
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +36,15 @@ export default function AuthPage() {
       return;
     }
 
+    const cleanPhone = phone.trim();
+    if (mode === 'signup') {
+      const digits = cleanPhone.replace(/\D/g, '');
+      if (digits.length < 7 || digits.length > 15) {
+        setError('Please enter a valid phone or WhatsApp number.');
+        return;
+      }
+    }
+
     if (password.length < 6) {
       setError('Password must be at least 6 characters.');
       return;
@@ -53,6 +63,7 @@ export default function AuthPage() {
         const { error: signUpErr, needsEmailConfirmation } = await signUp(
           cleanEmail,
           password,
+          cleanPhone,
         );
         if (signUpErr) {
           setError(signUpErr);
@@ -154,6 +165,18 @@ export default function AuthPage() {
           onChange={(e) => setEmail(e.target.value)}
           required
         />
+
+        {mode === 'signup' && (
+          <TextField
+            label="Phone / WhatsApp Number"
+            type="tel"
+            autoComplete="tel"
+            placeholder="+91 98765 43210"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            required
+          />
+        )}
 
         <TextField
           label="Password"

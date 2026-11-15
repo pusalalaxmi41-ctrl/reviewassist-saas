@@ -54,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function signUp(
     email: string,
     password: string,
+    phone?: string,
   ): Promise<{ error: string | null; needsEmailConfirmation: boolean }> {
     if (!supabase) {
       return {
@@ -61,9 +62,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         needsEmailConfirmation: false,
       };
     }
+    const cleanPhone = phone?.trim();
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
+      options: cleanPhone ? { data: { phone: cleanPhone } } : undefined,
     });
     if (error) {
       return { error: error.message, needsEmailConfirmation: false };
