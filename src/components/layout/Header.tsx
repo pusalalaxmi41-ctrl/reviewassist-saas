@@ -37,6 +37,9 @@ export function Header() {
           <NavLink to="/setup" className={navClass}>
             Get started
           </NavLink>
+          <NavLink to="/admin" className={navClass}>
+            Admin
+          </NavLink>
           {isConfigured &&
             (user ? (
               <div className="flex items-center gap-3 border-l border-[#DDE4DC] pl-3 sm:pl-4">

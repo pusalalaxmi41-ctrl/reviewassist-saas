@@ -499,6 +499,15 @@ export default function AdminPanelPage() {
             >
               Return to Business Dashboard
             </Link>
+            {repoMode === 'supabase' && (
+              <button
+                type="button"
+                onClick={() => setRepoMode('mock')}
+                className="inline-flex items-center justify-center rounded-lg bg-[#244B40] px-3.5 py-2 text-xs font-medium text-white hover:bg-[#1C3B32] cursor-pointer"
+              >
+                Switch to Demo Sandbox
+              </button>
+            )}
             {simulateNonAdmin404 && (
               <button
                 type="button"
