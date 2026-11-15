@@ -7,6 +7,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "test:qr": "deno run tests/verify-qr-scan.ts",
+    "test:ai-config": "deno run tests/verify-ai-config.ts",
+    "test:knowledge": "deno run tests/verify-business-knowledge.ts",
+    "test:reviews": "deno run tests/verify-review-management.ts",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -20,11 +24,14 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.4",
     "@types/node": "^24.19.2",
+    "@types/pngjs": "^6.0.5",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "jsqr": "^1.4.0",
     "oxlint": "^1.89.0",
+    "pngjs": "^7.0.0",
     "tailwindcss": "^4.3.4",
     "typescript": "~7.0.2",
     "vite": "^8.3.5"

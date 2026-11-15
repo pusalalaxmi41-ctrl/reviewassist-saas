@@ -1,14 +1,22 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { SearchX, Loader2 } from 'lucide-react';
-import type { Business, ExperienceInputMode, ReviewFlowStep, ReviewSentiment } from '../types/business';
+import type {
+  Business,
+  ExperienceInputMode,
+  ReviewFlowStep,
+} from '../types/business';
 import { businessRepository } from '../services/storage';
-import { aiProvider } from '../services/ai';
+import { aiProvider, AIProviderError } from '../services/ai';
+import { classifyEstimatedSentiment } from '../utils/sentimentClassifier';
 import { ProgressSteps } from '../components/review/ProgressSteps';
 import { WelcomeStep } from '../components/review/WelcomeStep';
 import { ExperienceStep } from '../components/review/ExperienceStep';
 import { ReviewPreviewStep } from '../components/review/ReviewPreviewStep';
 import { GoogleRedirectStep } from '../components/review/GoogleRedirectStep';
+
+const SLOW_RESPONSE_THRESHOLD_MS = 3500;
+const REQUEST_TIMEOUT_MS = 22000;
 
 export default function CustomerReviewPage() {
   const { businessSlug } = useParams();
@@ -23,9 +31,19 @@ export default function CustomerReviewPage() {
   const [review, setReview] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [slowResponse, setSlowResponse] = useState(false);
+  const [isStreamingLive, setIsStreamingLive] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const trackedScanRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Clean up any in-flight generation if the customer navigates away or refreshes
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   // Load business by slug and track QR scan / visit
   useEffect(() => {
@@ -55,19 +73,34 @@ export default function CustomerReviewPage() {
 
   if (pageLoading) {
     return (
-      <div className="py-20 text-center">
-        <Loader2 className="mx-auto h-8 w-8 animate-spin text-indigo-600" />
-        <p className="mt-3 text-sm text-slate-500">Loading experience...</p>
+      <div
+        role="status"
+        aria-live="polite"
+        className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-12 text-center shadow-2xs"
+      >
+        <Loader2 className="mx-auto h-7 w-7 animate-spin text-[#244B40]" aria-hidden />
+        <p className="mt-3 text-[15px] font-medium text-[#626B65]">
+          Loading review portal…
+        </p>
       </div>
     );
   }
 
   if (!business) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
-        <SearchX className="mx-auto h-10 w-10 text-slate-400" aria-hidden />
-        <h1 className="mt-3 text-lg font-semibold">Business not found</h1>
-        <p className="mt-1 text-sm text-slate-600">Please check the link or QR code and try again.</p>
+      <div
+        role="alert"
+        className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-8 text-center shadow-2xs space-y-2.5"
+      >
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#EEF3EC] text-[#244B40]">
+          <SearchX className="h-6 w-6" aria-hidden />
+        </div>
+        <h1 className="text-[24px] font-semibold tracking-tight text-[#252B29]">
+          Business not found
+        </h1>
+        <p className="mx-auto max-w-sm text-[15px] text-[#626B65] leading-relaxed">
+          We couldn&apos;t find an active review page at this link. Please check the QR code or URL and try again.
+        </p>
       </div>
     );
   }
@@ -88,47 +121,112 @@ export default function CustomerReviewPage() {
     await generate(text, 0, business);
   }
 
-  async function generate(text: string, nextAttempt: number, targetBiz: Business) {
+  async function generate(
+    text: string,
+    nextAttempt: number,
+    targetBiz: Business,
+  ) {
+    // Cancel any previous in-flight request
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
+    setSlowResponse(false);
+    setIsStreamingLive(false);
     setError(null);
+    setReview('');
+
+    const slowTimer = window.setTimeout(() => {
+      setSlowResponse(true);
+    }, SLOW_RESPONSE_THRESHOLD_MS);
+
+    const timeoutTimer = window.setTimeout(() => {
+      controller.abort('timeout');
+    }, REQUEST_TIMEOUT_MS);
+
     try {
-      // Always generated from the customer's original experience text.
       const draft = await aiProvider.generateReviewDraft({
         business: targetBiz,
         experience: text,
         attempt: nextAttempt,
         mode,
+        signal: controller.signal,
+        onToken: (_delta, accumulated) => {
+          setIsStreamingLive(true);
+          setReview(accumulated);
+        },
       });
 
-      setReview(draft.text);
+      if (controller.signal.aborted) return;
+
+      const finalText = draft.text.trim();
+      if (!finalText) {
+        setError(
+          'We received an empty draft. Please tap Retry generation to try again.',
+        );
+        return;
+      }
+
+      setIsStreamingLive(Boolean(draft.streamed));
+      setReview(finalText);
       setAttempt(nextAttempt);
 
       // Track AI generation event
       void businessRepository.trackEvent({
         businessId: targetBiz.id,
         eventType: 'ai_generation',
-        metadata: { attempt: nextAttempt },
+        metadata: {
+          attempt: nextAttempt,
+          streamed: Boolean(draft.streamed),
+          source: draft.generationSource ?? 'unknown',
+        },
       });
 
-      // Record customer draft record
-      const lower = text.toLowerCase();
-      const hasCriticism = ['slow', 'wait', 'cold', 'bad', 'noisy', 'expensive', 'delay', 'issue', 'not working'].some(
-        (w) => lower.includes(w),
-      );
-      const sentiment: ReviewSentiment = hasCriticism ? 'mixed' : 'positive';
+      // Record customer draft record with 4-way estimated sentiment
+      const sentiment = classifyEstimatedSentiment(text);
 
       void businessRepository.recordDraft({
         businessId: targetBiz.id,
         originalInput: text,
-        generatedReview: draft.text,
+        generatedReview: finalText,
         mode,
         sentiment,
       });
-    } catch {
-      setError("We couldn't prepare your review right now. Please try again.");
+    } catch (err) {
+      if (controller.signal.aborted) {
+        if (controller.signal.reason === 'timeout') {
+          setError(
+            'Generating your review took longer than expected. Please tap Retry generation.',
+          );
+        }
+        return;
+      }
+
+      if (err instanceof AIProviderError) {
+        setError(err.message);
+      } else {
+        setError(
+          (err as Error)?.message ||
+            "We couldn't prepare your review right now. Please try again.",
+        );
+      }
     } finally {
-      setLoading(false);
+      window.clearTimeout(slowTimer);
+      window.clearTimeout(timeoutTimer);
+      if (abortControllerRef.current === controller) {
+        setLoading(false);
+        setSlowResponse(false);
+      }
     }
+  }
+
+  function handleBackToExperience() {
+    abortControllerRef.current?.abort();
+    setLoading(false);
+    setSlowResponse(false);
+    setError(null);
+    setStep('experience');
   }
 
   function handleGoogleRedirect() {
@@ -141,15 +239,24 @@ export default function CustomerReviewPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <ProgressSteps current={step} />
-      <div key={step} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm motion-safe:animate-fade-in sm:p-8">
+      <div
+        key={step}
+        className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-5 shadow-xs motion-safe:animate-fade-in sm:p-8"
+      >
         {step === 'welcome' && (
-          <WelcomeStep business={business} onSelect={(m) => { setMode(m); setStep('experience'); }} />
+          <WelcomeStep
+            business={business}
+            onSelect={(m) => {
+              setMode(m);
+              setStep('experience');
+            }}
+          />
         )}
         {step === 'experience' && (
           <ExperienceStep
-            key={mode}
+            businessName={business.name}
             category={business.category}
             mode={mode}
             initialText={experience}
@@ -160,13 +267,17 @@ export default function CustomerReviewPage() {
         )}
         {step === 'review' && (
           <ReviewPreviewStep
+            key={`draft-${attempt}-${loading ? 'loading' : 'ready'}`}
+            business={business}
             review={review}
             loading={loading}
+            slowResponse={slowResponse}
+            isStreamingLive={isStreamingLive}
             error={error}
             onChange={setReview}
             onRegenerate={() => void generate(experience, attempt + 1, business)}
-            onBack={() => setStep('experience')}
-            onContinue={() => setStep('google')}
+            onBack={handleBackToExperience}
+            onGoogleRedirect={handleGoogleRedirect}
           />
         )}
         {step === 'google' && (

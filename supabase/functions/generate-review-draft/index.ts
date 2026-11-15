@@ -19,7 +19,13 @@
 //    Distinguishes positive praise, constructive criticism/mixed feedback,
 //    and factual neutral descriptions (without mislabeling neutral inputs as
 //    positive).
-// 6. Atomic Database Recording: Calls public.record_customer_draft_with_events()
+// 6. Server-Side AI Secret + Optional Real SSE Streaming:
+//    Reads AI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY from
+//    server-side Deno.env secrets only. If configured and stream=true, streams
+//    SSE tokens ('text/event-stream') and records the completed draft. If no
+//    server AI secret is set, falls back to deterministic grammar cleanup and
+//    returns { text, streamed: false, generationSource: 'deterministic_fallback' }.
+// 7. Atomic Database Recording: Calls public.record_customer_draft_with_events()
 //    so customer_drafts insertion and analytics_events insertion execute inside
 //    a single PostgreSQL transaction.
 // ============================================================================
@@ -28,10 +34,6 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const FUNCTION_NAME = 'generate-review-draft';
 
-// CORS: only origins listed in the ALLOWED_ORIGINS secret (comma-separated,
-// exact match, e.g. "https://app.example.com,http://localhost:5173") receive
-// Access-Control-Allow-Origin. Defaults to the local Vite dev server only.
-// CORS limits browsers only; rate limiting remains the real abuse control.
 const ALLOWED_ORIGINS = new Set(
   (Deno.env.get('ALLOWED_ORIGINS') ?? 'http://localhost:5173,http://127.0.0.1:5173')
     .split(',')
@@ -40,14 +42,11 @@ const ALLOWED_ORIGINS = new Set(
 );
 
 const CORS_ALLOWED_HEADERS = {
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, accept',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Max-Age': '86400',
 };
 
-// Opt-in staging diagnostic (LOG_IP_SOURCE=true): logs WHICH source produced
-// the client IP and whether forwarding headers were present — never the
-// IP address or header values.
 const LOG_IP_SOURCE = Deno.env.get('LOG_IP_SOURCE') === 'true';
 
 function withCors(res: Response, req: Request): Response {
@@ -80,10 +79,22 @@ const CRITICISM_PATTERN =
 const POSITIVE_PATTERN =
   /\b(?:great|good|tasty|delicious|fresh|loved|love|excellent|friendly|clean|spotless|polite|courteous|nice|best|recommend|recommended|amazing|wonderful|flavourful|flavorful|comfortable|cozy|quick|fast|prompt|awesome|pleasant|helpful|fantastic|superb|happy|satisfied|welcoming|authentic|generous|affordable|value)\b/i;
 
+const SYSTEM_PROMPT = `You transform a customer's genuine feedback into a natural, readable Google review.
+
+STRICT QUALITY & INTEGRITY RULES:
+1. Correct grammar and improve readability while keeping the customer's natural voice.
+2. Preserve the customer's exact meaning, actual experience, and original sentiment.
+3. Avoid unnecessary exaggeration, flowery marketing language, or robotic AI clichés.
+4. NEVER invent products, dishes, rooms, amenities, or services the customer did not mention.
+5. NEVER turn negative or mixed feedback into positive feedback, and NEVER automatically write a five-star glowing review if the customer expressed criticism.
+6. NEVER add business keywords that the customer did not mention.
+7. Output ONLY the review text itself (no surrounding quotes, titles, or commentary).`;
+
 interface PublicBusinessRow {
   id: string;
   slug: string;
   name: string;
+  category: string;
 }
 
 type BodyParseResult =
@@ -105,7 +116,6 @@ const IPV4_REGEX =
   /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 const IPV6_REGEX = /^[0-9a-f:.]{2,45}$/;
 
-/** Accepts only syntactically valid IPv4 / IPv6 literals (rejects junk header values). */
 function isPlausibleIp(value: string): boolean {
   return IPV4_REGEX.test(value) || (value.includes(':') && IPV6_REGEX.test(value));
 }
@@ -235,6 +245,11 @@ function toSentences(input: string): string[] {
     .replace(/\s+/g, ' ')
     .replace(/\s+([,.!?])/g, '$1')
     .replace(/\bi\b/g, 'I')
+    .replace(/\bim\b/gi, "I'm")
+    .replace(/\bdont\b/gi, "don't")
+    .replace(/\bdidnt\b/gi, "didn't")
+    .replace(/\bwasnt\b/gi, "wasn't")
+    .replace(/\bcant\b/gi, "can't")
     .replace(/\b[A-Z]{4,}\b/g, (w) => w.toLowerCase())
     .replace(/([!?])\1+/g, '$1')
     .trim();
@@ -252,23 +267,14 @@ function toSentences(input: string): string[] {
 function buildReviewDraft(businessName: string, experience: string, attempt: number): string {
   const sentences = toSentences(experience);
   const openers = [
-    `Here is my honest experience at ${businessName}.`,
     '',
-    `A few thoughts on ${businessName}.`,
+    `Sharing my experience at ${businessName}.`,
+    `Visited ${businessName} recently.`,
   ];
   const opener = openers[Math.abs(attempt) % openers.length];
   return [opener, ...sentences].filter(Boolean).join(' ');
 }
 
-/**
- * Classifies customer experience into 'positive', 'neutral', or 'mixed':
- * - Strips negated positive phrases (e.g. "not good", "not clean") first and
- *   counts them as criticism so they do not trigger false positive matches.
- * - If any criticism/negative indicator is present -> 'mixed' (constructive
- *   or critical feedback preserved).
- * - Else if positive praise indicators are present -> 'positive'.
- * - Otherwise -> 'neutral' (factual descriptions without praise or criticism).
- */
 function detectSentiment(text: string): 'positive' | 'neutral' | 'mixed' {
   const hasNegatedPositive = NEGATED_POSITIVE_PATTERN.test(text);
   const textWithoutNegatedPositives = text.replace(
@@ -286,6 +292,42 @@ function detectSentiment(text: string): 'positive' | 'neutral' | 'mixed' {
     return 'positive';
   }
   return 'neutral';
+}
+
+function resolveServerAiConfig(): {
+  endpoint: string;
+  apiKey: string;
+  model: string;
+} | null {
+  const rawKey = (
+    Deno.env.get('AI_API_KEY') ??
+    Deno.env.get('GROQ_API_KEY') ??
+    Deno.env.get('OPENROUTER_API_KEY') ??
+    Deno.env.get('OPENAI_API_KEY') ??
+    ''
+  ).trim();
+
+  if (!rawKey) return null;
+
+  if (rawKey.startsWith('gsk_')) {
+    return {
+      endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+      apiKey: rawKey,
+      model: Deno.env.get('AI_MODEL')?.trim() || 'llama-3.3-70b-versatile',
+    };
+  }
+  if (rawKey.startsWith('sk-or-')) {
+    return {
+      endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+      apiKey: rawKey,
+      model: Deno.env.get('AI_MODEL')?.trim() || 'openai/gpt-4o-mini',
+    };
+  }
+  return {
+    endpoint: 'https://api.openai.com/v1/chat/completions',
+    apiKey: rawKey,
+    model: Deno.env.get('AI_MODEL')?.trim() || 'gpt-4o-mini',
+  };
 }
 
 async function handleRequest(req: Request, info: Deno.ServeHandlerInfo): Promise<Response> {
@@ -348,6 +390,7 @@ async function handleRequest(req: Request, info: Deno.ServeHandlerInfo): Promise
     payload.attempt >= 0
       ? Math.min(payload.attempt, 10)
       : 0;
+  const wantsStream = payload.stream === true;
 
   if (!SLUG_REGEX.test(cleanSlug)) {
     return jsonResponse({ error: 'Invalid business slug' }, 400);
@@ -405,9 +448,120 @@ async function handleRequest(req: Request, info: Deno.ServeHandlerInfo): Promise
     );
   }
 
-  // 5. Synthesize review draft strictly from customer words
-  const generatedReview = buildReviewDraft(business.name, experience, attempt);
   const sentiment = detectSentiment(experience);
+  const aiConfig = resolveServerAiConfig();
+
+  // 5A. If server-side AI secret is configured and client requested SSE streaming
+  if (aiConfig && wantsStream) {
+    const userPrompt = `Business: ${business.name} (${business.category || 'local business'})
+Detected customer sentiment: ${sentiment}
+Variation attempt: ${attempt + 1}
+Customer's actual feedback: "${experience}"
+
+Rewrite this into a clear, natural, human-sounding review that stays 100% faithful to the customer's words and sentiment:`;
+
+    try {
+      const upstreamRes = await fetch(aiConfig.endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${aiConfig.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: aiConfig.model,
+          temperature: 0.65,
+          max_tokens: 350,
+          stream: true,
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: userPrompt },
+          ],
+        }),
+      });
+
+      if (upstreamRes.ok && upstreamRes.body) {
+        const encoder = new TextEncoder();
+        const decoder = new TextDecoder();
+        const upstreamReader = upstreamRes.body.getReader();
+
+        const stream = new ReadableStream({
+          async start(controller) {
+            let buffer = '';
+            let fullText = '';
+
+            try {
+              while (true) {
+                const { done, value } = await upstreamReader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                const lines = buffer.split('\n');
+                buffer = lines.pop() ?? '';
+
+                for (const rawLine of lines) {
+                  const line = rawLine.trim();
+                  if (!line.startsWith('data:')) continue;
+                  const dataPayload = line.slice(5).trim();
+                  if (!dataPayload || dataPayload === '[DONE]') continue;
+
+                  try {
+                    const parsed = JSON.parse(dataPayload) as {
+                      choices?: Array<{ delta?: { content?: string } }>;
+                    };
+                    const delta = parsed.choices?.[0]?.delta?.content ?? '';
+                    if (delta) {
+                      fullText += delta;
+                      controller.enqueue(
+                        encoder.encode(`data: ${JSON.stringify({ token: delta })}\n\n`),
+                      );
+                    }
+                  } catch {
+                    // ignore partial chunk parse errors
+                  }
+                }
+              }
+
+              const finalReview =
+                fullText.trim() || buildReviewDraft(business.name, experience, attempt);
+
+              await admin.rpc('record_customer_draft_with_events', {
+                p_business_id: business.id,
+                p_original_input: experience,
+                p_generated_review: finalReview,
+                p_mode: mode,
+                p_sentiment: sentiment,
+                p_attempt: attempt,
+              });
+
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ text: finalReview })}\n\n`),
+              );
+              controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+              controller.close();
+            } catch {
+              controller.error(new Error('Stream interrupted'));
+            } finally {
+              upstreamReader.releaseLock();
+            }
+          },
+        });
+
+        return new Response(stream, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+          },
+        });
+      }
+    } catch {
+      // Fall through cleanly to deterministic server draft below if upstream LLM is unreachable
+    }
+  }
+
+  // 5B. Deterministic server-side review draft synthesis strictly from customer words
+  const generatedReview = buildReviewDraft(business.name, experience, attempt);
 
   // 6. Atomically record customer_drafts + analytics_events in one DB transaction
   const { error: recordErr } = await admin.rpc(
@@ -426,11 +580,16 @@ async function handleRequest(req: Request, info: Deno.ServeHandlerInfo): Promise
     return jsonResponse({ error: 'Unable to save review draft' }, 500);
   }
 
-  return jsonResponse({ text: generatedReview }, 200);
+  return jsonResponse(
+    {
+      text: generatedReview,
+      streamed: false,
+      generationSource: 'deterministic_fallback',
+    },
+    200,
+  );
 }
 
-// Top-level guard: any unexpected exception returns a generic 500 so stack
-// traces, SQL errors, or internal details never reach the client.
 Deno.serve(async (req: Request, info: Deno.ServeHandlerInfo) => {
   if (LOG_IP_SOURCE && req.method !== 'OPTIONS') {
     logIpSource(req, info);

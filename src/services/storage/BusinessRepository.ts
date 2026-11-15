@@ -4,7 +4,21 @@ import type {
   AnalyticsEventType,
   BusinessMetrics,
   CustomerDraftRecord,
+  ResponseWorkflowStatus,
 } from '../../types/business';
+import type {
+  BusinessAIConfig,
+  BusinessAIConfigInput,
+} from '../../types/aiConfig';
+import type {
+  BusinessKnowledgeInput,
+  BusinessKnowledgeProfile,
+} from '../../types/businessKnowledge';
+
+export interface AIConfigAccessOptions {
+  /** Optional explicit owner ID used to verify tenant isolation. */
+  actorOwnerId?: string;
+}
 
 export interface IBusinessRepository {
   /** Retrieves all registered businesses. */
@@ -42,6 +56,47 @@ export interface IBusinessRepository {
   /** Records a customer review draft generated during the customer flow. */
   recordDraft(draft: Omit<CustomerDraftRecord, 'id' | 'timestamp'>): Promise<CustomerDraftRecord>;
 
-  /** Returns all review drafts for a specific business ID. */
-  getDrafts(businessId: string): Promise<CustomerDraftRecord[]>;
+  /** Returns all review drafts for a specific business ID (respecting the 90-day retention window). */
+  getDrafts(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<CustomerDraftRecord[]>;
+
+  /** Updates the business owner's response draft and workflow status for a specific customer draft record. */
+  updateDraftResponse(
+    businessId: string,
+    draftId: string,
+    update: {
+      responseDraft: string | null;
+      status: ResponseWorkflowStatus;
+      attempt?: number;
+    },
+    options?: AIConfigAccessOptions,
+  ): Promise<CustomerDraftRecord>;
+
+  /** Retrieves the AI Configuration for a specific business ID. */
+  getBusinessAIConfig(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<BusinessAIConfig>;
+
+  /** Validates and saves the AI Configuration for a specific business ID. */
+  updateBusinessAIConfig(
+    businessId: string,
+    input: BusinessAIConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<BusinessAIConfig>;
+
+  /** Retrieves the Business Knowledge & Local SEO profile for a specific business ID. */
+  getBusinessKnowledge(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<BusinessKnowledgeProfile>;
+
+  /** Validates and saves the Business Knowledge & Local SEO profile for a specific business ID. */
+  updateBusinessKnowledge(
+    businessId: string,
+    input: BusinessKnowledgeInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<BusinessKnowledgeProfile>;
 }

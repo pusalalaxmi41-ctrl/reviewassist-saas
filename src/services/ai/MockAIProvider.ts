@@ -1,46 +1,166 @@
-import type { AIProvider, ReviewDraft, ReviewDraftRequest } from './AIProvider';
+import type {
+  AIProvider,
+  BusinessResponseDraft,
+  BusinessResponseRequest,
+  ReviewDraft,
+  ReviewDraftRequest,
+} from './AIProvider';
+import {
+  buildBusinessResponsePrompts,
+  synthesizeDeterministicBusinessResponse,
+} from './businessResponseGenerator';
 
 const FILLERS = /\b(?:um+|uh+|erm+|hmm+)\b,?\s*/gi;
+
+const COMMON_GRAMMAR_FIXES: Array<[RegExp, string]> = [
+  [/\bi\b/g, 'I'],
+  [/\bim\b/gi, "I'm"],
+  [/\bdont\b/gi, "don't"],
+  [/\bdidnt\b/gi, "didn't"],
+  [/\bwasnt\b/gi, "wasn't"],
+  [/\bwerent\b/gi, "weren't"],
+  [/\bcant\b/gi, "can't"],
+  [/\bwont\b/gi, "won't"],
+  [/\bit['’]?s\s+was\b/gi, 'it was'],
+  [/\bfood\s+were\b/gi, 'food was'],
+  [/\bstaff\s+was\s+very\s+polite\s+and\s+staff\b/gi, 'staff were very polite and'],
+  [/\brecomend\b/gi, 'recommend'],
+  [/\bambianc[e]?\b/gi, 'ambience'],
+  [/\bawsome\b/gi, 'awesome'],
+  [/\bexcellant\b/gi, 'excellent'],
+];
 
 /**
  * Local, deterministic placeholder for a real AI provider.
  *
- * It only tidies the customer's own words (spacing, capitalisation,
- * punctuation, filler words, shouting) and adds a neutral opening line.
- * It never adds facts, never removes sentences, so criticism is preserved.
+ * It only tidies the customer's own words (grammar, spacing, capitalisation,
+ * punctuation, filler words, shouting) and formats a natural, readable review
+ * that strictly preserves the customer's actual experience and original sentiment.
+ * It never invents products/services or turns negative feedback into praise.
  */
 export class MockAIProvider implements AIProvider {
   private readonly latencyMs: number;
 
-  constructor(latencyMs = 700) {
+  constructor(latencyMs = 550) {
     this.latencyMs = latencyMs;
   }
 
-  async generateReviewDraft({ business, experience, attempt = 0 }: ReviewDraftRequest): Promise<ReviewDraft> {
-    if (!experience.trim()) throw new Error('Experience text is required.');
-    await new Promise((r) => setTimeout(r, this.latencyMs));
+  async generateReviewDraft({
+    business,
+    experience,
+    attempt = 0,
+    signal,
+  }: ReviewDraftRequest): Promise<ReviewDraft> {
+    const trimmed = experience.trim();
+    if (!trimmed) {
+      throw new Error('Please share a few details about your experience first.');
+    }
 
-    const sentences = toSentences(experience);
+    await new Promise<void>((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new DOMException('Generation cancelled', 'AbortError'));
+        return;
+      }
+      const timer = setTimeout(resolve, this.latencyMs);
+      signal?.addEventListener(
+        'abort',
+        () => {
+          clearTimeout(timer);
+          reject(new DOMException('Generation cancelled', 'AbortError'));
+        },
+        { once: true },
+      );
+    });
+
+    const sentences = toSentences(trimmed);
     const openers = [
-      `Here is my honest experience at ${business.name}.`,
       '',
-      `A few thoughts on ${business.name}.`,
+      `Sharing my experience at ${business.name}.`,
+      `Visited ${business.name} recently.`,
     ];
-    const opener = openers[attempt % openers.length];
-    return { text: [opener, ...sentences].filter(Boolean).join(' ') };
+    const opener = openers[Math.abs(attempt) % openers.length];
+
+    return {
+      text: [opener, ...sentences].filter(Boolean).join(' '),
+      streamed: false,
+      generationSource: 'mock',
+    };
+  }
+
+  async generateBusinessResponse(
+    request: BusinessResponseRequest,
+  ): Promise<BusinessResponseDraft> {
+    const trimmedReview = request.customerReviewText.trim();
+    if (!trimmedReview) {
+      throw new Error('Customer review text is required to generate a business response.');
+    }
+
+    const sentiment = request.sentiment ?? 'positive';
+    const {
+      systemPrompt,
+      userPrompt,
+      validatedConfig,
+      selectedKnowledge,
+    } = buildBusinessResponsePrompts({
+      business: request.business,
+      customerReviewText: trimmedReview,
+      sentiment,
+      attempt: request.attempt,
+      aiConfig: request.aiConfig,
+      businessKnowledge: request.businessKnowledge,
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      if (request.signal?.aborted) {
+        reject(new DOMException('Generation cancelled', 'AbortError'));
+        return;
+      }
+      const timer = setTimeout(resolve, Math.min(this.latencyMs, 350));
+      request.signal?.addEventListener(
+        'abort',
+        () => {
+          clearTimeout(timer);
+          reject(new DOMException('Generation cancelled', 'AbortError'));
+        },
+        { once: true },
+      );
+    });
+
+    const text = synthesizeDeterministicBusinessResponse({
+      business: request.business,
+      customerReviewText: trimmedReview,
+      sentiment,
+      attempt: request.attempt,
+      aiConfig: validatedConfig,
+      selectedKnowledge,
+    });
+
+    return {
+      text,
+      appliedConfig: validatedConfig,
+      selectedKnowledge,
+      generationSource: 'mock',
+      promptMetadata: {
+        systemPrompt,
+        userPrompt,
+      },
+    };
   }
 }
 
 export function toSentences(input: string): string[] {
-  const cleaned = input
+  let cleaned = input
     .replace(FILLERS, '')
     .replace(/\s+/g, ' ')
     .replace(/\s+([,.!?])/g, '$1')
-    .replace(/\bi\b/g, 'I')
     // Tone down shouting: ALL-CAPS words of 4+ letters become lowercase.
     .replace(/\b[A-Z]{4,}\b/g, (w) => w.toLowerCase())
     .replace(/([!?])\1+/g, '$1')
     .trim();
+
+  for (const [pattern, replacement] of COMMON_GRAMMAR_FIXES) {
+    cleaned = cleaned.replace(pattern, replacement);
+  }
 
   return cleaned
     .split(/(?<=[.!?])\s+/)

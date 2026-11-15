@@ -1,7 +1,12 @@
 export type BusinessCategory = 'restaurant' | 'cafe' | 'hotel' | 'pg';
 
+export type BusinessStatus = 'pending' | 'active' | 'rejected' | 'suspended';
+
+export type AccountLifecycleState = 'active' | 'disabled' | 'pending_deletion';
+
 export interface Business {
   id: string;
+  ownerId?: string;
   slug: string;
   name: string;
   category: BusinessCategory;
@@ -9,6 +14,15 @@ export interface Business {
   googleReviewUrl: string;
   /** True while the business has not configured its real Google review link. */
   googleReviewUrlIsPlaceholder?: boolean;
+  /** Platform approval status. Defaults to 'pending' on new signups. */
+  status?: BusinessStatus;
+  statusChangedAt?: string;
+  statusReason?: string | null;
+  /** Account lifecycle state managed by platform admins. */
+  accountState?: AccountLifecycleState;
+  deletionRequestedAt?: string | null;
+  deletionScheduledFor?: string | null;
+  deletedReason?: string | null;
   createdAt: string;
 }
 
@@ -16,7 +30,27 @@ export type ExperienceInputMode = 'text' | 'voice';
 
 export type ReviewFlowStep = 'welcome' | 'experience' | 'review' | 'google';
 
-export type ReviewSentiment = 'positive' | 'neutral' | 'mixed';
+/**
+ * Estimated sentiment classification of customer feedback.
+ * Important: This is an automated lexical estimate, NOT a verified star rating.
+ */
+export type ReviewSentiment = 'positive' | 'neutral' | 'negative' | 'mixed';
+
+/**
+ * Distinct workflow states for a business owner's response to customer feedback:
+ * 1. 'pending' — No owner response draft has been generated yet.
+ * 2. 'draft_generated' — An AI response draft has been generated or edited.
+ * 3. 'approved' — The business owner explicitly approved the response text.
+ * 4. 'completed' — The business owner explicitly confirmed they completed the external response action.
+ */
+export type ResponseWorkflowStatus =
+  | 'pending'
+  | 'draft_generated'
+  | 'approved'
+  | 'completed';
+
+/** Approved customer draft retention window (90 days, matching migration 002). */
+export const CUSTOMER_DRAFT_RETENTION_DAYS = 90;
 
 export type AnalyticsEventType =
   | 'qr_scan'
@@ -47,4 +81,14 @@ export interface CustomerDraftRecord {
   mode: ExperienceInputMode;
   sentiment: ReviewSentiment;
   timestamp: string;
+  /** Optional business-owner response draft generated/edited for this feedback. */
+  ownerResponseDraft?: string | null;
+  /** Distinct response workflow status (defaults to 'pending'). */
+  responseStatus?: ResponseWorkflowStatus;
+  /** Number of generation/regeneration attempts for the owner response draft. */
+  responseAttempt?: number;
+  responseGeneratedAt?: string | null;
+  responseApprovedAt?: string | null;
+  responseCompletedAt?: string | null;
+  responseUpdatedAt?: string | null;
 }

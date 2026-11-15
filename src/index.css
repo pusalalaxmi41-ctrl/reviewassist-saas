@@ -1,15 +1,68 @@
 @import "tailwindcss";
 
+:root {
+  color-scheme: light;
+  /* ReviewAssist v1.0 Core Brand Colours */
+  --ra-forest: #244B40;
+  --ra-forest-hover: #1C3B32;
+  --ra-sage: #A8BFA5;
+  --ra-sage-tint: #EEF3EC;
+  --ra-yellow: #E4BD63;
+  --ra-yellow-tint: #FAF3DF;
+  --ra-bg: #F7F7F2;
+  --ra-charcoal: #252B29;
+
+  /* Supporting Interface Colours */
+  --ra-white: #FFFFFF;
+  --ra-border: #DDE4DC;
+  --ra-border-strong: #87928A;
+  --ra-text-secondary: #626B65;
+  --ra-disabled-bg: #E8EBE7;
+  --ra-disabled-text: #747B76;
+}
+
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --animate-fade-in: fade-in 200ms ease-out;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --color-ra-forest: #244B40;
+  --color-ra-forest-hover: #1C3B32;
+  --color-ra-sage: #A8BFA5;
+  --color-ra-sage-tint: #EEF3EC;
+  --color-ra-yellow: #E4BD63;
+  --color-ra-yellow-tint: #FAF3DF;
+  --color-ra-bg: #F7F7F2;
+  --color-ra-charcoal: #252B29;
+  --color-ra-white: #FFFFFF;
+  --color-ra-border: #DDE4DC;
+  --color-ra-border-strong: #87928A;
+  --color-ra-secondary: #626B65;
+  --color-ra-disabled-bg: #E8EBE7;
+  --color-ra-disabled-text: #747B76;
+
+  --animate-fade-in: fade-in 180ms ease-out;
 
   @keyframes fade-in {
-    from { opacity: 0; transform: translateY(4px); }
+    from { opacity: 0; transform: translateY(3px); }
     to { opacity: 1; transform: none; }
   }
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  font-family: var(--font-sans);
+  background-color: var(--ra-bg);
+  color: var(--ra-charcoal);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import {
   Building2,
   CheckCircle2,
+  Clock,
   ExternalLink,
   Sparkles,
   ArrowRight,
@@ -149,9 +150,9 @@ export default function BusinessSetupPage() {
     }
   }
 
-  // Draw QR code on canvas when business is created
+  // Draw QR code on canvas when business is created and active
   useEffect(() => {
-    if (createdBusiness && canvasRef.current) {
+    if (createdBusiness && createdBusiness.status === 'active' && canvasRef.current) {
       const qrUrl = getCustomerReviewUrl(createdBusiness.slug, 'qr');
       void QRCode.toCanvas(canvasRef.current, qrUrl, {
         width: 240,
@@ -184,42 +185,108 @@ export default function BusinessSetupPage() {
 
   const host = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173';
 
-  // Step 3: Success Confirmation & Immediate Action Center
+  // Step 3: Awaiting Approval OR Live Confirmation
   if (createdBusiness) {
+    const isApproved =
+      createdBusiness.status === 'active' &&
+      createdBusiness.accountState === 'active';
     const directReviewUrl = getCustomerReviewUrl(createdBusiness.slug, 'direct');
     const whatsAppLink = getWhatsAppShareLink(createdBusiness);
 
+    if (!isApproved) {
+      return (
+        <div className="mx-auto max-w-xl space-y-6 text-center">
+          <div className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-8 shadow-2xs space-y-6">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#FAF3DF] text-[#252B29] border border-[#E4BD63]">
+              <Clock className="h-7 w-7 text-[#244B40]" aria-hidden />
+            </div>
+
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-2 rounded-full bg-[#FAF3DF] border border-[#E4BD63] px-3 py-1 text-[13px] font-medium text-[#252B29]">
+                <Clock className="h-3.5 w-3.5 text-[#252B29]" aria-hidden />
+                Awaiting Approval
+              </div>
+              <h1 className="text-[24px] font-bold tracking-tight text-[#252B29] sm:text-[28px]">
+                {createdBusiness.name} Submitted for Review
+              </h1>
+              <p className="text-[15px] text-[#626B65] max-w-md mx-auto leading-relaxed">
+                Your business details have been saved with status{' '}
+                <code className="rounded bg-[#F7F7F2] px-1.5 py-0.5 font-mono text-[13px] text-[#252B29]">
+                  pending
+                </code>
+                . Your customer QR code and review page (
+                <code className="font-mono text-[13px] text-[#252B29]">
+                  /r/{createdBusiness.slug}
+                </code>
+                ) are <strong>not live yet</strong> and will unlock as soon as a
+                platform administrator approves your account.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-[#DDE4DC] bg-[#F7F7F2] p-4 text-left text-[13px] text-[#626B65] space-y-1.5">
+              <p className="font-semibold text-[#252B29]">What happens next?</p>
+              <ul className="list-disc pl-4 space-y-1">
+                <li>
+                  Our platform team reviews your business details and Google
+                  Review destination URL.
+                </li>
+                <li>
+                  While pending, public visitors to{' '}
+                  <code className="font-mono">/r/{createdBusiness.slug}</code>{' '}
+                  cannot access or generate reviews.
+                </li>
+                <li>
+                  Once approved, your QR code and WhatsApp sharing tools become
+                  active in your dashboard.
+                </li>
+              </ul>
+            </div>
+
+            <div className="pt-2">
+              <Button
+                variant="primary"
+                className="w-full"
+                onClick={() => navigate(`/dashboard?slug=${createdBusiness.slug}`)}
+              >
+                Go to Business Dashboard
+              </Button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="mx-auto max-w-xl space-y-6 text-center">
-        <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm space-y-6">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
-            <CheckCircle2 className="h-8 w-8" />
+        <div className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-8 shadow-2xs space-y-6">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-[#A8BFA5] bg-[#EEF3EC] text-[#244B40]">
+            <CheckCircle2 className="h-8 w-8" aria-hidden />
           </div>
 
           <div>
-            <span className="rounded-md bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700 uppercase">
+            <span className="rounded-md border border-[#DDE4DC] bg-[#F7F7F2] px-2.5 py-0.5 text-[12px] font-semibold text-[#252B29] uppercase">
               {categoryLabels[createdBusiness.category]} · {createdBusiness.city}
             </span>
-            <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+            <h1 className="mt-2 text-[24px] font-bold tracking-tight text-[#252B29] sm:text-[28px]">
               {createdBusiness.name} is Registered!
             </h1>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-[15px] text-[#626B65]">
               Your customer review flow, unique QR code, and WhatsApp links are ready to use.
             </p>
           </div>
 
           {/* QR Canvas Card */}
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 inline-flex flex-col items-center">
-            <canvas ref={canvasRef} className="h-44 w-44 rounded-lg shadow-sm bg-white p-2" />
-            <p className="mt-2 font-mono text-xs text-indigo-700 font-semibold break-all">
+          <div className="rounded-xl border border-[#DDE4DC] bg-[#F7F7F2] p-5 inline-flex flex-col items-center">
+            <canvas ref={canvasRef} className="h-44 w-44 rounded-lg shadow-2xs bg-[#FFFFFF] p-2" />
+            <p className="mt-2 font-mono text-[13px] text-[#244B40] font-semibold break-all">
               {directReviewUrl}
             </p>
             <div className="mt-3 flex gap-2">
               <Button variant="secondary" onClick={handleDownloadPng}>
-                <Download className="h-4 w-4" /> Download QR (PNG)
+                <Download className="h-4 w-4" aria-hidden /> Download QR (PNG)
               </Button>
               <Button variant="secondary" onClick={handleCopyCustomerUrl}>
-                {copiedLink ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                {copiedLink ? <Check className="h-4 w-4 text-[#244B40]" aria-hidden /> : <Copy className="h-4 w-4" aria-hidden />}
                 {copiedLink ? 'Copied' : 'Copy link'}
               </Button>
             </div>
@@ -231,9 +298,9 @@ export default function BusinessSetupPage() {
               href={whatsAppLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="w-full inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700"
+              className="w-full inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#244B40] px-4 py-2.5 text-[14px] font-medium text-[#FFFFFF] hover:bg-[#1C3B32] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#244B40] focus-visible:ring-offset-2"
             >
-              <Share2 className="h-4 w-4" /> Share with Customers via WhatsApp
+              <Share2 className="h-4 w-4" aria-hidden /> Share with Customers via WhatsApp
             </a>
 
             <div className="grid gap-3 sm:grid-cols-2">
@@ -241,9 +308,9 @@ export default function BusinessSetupPage() {
                 href={directReviewUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#87928A] bg-[#FFFFFF] px-4 py-2.5 text-[14px] font-medium text-[#252B29] hover:border-[#244B40] hover:bg-[#F7F7F2] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#244B40] focus-visible:ring-offset-2"
               >
-                <ExternalLink className="h-4 w-4" /> Test Customer Flow
+                <ExternalLink className="h-4 w-4" aria-hidden /> Test Customer Flow
               </a>
               <Button
                 variant="primary"
@@ -261,36 +328,36 @@ export default function BusinessSetupPage() {
   return (
     <div className="mx-auto max-w-xl space-y-6">
       <div className="text-center">
-        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 mb-2">
-          <Building2 className="h-5 w-5" />
+        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl border border-[#A8BFA5] bg-[#EEF3EC] text-[#244B40] mb-2">
+          <Building2 className="h-5 w-5" aria-hidden />
         </div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+        <h1 className="text-[24px] font-bold tracking-tight text-[#252B29] sm:text-[28px]">
           Register Your Business
         </h1>
-        <p className="mt-1 text-sm text-slate-600">
+        <p className="mt-1 text-[15px] text-[#626B65]">
           Set up your local business, generate a unique customer QR code, and start capturing authentic Google reviews.
         </p>
       </div>
 
       {/* Progress Indicator */}
-      <div className="flex items-center justify-center gap-2 text-xs font-medium text-slate-500">
+      <div className="flex items-center justify-center gap-2 text-[13px] font-medium text-[#626B65]">
         <span
           className={`flex h-6 w-6 items-center justify-center rounded-full ${
-            step === 1 ? 'bg-indigo-600 text-white font-bold' : 'bg-emerald-600 text-white'
+            step === 1 ? 'bg-[#244B40] text-[#FFFFFF] font-bold' : 'bg-[#244B40] text-[#FFFFFF]'
           }`}
         >
           {step > 1 ? '✓' : '1'}
         </span>
-        <span className={step === 1 ? 'text-slate-900 font-semibold' : ''}>Business Details</span>
-        <span className="text-slate-300">———</span>
+        <span className={step === 1 ? 'text-[#252B29] font-semibold' : 'text-[#252B29]'}>Business Details</span>
+        <span className="text-[#DDE4DC]">———</span>
         <span
           className={`flex h-6 w-6 items-center justify-center rounded-full ${
-            step === 2 ? 'bg-indigo-600 text-white font-bold' : 'bg-slate-200 text-slate-600'
+            step === 2 ? 'bg-[#244B40] text-[#FFFFFF] font-bold' : 'bg-[#E8EBE7] text-[#626B65]'
           }`}
         >
           2
         </span>
-        <span className={step === 2 ? 'text-slate-900 font-semibold' : ''}>Google Review Destination</span>
+        <span className={step === 2 ? 'text-[#252B29] font-semibold' : ''}>Google Review Destination</span>
       </div>
 
       {error && (
@@ -304,7 +371,7 @@ export default function BusinessSetupPage() {
         <form
           onSubmit={handleContinueToReview}
           noValidate
-          className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-sm space-y-5"
+          className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-6 sm:p-8 shadow-2xs space-y-5"
         >
           <TextField
             label="Business Name"
@@ -316,14 +383,14 @@ export default function BusinessSetupPage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <label htmlFor="categorySelect" className="block text-sm font-medium text-slate-700">
+              <label htmlFor="categorySelect" className="block text-[13px] font-medium text-[#252B29] sm:text-[14px]">
                 Business Category
               </label>
               <select
                 id="categorySelect"
                 value={category}
                 onChange={(e) => setCategory(e.target.value as BusinessCategory)}
-                className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                className="block min-h-11 w-full rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-2.5 text-[15px] text-[#252B29] focus:border-[#244B40] focus:outline-none focus:ring-2 focus:ring-[#244B40]/25"
               >
                 <option value="restaurant">Restaurant / Dining</option>
                 <option value="cafe">Cafe / Bakery / Coffee</option>
@@ -343,29 +410,29 @@ export default function BusinessSetupPage() {
 
           {/* URL Slug preview */}
           <div className="space-y-1.5">
-            <label htmlFor="slugInput" className="block text-sm font-medium text-slate-700">
+            <label htmlFor="slugInput" className="block text-[13px] font-medium text-[#252B29] sm:text-[14px]">
               Unique Customer Review Slug
             </label>
-            <div className="flex items-center rounded-lg border border-slate-300 bg-slate-50 px-3 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/30">
-              <span className="text-xs font-mono text-slate-500 shrink-0">/r/</span>
+            <div className="flex min-h-11 items-center rounded-xl border border-[#87928A] bg-[#F7F7F2] px-3.5 focus-within:border-[#244B40] focus-within:ring-2 focus-within:ring-[#244B40]/25">
+              <span className="text-[13px] font-mono text-[#626B65] shrink-0">/r/</span>
               <input
                 id="slugInput"
                 type="text"
                 value={slug}
                 onChange={(e) => handleSlugChange(e.target.value)}
                 placeholder="hyderabad-spice-kitchen"
-                className="w-full bg-transparent py-2.5 pl-1 text-sm font-mono text-slate-900 focus:outline-none"
+                className="w-full bg-transparent py-2.5 pl-1 text-[14px] font-mono text-[#252B29] focus:outline-none"
                 required
               />
             </div>
-            <p className="text-xs text-slate-500">
-              Live URL will be: <span className="font-mono text-indigo-700">{host}/r/{slug || 'your-slug'}</span>
+            <p className="text-[13px] text-[#626B65]">
+              Live URL will be: <span className="font-mono text-[#244B40] font-medium">{host}/r/{slug || 'your-slug'}</span>
             </p>
           </div>
 
           <div className="pt-2">
             <Button type="submit" className="w-full">
-              Continue to Step 2 <ArrowRight className="h-4 w-4" />
+              Continue to Step 2 <ArrowRight className="h-4 w-4" aria-hidden />
             </Button>
           </div>
         </form>
@@ -376,27 +443,27 @@ export default function BusinessSetupPage() {
         <form
           onSubmit={handleFinishSetup}
           noValidate
-          className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-sm space-y-5"
+          className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-6 sm:p-8 shadow-2xs space-y-5"
         >
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Configure Google Review Target</h2>
-            <p className="mt-1 text-xs text-slate-600">
+            <h2 className="text-[20px] font-semibold text-[#252B29]">Configure Google Review Target</h2>
+            <p className="mt-1 text-[13px] text-[#626B65]">
               When guests complete their review draft, they are redirected to this URL with their review copied to their clipboard.
             </p>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+          <div className="rounded-xl border border-[#DDE4DC] bg-[#F7F7F2] p-4 space-y-3">
             <div className="flex items-start gap-2.5">
               <input
                 type="checkbox"
                 id="placeholderCheckbox"
                 checked={usePlaceholder}
                 onChange={(e) => setUsePlaceholder(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                className="mt-0.5 h-4 w-4 rounded border-[#87928A] text-[#244B40] focus:ring-[#244B40]"
               />
-              <label htmlFor="placeholderCheckbox" className="text-xs text-slate-700 leading-normal">
+              <label htmlFor="placeholderCheckbox" className="text-[13px] text-[#252B29] leading-normal">
                 <strong>Start in Testing / Preview Mode</strong>
-                <span className="block text-slate-500 mt-0.5">
+                <span className="block text-[#626B65] mt-0.5">
                   Check this if you do not have your official Google Business shortlink yet. You can test the end-to-end flow and update the link anytime in your dashboard.
                 </span>
               </label>
@@ -414,12 +481,12 @@ export default function BusinessSetupPage() {
                 required={!usePlaceholder}
               />
 
-              <div className="rounded-lg bg-indigo-50/50 p-3.5 border border-indigo-100 text-xs text-slate-700 space-y-1.5">
-                <p className="font-semibold text-indigo-950 flex items-center gap-1">
-                  <HelpCircle className="h-3.5 w-3.5 text-indigo-600" /> How to find your Google review link:
+              <div className="rounded-xl bg-[#EEF3EC] p-3.5 border border-[#A8BFA5] text-[13px] text-[#252B29] space-y-1.5">
+                <p className="font-semibold text-[#252B29] flex items-center gap-1.5">
+                  <HelpCircle className="h-4 w-4 text-[#244B40]" aria-hidden /> How to find your Google review link:
                 </p>
-                <p className="text-slate-600 text-[11px] leading-relaxed">
-                  Go to Google Search → Search your business name → Click <strong>"Ask for reviews"</strong> in your Google Business Profile → Copy the short link (e.g. <code>https://g.page/r/.../review</code>).
+                <p className="text-[#626B65] text-[13px] leading-relaxed">
+                  Go to Google Search → Search your business name → Click <strong>&ldquo;Ask for reviews&rdquo;</strong> in your Google Business Profile → Copy the short link (e.g. <code>https://g.page/r/.../review</code>).
                 </p>
               </div>
             </div>
@@ -435,10 +502,10 @@ export default function BusinessSetupPage() {
               }}
               disabled={loading}
             >
-              <ArrowLeft className="h-4 w-4" /> Back
+              <ArrowLeft className="h-4 w-4" aria-hidden /> Back
             </Button>
             <Button type="submit" loading={loading}>
-              Register Business & Generate QR <Sparkles className="h-4 w-4" />
+              Register Business &amp; Generate QR <Sparkles className="h-4 w-4" aria-hidden />
             </Button>
           </div>
         </form>

@@ -55,19 +55,19 @@ export function GoogleUrlSettings({ business, onUpdated }: Props) {
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-4">
+    <div className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-6 shadow-2xs space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#DDE4DC] pb-4">
         <div>
-          <h3 className="text-lg font-bold tracking-tight text-slate-900">
-            Google Review Link & Destination
+          <h3 className="text-[18px] font-semibold tracking-tight text-[#252B29] sm:text-[20px]">
+            Google Review Link &amp; Destination
           </h3>
-          <p className="mt-1 text-xs text-slate-500">
-            Configured target URL when customers click "Continue to Google" on their review draft.
+          <p className="mt-1 text-[13px] text-[#626B65]">
+            Configured target URL when customers click &ldquo;Open Google Review Page&rdquo; on their review draft.
           </p>
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-slate-600 font-mono">
+        <div className="flex items-center gap-1.5 text-[12px] text-[#626B65] font-mono">
           <span>Business ID:</span>
-          <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-800 font-bold">{business.id}</span>
+          <span className="bg-[#F7F7F2] border border-[#DDE4DC] px-2 py-0.5 rounded text-[#252B29] font-bold">{business.id}</span>
         </div>
       </div>
 
@@ -86,9 +86,9 @@ export function GoogleUrlSettings({ business, onUpdated }: Props) {
       {isPlaceholder && (
         <Alert tone="warning">
           <p className="flex items-center gap-1.5 font-medium">
-            <AlertTriangle className="h-4 w-4 shrink-0" /> Running in Preview / Placeholder Mode
+            <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden /> Running in Preview / Placeholder Mode
           </p>
-          <p className="mt-1 text-xs text-amber-800">
+          <p className="mt-1 text-[13px] text-[#252B29]">
             Customers testing this flow are redirected to a placeholder preview page with clear testing banners. Once your Google Business Profile is verified, paste your real shortlink below and uncheck the placeholder mode.
           </p>
         </Alert>
@@ -104,36 +104,36 @@ export function GoogleUrlSettings({ business, onUpdated }: Props) {
           required
         />
 
-        <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 p-3.5">
+        <div className="flex items-start gap-2.5 rounded-xl border border-[#DDE4DC] bg-[#F7F7F2] p-3.5">
           <input
             type="checkbox"
             id="isPlaceholderCheckbox"
             checked={isPlaceholder}
             onChange={(e) => setIsPlaceholder(e.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            className="mt-0.5 h-4 w-4 rounded border-[#87928A] text-[#244B40] focus:ring-[#244B40]"
           />
-          <label htmlFor="isPlaceholderCheckbox" className="text-xs text-slate-700 leading-normal">
+          <label htmlFor="isPlaceholderCheckbox" className="text-[13px] text-[#252B29] leading-normal">
             <strong>Mark this as a temporary preview / testing link</strong>
-            <span className="block text-slate-500 mt-0.5">
+            <span className="block text-[#626B65] mt-0.5">
               Prevents real guests from attempting to post if your Google business listing is not ready.
             </span>
           </label>
         </div>
 
-        <div className="rounded-lg bg-slate-50 p-4 border border-slate-200 text-xs text-slate-600 space-y-2">
-          <p className="font-semibold text-slate-800 flex items-center gap-1.5">
-            <HelpCircle className="h-4 w-4 text-indigo-600" /> How to find your official Google Review link:
+        <div className="rounded-xl bg-[#F7F7F2] p-4 border border-[#DDE4DC] text-[13px] text-[#626B65] space-y-2">
+          <p className="font-semibold text-[#252B29] flex items-center gap-1.5">
+            <HelpCircle className="h-4 w-4 text-[#244B40]" aria-hidden /> How to find your official Google Review link:
           </p>
           <ol className="list-decimal pl-4 space-y-1">
             <li>Search your business name on Google while signed into your manager account.</li>
-            <li>Click <strong>"Ask for reviews"</strong> or <strong>"Get more reviews"</strong> on your Google Business Profile.</li>
+            <li>Click <strong>&ldquo;Ask for reviews&rdquo;</strong> or <strong>&ldquo;Get more reviews&rdquo;</strong> on your Google Business Profile.</li>
             <li>Copy the short link (e.g. <code>https://g.page/r/.../review</code> or <code>https://search.google.com/local/writereview?placeid=...</code>).</li>
             <li>Paste it here and click Save.</li>
           </ol>
         </div>
 
-        <div className="flex items-center gap-2 rounded-lg bg-indigo-50/50 border border-indigo-100 p-3 text-xs text-slate-700">
-          <ShieldCheck className="h-4 w-4 text-indigo-600 shrink-0" />
+        <div className="flex items-center gap-2 rounded-xl bg-[#EEF3EC] border border-[#A8BFA5] p-3.5 text-[13px] text-[#252B29]">
+          <ShieldCheck className="h-4 w-4 text-[#244B40] shrink-0" aria-hidden />
           <span>Customer review text is securely copied to their device clipboard prior to redirection.</span>
         </div>
 
@@ -142,12 +142,12 @@ export function GoogleUrlSettings({ business, onUpdated }: Props) {
             href={googleUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900"
+            className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[#244B40] hover:underline"
           >
-            <ExternalLink className="h-3.5 w-3.5" /> Test opening this Google link
+            <ExternalLink className="h-3.5 w-3.5" aria-hidden /> Test opening this Google link
           </a>
           <Button type="submit" loading={loading}>
-            {saved ? <Check className="h-4 w-4 text-emerald-200" /> : <Save className="h-4 w-4" />}
+            {saved ? <Check className="h-4 w-4" aria-hidden /> : <Save className="h-4 w-4" aria-hidden />}
             {saved ? 'Saved' : 'Save Google URL'}
           </Button>
         </div>

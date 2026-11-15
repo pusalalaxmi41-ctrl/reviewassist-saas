@@ -8,12 +8,21 @@ import AuthPage from './pages/AuthPage';
 import CustomerReviewPage from './pages/CustomerReviewPage';
 import BusinessDashboard from './pages/BusinessDashboard';
 import BusinessSetupPage from './pages/BusinessSetupPage';
+import AdminPanelPage from './pages/admin/AdminPanelPage';
 
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          <Route
+            path="/admin"
+            element={
+              <RequireAuth>
+                <AdminPanelPage />
+              </RequireAuth>
+            }
+          />
           <Route element={<MainLayout />}>
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<AuthPage />} />

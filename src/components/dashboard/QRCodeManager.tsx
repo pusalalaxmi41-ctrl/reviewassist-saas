@@ -1,20 +1,36 @@
-import { useEffect, useRef, useState } from 'react';
-import QRCode from 'qrcode';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import {
   Download,
+  FileText,
   Printer,
   Copy,
   Check,
   ExternalLink,
   MessageCircle,
   QrCode,
-  Sparkles,
+  RotateCcw,
   Share2,
+  Upload,
+  X,
 } from 'lucide-react';
 import type { Business } from '../../types/business';
 import { copyText } from '../../utils/clipboard';
-import { getCustomerReviewUrl, buildWhatsAppMessage, getWhatsAppShareLink } from '../../utils/sharing';
-import { categoryLabels } from '../../services/business/mockBusinesses';
+import {
+  getCustomerReviewUrl,
+  buildWhatsAppMessage,
+  getWhatsAppShareLink,
+} from '../../utils/sharing';
+import {
+  generatePrintablePdfBlobFromCanvas,
+  getDefaultQRDesignSettings,
+  loadBusinessQRSettings,
+  QR_ACCENT_PRESETS,
+  QR_TEMPLATE_DEFAULTS,
+  renderQrPosterToCanvas,
+  saveBusinessQRSettings,
+  type QRDesignSettings,
+  type QRTemplateId,
+} from '../../services/qr/qrGenerator';
 import { Button } from '../common/Button';
 
 interface Props {
@@ -23,6 +39,13 @@ interface Props {
 
 export function QRCodeManager({ business }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const [settings, setSettings] = useState<QRDesignSettings>(() =>
+    loadBusinessQRSettings(business),
+  );
+  const [logoError, setLogoError] = useState<string | null>(null);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
+
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedMsg, setCopiedMsg] = useState(false);
   const [customPhone, setCustomPhone] = useState('');
@@ -32,28 +55,87 @@ export function QRCodeManager({ business }: Props) {
   const whatsAppMsg = buildWhatsAppMessage(business);
   const whatsAppLink = getWhatsAppShareLink(business, customPhone);
 
+  // Persist per-business settings & re-render high-resolution live preview canvas
   useEffect(() => {
+    saveBusinessQRSettings(business.id, settings);
     if (canvasRef.current) {
-      void QRCode.toCanvas(canvasRef.current, qrUrl, {
-        width: 320,
-        margin: 2,
-        color: {
-          dark: '#0f172a',
-          light: '#ffffff',
-        },
-      });
+      void renderQrPosterToCanvas(canvasRef.current, business, settings);
     }
-  }, [qrUrl]);
+  }, [business, settings]);
 
-  function handleDownloadPng() {
+  function handleTemplateChange(nextTemplate: QRTemplateId) {
+    const prevDefaults = QR_TEMPLATE_DEFAULTS[settings.template];
+    const nextDefaults = QR_TEMPLATE_DEFAULTS[nextTemplate];
+
+    setSettings((prev) => ({
+      ...prev,
+      template: nextTemplate,
+      heading:
+        prev.heading === prevDefaults.defaultHeading
+          ? nextDefaults.defaultHeading
+          : prev.heading,
+      instruction:
+        prev.instruction === prevDefaults.defaultInstruction
+          ? nextDefaults.defaultInstruction
+          : prev.instruction,
+    }));
+  }
+
+  function handleLogoUpload(e: ChangeEvent<HTMLInputElement>) {
+    setLogoError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setLogoError('Please select a valid image file (PNG, JPG, SVG, or WebP).');
+      return;
+    }
+
+    if (file.size > 1.5 * 1024 * 1024) {
+      setLogoError('Please choose an image smaller than 1.5 MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setSettings((prev) => ({ ...prev, logoDataUrl: reader.result as string }));
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleResetDefaults() {
+    setLogoError(null);
+    setSettings(getDefaultQRDesignSettings(business));
+  }
+
+  async function handleDownloadPng() {
     if (!canvasRef.current) return;
+    await renderQrPosterToCanvas(canvasRef.current, business, settings);
     const pngUrl = canvasRef.current.toDataURL('image/png');
     const link = document.createElement('a');
-    link.download = `${business.slug}-review-qr.png`;
+    link.download = `${business.slug}-${settings.template}-qr.png`;
     link.href = pngUrl;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    setExportMessage(`Downloaded high-resolution PNG (${business.slug}-${settings.template}-qr.png).`);
+  }
+
+  async function handleDownloadPdf() {
+    if (!canvasRef.current) return;
+    await renderQrPosterToCanvas(canvasRef.current, business, settings);
+    const pdfBlob = generatePrintablePdfBlobFromCanvas(canvasRef.current);
+    const blobUrl = URL.createObjectURL(pdfBlob);
+    const link = document.createElement('a');
+    link.download = `${business.slug}-${settings.template}-qr.pdf`;
+    link.href = blobUrl;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+    setExportMessage(`Downloaded printable A5 PDF (${business.slug}-${settings.template}-qr.pdf).`);
   }
 
   async function handleCopyLink() {
@@ -79,120 +161,333 @@ export function QRCodeManager({ business }: Props) {
   return (
     <div className="space-y-8">
       {/* Action / Share Bar */}
-      <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 sm:flex-row sm:items-center sm:justify-between shadow-sm">
+      <div className="flex flex-col gap-4 rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-5 sm:flex-row sm:items-center sm:justify-between shadow-2xs">
         <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Customer Direct Link</p>
-          <p className="break-all font-mono text-sm text-indigo-700">{directUrl}</p>
+          <p className="text-[12px] font-semibold uppercase tracking-wider text-[#626B65]">
+            Business-Specific Customer Review URL (Encoded in QR)
+          </p>
+          <p className="break-all font-mono text-[14px] font-medium text-[#244B40]">{qrUrl}</p>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
-          <Button variant="secondary" onClick={handleCopyLink}>
-            {copiedLink ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+          <Button variant="secondary" onClick={() => void handleCopyLink()}>
+            {copiedLink ? (
+              <Check className="h-4 w-4 text-[#244B40]" aria-hidden />
+            ) : (
+              <Copy className="h-4 w-4" aria-hidden />
+            )}
             {copiedLink ? 'Copied' : 'Copy link'}
           </Button>
           <a
             href={directUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#87928A] bg-[#FFFFFF] px-4 py-2.5 text-[14px] font-medium text-[#252B29] hover:border-[#244B40] hover:bg-[#F7F7F2] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#244B40]"
           >
-            <ExternalLink className="h-4 w-4" /> Test link
+            <ExternalLink className="h-4 w-4" aria-hidden /> Test link
           </a>
         </div>
       </div>
 
+      {/* Two-Column Desktop Layout: LEFT = QR Settings & Downloads, RIGHT = Live QR Preview */}
       <div className="grid gap-6 lg:grid-cols-12">
-        {/* QR Code & Standee Preview */}
-        <div className="lg:col-span-7 space-y-6">
-          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+        {/* LEFT COLUMN: QR Design Settings, Branding, and Download Options */}
+        <div className="lg:col-span-6 space-y-6">
+          <div className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-6 shadow-2xs space-y-5">
+            <div className="flex items-center justify-between border-b border-[#DDE4DC] pb-4">
               <div>
-                <h3 className="text-lg font-bold tracking-tight text-slate-900 flex items-center gap-2">
-                  <QrCode className="h-5 w-5 text-indigo-600" /> Unique QR Code & Standee
+                <h3 className="text-[18px] font-semibold tracking-tight text-[#252B29] flex items-center gap-2">
+                  <QrCode className="h-5 w-5 text-[#244B40]" aria-hidden /> QR Design &amp; Branding Settings
                 </h3>
-                <p className="text-xs text-slate-500">
-                  Embeds URL: <span className="font-mono text-slate-700">{qrUrl}</span>
+                <p className="text-[13px] text-[#626B65] mt-0.5">
+                  Customize your printable QR card for <strong className="text-[#252B29]">{business.name}</strong>.
                 </p>
               </div>
-              <div className="flex gap-2">
-                <Button variant="secondary" onClick={handleDownloadPng} title="Download PNG">
-                  <Download className="h-4 w-4" /> Download PNG
-                </Button>
-                <Button variant="primary" onClick={handlePrint} title="Print Table Standee">
-                  <Printer className="h-4 w-4" /> Print Standee
-                </Button>
+              <button
+                type="button"
+                onClick={handleResetDefaults}
+                className="inline-flex items-center gap-1 rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3 py-1.5 text-[13px] font-medium text-[#252B29] hover:border-[#244B40] hover:bg-[#F7F7F2] cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#244B40]"
+                title="Reset to template defaults"
+              >
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden /> Reset
+              </button>
+            </div>
+
+            {/* 1. Template Selection */}
+            <div className="space-y-2">
+              <label className="block text-[12px] font-semibold uppercase tracking-wider text-[#626B65]">
+                1. Select Template
+              </label>
+              <div className="grid gap-2.5">
+                {(
+                  ['minimal_google', 'business_branded', 'table_standee'] as QRTemplateId[]
+                ).map((tplId) => {
+                  const tpl = QR_TEMPLATE_DEFAULTS[tplId];
+                  const isSelected = settings.template === tplId;
+                  return (
+                    <button
+                      key={tplId}
+                      type="button"
+                      onClick={() => handleTemplateChange(tplId)}
+                      aria-pressed={isSelected}
+                      className={`w-full rounded-xl border p-3.5 text-left transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#244B40] ${
+                        isSelected
+                          ? 'border-[#244B40] bg-[#EEF3EC]/70 ring-1 ring-[#244B40]'
+                          : 'border-[#DDE4DC] bg-[#FFFFFF] hover:border-[#244B40] hover:bg-[#F7F7F2]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[15px] font-semibold text-[#252B29]">
+                          {tpl.name}
+                        </span>
+                        {isSelected && (
+                          <span className="rounded-full bg-[#244B40] px-2.5 py-0.5 text-[11px] font-semibold text-[#FFFFFF]">
+                            Selected
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 text-[13px] text-[#626B65]">
+                        {tpl.description}
+                      </p>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Standee Preview Card (print target) */}
-            <div className="flex justify-center p-4 bg-slate-50 rounded-xl border border-slate-100">
-              <div
-                id="printable-standee"
-                className="w-full max-w-sm rounded-2xl border-2 border-slate-900 bg-white p-6 shadow-md text-center flex flex-col items-center print:border-none print:shadow-none print:max-w-none"
-              >
-                <div className="flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-0.5 text-[11px] font-semibold text-slate-700 uppercase tracking-wide">
-                  {categoryLabels[business.category]} · {business.city}
-                </div>
+            {/* 2. Text & Branding Customization */}
+            <div className="space-y-4 border-t border-[#DDE4DC] pt-4">
+              <p className="text-[12px] font-semibold uppercase tracking-wider text-[#626B65]">
+                2. Customize Text &amp; Branding
+              </p>
 
-                <h4 className="mt-2 text-xl font-extrabold tracking-tight text-slate-900">
-                  {business.name}
-                </h4>
-                <p className="mt-1 text-xs text-slate-500">We appreciate your feedback!</p>
-
-                {/* Canvas QR Container */}
-                <div className="my-4 rounded-xl border border-slate-200 bg-white p-3 shadow-inner">
-                  <canvas ref={canvasRef} className="h-48 w-48 mx-auto" />
-                  <p className="mt-1.5 text-[11px] font-semibold tracking-wider text-slate-700 uppercase">
-                    Scan with camera
-                  </p>
-                </div>
-
-                {/* Steps Guide */}
-                <div className="w-full space-y-1.5 rounded-xl bg-slate-50 p-3 text-left border border-slate-100">
-                  <div className="flex items-center gap-2 text-xs font-medium text-slate-800">
-                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white">1</span>
-                    Speak or write your experience
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-medium text-slate-800">
-                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white">2</span>
-                    <span className="flex items-center gap-1">AI assists with clean phrasing <Sparkles className="h-3 w-3 text-amber-500" /></span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-medium text-slate-800">
-                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white">3</span>
-                    Copy & post directly to Google
-                  </div>
-                </div>
-
-                <p className="mt-3 text-[10px] font-medium text-slate-400">
-                  Powered by ReviewAssist · Instant & Private
-                </p>
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="qrBusinessNameInput"
+                  className="block text-[13px] font-medium text-[#252B29]"
+                >
+                  Displayed Business Name
+                </label>
+                <input
+                  id="qrBusinessNameInput"
+                  type="text"
+                  maxLength={60}
+                  value={settings.businessName}
+                  onChange={(e) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      businessName: e.target.value,
+                    }))
+                  }
+                  className="block min-h-11 w-full rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-2 text-[14px] text-[#252B29] focus:border-[#244B40] focus:outline-none focus:ring-2 focus:ring-[#244B40]/20"
+                />
               </div>
+
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="qrHeadingInput"
+                  className="block text-[13px] font-medium text-[#252B29]"
+                >
+                  Call-to-Action Heading
+                </label>
+                <input
+                  id="qrHeadingInput"
+                  type="text"
+                  maxLength={70}
+                  value={settings.heading}
+                  onChange={(e) =>
+                    setSettings((prev) => ({ ...prev, heading: e.target.value }))
+                  }
+                  className="block min-h-11 w-full rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-2 text-[14px] text-[#252B29] focus:border-[#244B40] focus:outline-none focus:ring-2 focus:ring-[#244B40]/20"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="qrInstructionInput"
+                  className="block text-[13px] font-medium text-[#252B29]"
+                >
+                  Supporting Instruction
+                </label>
+                <input
+                  id="qrInstructionInput"
+                  type="text"
+                  maxLength={90}
+                  value={settings.instruction}
+                  onChange={(e) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      instruction: e.target.value,
+                    }))
+                  }
+                  className="block min-h-11 w-full rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-2 text-[14px] text-[#252B29] focus:border-[#244B40] focus:outline-none focus:ring-2 focus:ring-[#244B40]/20"
+                />
+              </div>
+
+              {/* High-Contrast Accent Color Presets */}
+              <div className="space-y-1.5">
+                <label className="block text-[13px] font-medium text-[#252B29]">
+                  Accent Colour (High-Contrast Print Presets)
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {QR_ACCENT_PRESETS.map((preset) => {
+                    const active =
+                      settings.accentColor.toLowerCase() ===
+                      preset.hex.toLowerCase();
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() =>
+                          setSettings((prev) => ({
+                            ...prev,
+                            accentColor: preset.hex,
+                          }))
+                        }
+                        className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-[13px] font-medium transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#244B40] ${
+                          active
+                            ? 'border-[#244B40] bg-[#244B40] text-[#FFFFFF] shadow-2xs'
+                            : 'border-[#87928A] bg-[#FFFFFF] text-[#252B29] hover:bg-[#F7F7F2]'
+                        }`}
+                      >
+                        <span
+                          className="h-3.5 w-3.5 rounded-full border border-white/40"
+                          style={{ backgroundColor: preset.hex }}
+                        />
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Optional Business Logo Upload */}
+              <div className="space-y-1.5">
+                <label className="block text-[13px] font-medium text-[#252B29]">
+                  Business Logo (Optional — placed in header, never covers QR modules)
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-2 text-[13px] font-medium text-[#252B29] hover:border-[#244B40] hover:bg-[#F7F7F2]">
+                    <Upload className="h-3.5 w-3.5 text-[#244B40]" aria-hidden />
+                    <span>{settings.logoDataUrl ? 'Change Logo' : 'Upload Logo'}</span>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      onChange={handleLogoUpload}
+                      className="sr-only"
+                    />
+                  </label>
+                  {settings.logoDataUrl && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSettings((prev) => ({ ...prev, logoDataUrl: null }))
+                      }
+                      className="inline-flex min-h-10 items-center gap-1 rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-[13px] font-medium text-red-800 hover:bg-red-100 cursor-pointer"
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden /> Remove Logo
+                    </button>
+                  )}
+                </div>
+                {logoError && (
+                  <p className="text-[13px] text-red-700" role="alert">{logoError}</p>
+                )}
+              </div>
+            </div>
+
+            {/* 3. Export & Download Options */}
+            <div className="space-y-3 border-t border-[#DDE4DC] pt-4">
+              <p className="text-[12px] font-semibold uppercase tracking-wider text-[#626B65]">
+                3. Download &amp; Print Options
+              </p>
+              <div className="grid gap-2.5 sm:grid-cols-3">
+                <Button
+                  type="button"
+                  variant="primary"
+                  onClick={() => void handleDownloadPng()}
+                >
+                  <Download className="h-4 w-4" aria-hidden /> Download PNG
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void handleDownloadPdf()}
+                >
+                  <FileText className="h-4 w-4" aria-hidden /> Download PDF
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handlePrint}
+                >
+                  <Printer className="h-4 w-4" aria-hidden /> Print Standee
+                </Button>
+              </div>
+              {exportMessage && (
+                <p role="status" className="text-[13px] font-medium text-[#244B40]">
+                  {exportMessage}
+                </p>
+              )}
             </div>
           </div>
         </div>
 
-        {/* WhatsApp Sharing Suite */}
-        <div className="lg:col-span-5 space-y-6">
-          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+        {/* RIGHT COLUMN: Live High-Resolution QR Poster Preview */}
+        <div className="lg:col-span-6 space-y-6">
+          <div className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-6 shadow-2xs space-y-4">
+            <div className="flex items-center justify-between border-b border-[#DDE4DC] pb-3">
+              <div>
+                <h3 className="text-[18px] font-semibold tracking-tight text-[#252B29]">
+                  Live QR Poster Preview
+                </h3>
+                <p className="text-[13px] text-[#626B65]">
+                  Matches PNG (`1200×1700 px`) &amp; A5 PDF output · Quiet zone &amp; contrast verified
+                </p>
+              </div>
+              <span className="rounded-full bg-[#EEF3EC] border border-[#A8BFA5] px-2.5 py-0.5 text-[12px] font-medium text-[#244B40]">
+                Scannable QR
+              </span>
+            </div>
+
+            <div className="flex justify-center rounded-xl border border-[#DDE4DC] bg-[#F7F7F2] p-4 sm:p-6">
+              <div
+                id="printable-standee"
+                className="w-full max-w-[380px] overflow-hidden rounded-xl shadow-md bg-[#FFFFFF]"
+              >
+                <canvas
+                  ref={canvasRef}
+                  aria-label={`QR Code Poster Preview for ${business.name}`}
+                  className="block h-auto w-full"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* WhatsApp Sharing Suite (Preserved from existing dashboard) */}
+          <div className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-6 shadow-2xs space-y-5">
             <div>
-              <h3 className="text-lg font-bold tracking-tight text-slate-900 flex items-center gap-2">
-                <MessageCircle className="h-5 w-5 text-emerald-600" /> WhatsApp Sharing
+              <h3 className="text-[18px] font-semibold tracking-tight text-[#252B29] flex items-center gap-2">
+                <MessageCircle className="h-5 w-5 text-[#244B40]" aria-hidden /> WhatsApp Sharing
               </h3>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-[13px] text-[#626B65] mt-1">
                 Send a pre-formatted feedback request message directly to customers via WhatsApp.
               </p>
             </div>
 
-            {/* Message Preview */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-slate-700">Pre-formatted Message Preview</label>
-              <div className="rounded-lg bg-emerald-50/60 border border-emerald-200 p-3.5 text-xs text-slate-800 font-sans leading-relaxed whitespace-pre-wrap">
+              <label className="block text-[13px] font-medium text-[#252B29]">
+                Pre-formatted Message Preview
+              </label>
+              <div className="rounded-xl bg-[#EEF3EC]/60 border border-[#A8BFA5] p-3.5 text-[13px] text-[#252B29] font-sans leading-relaxed whitespace-pre-wrap">
                 {whatsAppMsg}
               </div>
             </div>
 
-            {/* Custom Customer Phone Input */}
             <div className="space-y-1.5">
-              <label htmlFor="customerPhone" className="block text-xs font-medium text-slate-700">
+              <label
+                htmlFor="customerPhone"
+                className="block text-[13px] font-medium text-[#252B29]"
+              >
                 Customer Phone Number (Optional)
               </label>
               <input
@@ -201,25 +496,30 @@ export function QRCodeManager({ business }: Props) {
                 placeholder="+91 98765 43210"
                 value={customPhone}
                 onChange={(e) => setCustomPhone(e.target.value)}
-                className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                className="block min-h-11 w-full rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-2 text-[14px] text-[#252B29] focus:border-[#244B40] focus:outline-none focus:ring-2 focus:ring-[#244B40]/20"
               />
-              <p className="text-[11px] text-slate-500">
-                Leave empty to open WhatsApp and pick any contact or group.
-              </p>
             </div>
 
-            <div className="space-y-2 pt-2">
+            <div className="space-y-2 pt-1">
               <a
                 href={whatsAppLink}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 transition-colors"
+                className="w-full inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#244B40] px-4 py-2.5 text-[14px] font-medium text-[#FFFFFF] hover:bg-[#1C3B32] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#244B40] focus-visible:ring-offset-2"
               >
-                <Share2 className="h-4 w-4" /> Share via WhatsApp
+                <Share2 className="h-4 w-4" aria-hidden /> Share via WhatsApp
               </a>
 
-              <Button variant="secondary" className="w-full" onClick={handleCopyWhatsAppMessage}>
-                {copiedMsg ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+              <Button
+                variant="secondary"
+                className="w-full"
+                onClick={() => void handleCopyWhatsAppMessage()}
+              >
+                {copiedMsg ? (
+                  <Check className="h-4 w-4 text-[#244B40]" aria-hidden />
+                ) : (
+                  <Copy className="h-4 w-4" aria-hidden />
+                )}
                 {copiedMsg ? 'Message Copied' : 'Copy Message Text'}
               </Button>
             </div>

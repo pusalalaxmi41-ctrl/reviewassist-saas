@@ -49,3 +49,8 @@ entrypoint = "./functions/generate-review-draft/index.ts"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/track-customer-event/index.ts"
+
+[functions.admin-delete-account]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/admin-delete-account/index.ts"
