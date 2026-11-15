@@ -16,7 +16,6 @@ import {
 import type { Business } from '../../types/business';
 import {
   BUSINESS_KNOWLEDGE_LIMITS,
-  type BusinessKnowledgeProfile,
   type BusinessProductItem,
   type BusinessServiceItem,
 } from '../../types/businessKnowledge';
@@ -61,8 +60,6 @@ export function BusinessKnowledgeSettings({ business }: Props) {
   const [areaDraft, setAreaDraft] = useState<string>('');
   const [editingAreaIndex, setEditingAreaIndex] = useState<number | null>(null);
 
-  const [loadedProfile, setLoadedProfile] =
-    useState<BusinessKnowledgeProfile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [savedBanner, setSavedBanner] = useState<string | null>(null);
@@ -76,7 +73,6 @@ export function BusinessKnowledgeSettings({ business }: Props) {
           business.id,
         );
         if (!active) return;
-        setLoadedProfile(profile);
         setDescription(profile.description);
         setPrimaryCategory(profile.primaryCategory || business.category);
         setAdditionalInfo(profile.additionalInfo);
@@ -368,7 +364,6 @@ export function BusinessKnowledgeSettings({ business }: Props) {
         business.id,
         validation.value,
       );
-      setLoadedProfile(updated);
       setDescription(updated.description);
       setPrimaryCategory(updated.primaryCategory);
       setAdditionalInfo(updated.additionalInfo);
@@ -407,14 +402,6 @@ export function BusinessKnowledgeSettings({ business }: Props) {
           <span className="bg-[#F7F7F2] border border-[#DDE4DC] px-2 py-0.5 rounded text-[#252B29] font-bold">
             {business.id}
           </span>
-          {loadedProfile && (
-            <span className="rounded bg-[#EEF3EC] px-2.5 py-0.5 font-sans text-[12px] font-medium text-[#244B40] border border-[#A8BFA5]">
-              Storage:{' '}
-              {loadedProfile.storageSource === 'supabase'
-                ? 'Supabase DB'
-                : 'Local Store'}
-            </span>
-          )}
         </div>
       </div>
 

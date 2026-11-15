@@ -627,7 +627,7 @@ export function CustomerDraftsView({
                         [d.id]: e.target.value,
                       }))
                     }
-                    placeholder="Click 'Generate AI Response' to create a reply using your Phase 3 AI Tone & Phase 4 Business Knowledge, or type/edit your response here..."
+                    placeholder="Click 'Generate AI Response' to draft a reply using your saved tone and business details, or type your response here..."
                     className="w-full rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-2.5 text-[14px] text-[#252B29] placeholder:text-[#626B65] focus:border-[#244B40] focus:outline-none focus:ring-2 focus:ring-[#244B40]/20"
                   />
 

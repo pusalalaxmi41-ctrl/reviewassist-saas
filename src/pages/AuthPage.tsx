@@ -180,7 +180,7 @@ export default function AuthPage() {
 
       <div className="flex items-center justify-center gap-2 text-[13px] text-[#626B65]">
         <ShieldCheck className="h-4 w-4 text-[#244B40] shrink-0" aria-hidden />
-        <span>Protected by Supabase Row Level Security — only you can access your businesses.</span>
+        <span>Your account and business data are private and protected.</span>
       </div>
     </div>
   );

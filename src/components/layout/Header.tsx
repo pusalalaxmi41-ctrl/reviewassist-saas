@@ -1,8 +1,6 @@
-import { useEffect, useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { MessageSquareHeart, LogOut, LogIn } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
-import { supabase } from '../../lib/supabase';
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
   `inline-flex min-h-10 items-center rounded-lg px-3 py-1.5 text-[14px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#244B40] ${
@@ -14,25 +12,6 @@ const navClass = ({ isActive }: { isActive: boolean }) =>
 export function Header() {
   const { user, isConfigured, signOut } = useAuth();
   const navigate = useNavigate();
-  const [adminUserId, setAdminUserId] = useState<string | null>(null);
-  const isPlatformAdmin = Boolean(user && adminUserId === user.id);
-
-  useEffect(() => {
-    let active = true;
-    if (!isConfigured || !user || !supabase) {
-      return;
-    }
-
-    const currentUserId = user.id;
-    supabase.rpc('is_platform_admin').then(({ data, error }) => {
-      if (!active) return;
-      setAdminUserId(!error && Boolean(data) ? currentUserId : null);
-    });
-
-    return () => {
-      active = false;
-    };
-  }, [isConfigured, user]);
 
   async function handleSignOut() {
     await signOut();
@@ -58,11 +37,6 @@ export function Header() {
           {!user && (
             <NavLink to="/setup" className={navClass}>
               Get started
-            </NavLink>
-          )}
-          {isPlatformAdmin && (
-            <NavLink to="/admin" className={navClass}>
-              Admin
             </NavLink>
           )}
           {isConfigured &&

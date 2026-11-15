@@ -20,7 +20,6 @@ import {
   type AICommunicationTone,
   type AILanguageCode,
   type AIResponseLength,
-  type BusinessAIConfig,
 } from '../../types/aiConfig';
 import { validateBusinessAIConfigInput } from '../../utils/aiConfigValidation';
 import { businessRepository } from '../../services/storage';
@@ -61,7 +60,6 @@ export function AIConfigurationSettings({ business }: Props) {
     DEFAULT_BUSINESS_AI_CONFIG.language,
   );
 
-  const [loadedConfig, setLoadedConfig] = useState<BusinessAIConfig | null>(null);
   const [loadingConfig, setLoadingConfig] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [savedBanner, setSavedBanner] = useState<string | null>(null);
@@ -83,7 +81,6 @@ export function AIConfigurationSettings({ business }: Props) {
       try {
         const config = await businessRepository.getBusinessAIConfig(business.id);
         if (!active) return;
-        setLoadedConfig(config);
         setTone(config.tone);
         setCustomInstructions(config.customInstructions);
         setResponseLength(config.responseLength);
@@ -128,7 +125,6 @@ export function AIConfigurationSettings({ business }: Props) {
         business.id,
         validation.value,
       );
-      setLoadedConfig(updated);
       setTone(updated.tone);
       setCustomInstructions(updated.customInstructions);
       setResponseLength(updated.responseLength);
@@ -242,11 +238,6 @@ export function AIConfigurationSettings({ business }: Props) {
           <span className="bg-[#F7F7F2] border border-[#DDE4DC] px-2 py-0.5 rounded text-[#252B29] font-bold">
             {business.id}
           </span>
-          {loadedConfig && (
-            <span className="rounded bg-[#EEF3EC] px-2.5 py-0.5 font-sans text-[12px] font-medium text-[#244B40] border border-[#A8BFA5]">
-              Storage: {loadedConfig.storageSource === 'supabase' ? 'Supabase DB' : 'Local Store'}
-            </span>
-          )}
         </div>
       </div>
 
