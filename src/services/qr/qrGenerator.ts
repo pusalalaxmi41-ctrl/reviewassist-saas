@@ -672,7 +672,7 @@ export async function renderQrPosterToCanvas(
 
     ctx.fillStyle = gold;
     ctx.font = '500 20px Inter, system-ui, sans-serif';
-    ctx.fillText('POWERED BY REVIEWASSIST', W / 2, 1535);
+    ctx.fillText('POWERED BY VITARAN AI REVIEWS', W / 2, 1535);
   }
 
   // =========================================================================

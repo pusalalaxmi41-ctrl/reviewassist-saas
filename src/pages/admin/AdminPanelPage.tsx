@@ -611,7 +611,7 @@ export default function AdminPanelPage() {
             {!sidebarCollapsed && (
               <div className="truncate">
                 <span className="text-sm font-semibold tracking-tight text-slate-900">
-                  ReviewAssist
+                  Vitaran AI Reviews
                 </span>
                 <span className="ml-1.5 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 border border-indigo-200/60">
                   Admin

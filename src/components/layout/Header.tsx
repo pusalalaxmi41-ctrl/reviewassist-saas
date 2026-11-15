@@ -28,7 +28,7 @@ export function Header() {
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#244B40] text-[#FFFFFF]">
             <MessageSquareHeart className="h-5 w-5" aria-hidden />
           </span>
-          <span>ReviewAssist</span>
+          <span>Vitaran AI Reviews</span>
         </Link>
         <nav className="flex items-center gap-2 sm:gap-3" aria-label="Main">
           <NavLink to="/dashboard" className={navClass}>

@@ -21,7 +21,7 @@ export default function LandingPage() {
         </h1>
 
         <p className="mx-auto mt-4 max-w-xl text-[15px] leading-relaxed text-[#626B65] sm:text-[16px]">
-          ReviewAssist helps guests share honest experiences in seconds and gives restaurants, cafes, hotels, and PG accommodations organised insights and respectful AI response drafts.
+          Vitaran AI Reviews helps guests share honest experiences in seconds and gives restaurants, cafes, hotels, and PG accommodations organised insights and respectful AI response drafts.
         </p>
 
         <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
