@@ -1,5 +1,5 @@
 -- ============================================================================
--- ReviewAssist — Hardened Multi-Tenant Database Schema & RLS Migration (v5)
+-- ReviewAssist � Hardened Multi-Tenant Database Schema & RLS Migration (v5)
 -- Target: Supabase PostgreSQL 15+
 -- Maps to TypeScript models in: src/types/business.ts
 --
@@ -367,7 +367,7 @@ $do$;
 
 
 -- ============================================================================
--- 1. TABLES (fresh install only — CREATE TABLE IF NOT EXISTS never alters an
+-- 1. TABLES (fresh install only � CREATE TABLE IF NOT EXISTS never alters an
 --    existing table; existing tables were validated in section 0 and are
 --    normalised in section 2)
 -- ============================================================================
@@ -823,7 +823,7 @@ create policy "analytics_events_owner_select"
 
 -- ============================================================================
 -- 8. SERVER-SIDE SLUG LOOKUP: public.get_public_business_by_slug(text)
---    SECURITY INVOKER — only service_role (BYPASSRLS) may execute, so no
+--    SECURITY INVOKER � only service_role (BYPASSRLS) may execute, so no
 --    privilege elevation is needed. Returns at most one row, public columns
 --    only (never owner_id).
 -- ============================================================================
@@ -1231,7 +1231,7 @@ on conflict (slug) do nothing;
 
 
 -- ============================================================================
--- ReviewAssist — Scheduled cleanup via Supabase Cron (pg_cron):
+-- ReviewAssist � Scheduled cleanup via Supabase Cron (pg_cron):
 --   1. expired rate-limit rows (24 h)   2. customer drafts (90-day retention)
 -- Depends on: 001_initial_schema.sql
 --
@@ -1286,7 +1286,7 @@ select cron.schedule(
 );
 
 -- ----------------------------------------------------------------------------
--- Customer draft retention — APPROVED DECISION: 90 days (2026-11-11).
+-- Customer draft retention � APPROVED DECISION: 90 days (2026-11-11).
 -- Deletes customer_drafts rows (raw customer input + generated review) older
 -- than 90 days. analytics_events are NOT touched, so dashboard metrics are
 -- unaffected. Runs hourly at minute 23; each run deletes at most 5,000 rows
@@ -1315,7 +1315,7 @@ select cron.schedule(
 
 
 -- ============================================================================
--- ReviewAssist — Platform Admin Panel, Approval Workflow & Account Lifecycle
+-- ReviewAssist � Platform Admin Panel, Approval Workflow & Account Lifecycle
 -- Migration: 003_platform_admin_and_account_lifecycle.sql
 -- Depends on: 001_initial_schema.sql, 002_schedule_rate_limit_cleanup.sql
 --
@@ -1797,8 +1797,8 @@ as $$
 declare
   v_search text := nullif(pg_catalog.lower(pg_catalog.btrim(coalesce(p_search, ''))), '');
   v_status text := nullif(pg_catalog.lower(pg_catalog.btrim(coalesce(p_status, ''))), '');
-  v_limit integer := pg_catalog.least(pg_catalog.greatest(coalesce(p_limit, 50), 1), 200);
-  v_offset integer := pg_catalog.greatest(coalesce(p_offset, 0), 0);
+  v_limit integer := least(greatest(coalesce(p_limit, 50), 1), 200);
+  v_offset integer := greatest(coalesce(p_offset, 0), 0);
 begin
   if not public.is_platform_admin() then
     raise exception 'Forbidden: platform admin access required' using errcode = '42501';
@@ -2281,8 +2281,8 @@ security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
 declare
-  v_limit integer := pg_catalog.least(pg_catalog.greatest(coalesce(p_limit, 100), 1), 500);
-  v_offset integer := pg_catalog.greatest(coalesce(p_offset, 0), 0);
+  v_limit integer := least(greatest(coalesce(p_limit, 100), 1), 500);
+  v_offset integer := greatest(coalesce(p_offset, 0), 0);
 begin
   if not public.is_platform_admin() then
     raise exception 'Forbidden: platform admin access required' using errcode = '42501';
@@ -2524,7 +2524,7 @@ security invoker
 set search_path = pg_catalog, pg_temp
 as $$
 declare
-  v_limit integer := pg_catalog.least(pg_catalog.greatest(coalesce(p_batch_limit, 100), 1), 1000);
+  v_limit integer := least(greatest(coalesce(p_batch_limit, 100), 1), 1000);
   v_rec record;
   v_purged_count bigint := 0;
 begin
@@ -2615,7 +2615,7 @@ $do$;
 
 
 -- ============================================================================
--- ReviewAssist — Phase 3: Per-Business AI Configuration Schema & RLS Migration
+-- ReviewAssist � Phase 3: Per-Business AI Configuration Schema & RLS Migration
 -- File: supabase/migrations/004_business_ai_configuration.sql
 --
 -- STATUS: NOT APPLIED AUTOMATICALLY. Review before applying.
@@ -2796,7 +2796,7 @@ commit;
 
 
 -- ============================================================================
--- ReviewAssist — Phase 4: Business Knowledge & Local SEO Context Migration
+-- ReviewAssist � Phase 4: Business Knowledge & Local SEO Context Migration
 -- File: supabase/migrations/005_business_knowledge_and_local_seo.sql
 --
 -- STATUS: NOT APPLIED AUTOMATICALLY. Review before applying.
@@ -3129,7 +3129,7 @@ commit;
 
 
 -- ============================================================================
--- ReviewAssist — Phase 5: Review Management System Schema & RLS Migration
+-- ReviewAssist � Phase 5: Review Management System Schema & RLS Migration
 -- File: supabase/migrations/006_review_management_system.sql
 --
 -- STATUS: NOT APPLIED AUTOMATICALLY. Review before applying.

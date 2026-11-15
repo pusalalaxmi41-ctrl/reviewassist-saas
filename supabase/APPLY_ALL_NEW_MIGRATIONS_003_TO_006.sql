@@ -1,5 +1,5 @@
 -- ============================================================================
--- ReviewAssist — Platform Admin Panel, Approval Workflow & Account Lifecycle
+-- ReviewAssist � Platform Admin Panel, Approval Workflow & Account Lifecycle
 -- Migration: 003_platform_admin_and_account_lifecycle.sql
 -- Depends on: 001_initial_schema.sql, 002_schedule_rate_limit_cleanup.sql
 --
@@ -481,8 +481,8 @@ as $$
 declare
   v_search text := nullif(pg_catalog.lower(pg_catalog.btrim(coalesce(p_search, ''))), '');
   v_status text := nullif(pg_catalog.lower(pg_catalog.btrim(coalesce(p_status, ''))), '');
-  v_limit integer := pg_catalog.least(pg_catalog.greatest(coalesce(p_limit, 50), 1), 200);
-  v_offset integer := pg_catalog.greatest(coalesce(p_offset, 0), 0);
+  v_limit integer := least(greatest(coalesce(p_limit, 50), 1), 200);
+  v_offset integer := greatest(coalesce(p_offset, 0), 0);
 begin
   if not public.is_platform_admin() then
     raise exception 'Forbidden: platform admin access required' using errcode = '42501';
@@ -965,8 +965,8 @@ security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
 declare
-  v_limit integer := pg_catalog.least(pg_catalog.greatest(coalesce(p_limit, 100), 1), 500);
-  v_offset integer := pg_catalog.greatest(coalesce(p_offset, 0), 0);
+  v_limit integer := least(greatest(coalesce(p_limit, 100), 1), 500);
+  v_offset integer := greatest(coalesce(p_offset, 0), 0);
 begin
   if not public.is_platform_admin() then
     raise exception 'Forbidden: platform admin access required' using errcode = '42501';
@@ -1208,7 +1208,7 @@ security invoker
 set search_path = pg_catalog, pg_temp
 as $$
 declare
-  v_limit integer := pg_catalog.least(pg_catalog.greatest(coalesce(p_batch_limit, 100), 1), 1000);
+  v_limit integer := least(greatest(coalesce(p_batch_limit, 100), 1), 1000);
   v_rec record;
   v_purged_count bigint := 0;
 begin
@@ -1297,7 +1297,7 @@ begin
 end;
 $do$;
 -- ============================================================================
--- ReviewAssist — Phase 3: Per-Business AI Configuration Schema & RLS Migration
+-- ReviewAssist � Phase 3: Per-Business AI Configuration Schema & RLS Migration
 -- File: supabase/migrations/004_business_ai_configuration.sql
 --
 -- STATUS: NOT APPLIED AUTOMATICALLY. Review before applying.
@@ -1476,7 +1476,7 @@ on conflict (business_id) do nothing;
 
 commit;
 -- ============================================================================
--- ReviewAssist — Phase 4: Business Knowledge & Local SEO Context Migration
+-- ReviewAssist � Phase 4: Business Knowledge & Local SEO Context Migration
 -- File: supabase/migrations/005_business_knowledge_and_local_seo.sql
 --
 -- STATUS: NOT APPLIED AUTOMATICALLY. Review before applying.
@@ -1807,7 +1807,7 @@ create policy bsa_owner_delete on public.business_service_areas
 
 commit;
 -- ============================================================================
--- ReviewAssist — Phase 5: Review Management System Schema & RLS Migration
+-- ReviewAssist � Phase 5: Review Management System Schema & RLS Migration
 -- File: supabase/migrations/006_review_management_system.sql
 --
 -- STATUS: NOT APPLIED AUTOMATICALLY. Review before applying.

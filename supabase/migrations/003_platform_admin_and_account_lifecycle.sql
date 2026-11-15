@@ -1,5 +1,5 @@
 -- ============================================================================
--- ReviewAssist — Platform Admin Panel, Approval Workflow & Account Lifecycle
+-- ReviewAssist � Platform Admin Panel, Approval Workflow & Account Lifecycle
 -- Migration: 003_platform_admin_and_account_lifecycle.sql
 -- Depends on: 001_initial_schema.sql, 002_schedule_rate_limit_cleanup.sql
 --
@@ -481,8 +481,8 @@ as $$
 declare
   v_search text := nullif(pg_catalog.lower(pg_catalog.btrim(coalesce(p_search, ''))), '');
   v_status text := nullif(pg_catalog.lower(pg_catalog.btrim(coalesce(p_status, ''))), '');
-  v_limit integer := pg_catalog.least(pg_catalog.greatest(coalesce(p_limit, 50), 1), 200);
-  v_offset integer := pg_catalog.greatest(coalesce(p_offset, 0), 0);
+  v_limit integer := least(greatest(coalesce(p_limit, 50), 1), 200);
+  v_offset integer := greatest(coalesce(p_offset, 0), 0);
 begin
   if not public.is_platform_admin() then
     raise exception 'Forbidden: platform admin access required' using errcode = '42501';
@@ -965,8 +965,8 @@ security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
 declare
-  v_limit integer := pg_catalog.least(pg_catalog.greatest(coalesce(p_limit, 100), 1), 500);
-  v_offset integer := pg_catalog.greatest(coalesce(p_offset, 0), 0);
+  v_limit integer := least(greatest(coalesce(p_limit, 100), 1), 500);
+  v_offset integer := greatest(coalesce(p_offset, 0), 0);
 begin
   if not public.is_platform_admin() then
     raise exception 'Forbidden: platform admin access required' using errcode = '42501';
@@ -1208,7 +1208,7 @@ security invoker
 set search_path = pg_catalog, pg_temp
 as $$
 declare
-  v_limit integer := pg_catalog.least(pg_catalog.greatest(coalesce(p_batch_limit, 100), 1), 1000);
+  v_limit integer := least(greatest(coalesce(p_batch_limit, 100), 1), 1000);
   v_rec record;
   v_purged_count bigint := 0;
 begin
