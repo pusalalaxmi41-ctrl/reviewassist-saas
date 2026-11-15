@@ -49,10 +49,18 @@ const CORS_ALLOWED_HEADERS = {
 
 const LOG_IP_SOURCE = Deno.env.get('LOG_IP_SOURCE') === 'true';
 
+function isAllowedOrigin(origin: string | null): origin is string {
+  if (!origin) return false;
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  // Allow Vercel production/preview deployments over HTTPS out of the box
+  if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin)) return true;
+  return false;
+}
+
 function withCors(res: Response, req: Request): Response {
   res.headers.set('Vary', 'Origin');
   const origin = req.headers.get('origin');
-  if (origin && ALLOWED_ORIGINS.has(origin)) {
+  if (isAllowedOrigin(origin)) {
     res.headers.set('Access-Control-Allow-Origin', origin);
     for (const [key, value] of Object.entries(CORS_ALLOWED_HEADERS)) {
       res.headers.set(key, value);
@@ -294,40 +302,99 @@ function detectSentiment(text: string): 'positive' | 'neutral' | 'mixed' {
   return 'neutral';
 }
 
-function resolveServerAiConfig(): {
+interface AiProviderConfig {
+  provider: 'groq' | 'openrouter' | 'gemini' | 'openai';
   endpoint: string;
   apiKey: string;
   model: string;
-} | null {
-  const rawKey = (
-    Deno.env.get('AI_API_KEY') ??
-    Deno.env.get('GROQ_API_KEY') ??
-    Deno.env.get('OPENROUTER_API_KEY') ??
-    Deno.env.get('OPENAI_API_KEY') ??
-    ''
-  ).trim();
+}
 
-  if (!rawKey) return null;
+const keyCooldownUntil = new Map<string, number>();
+let roundRobinCursor = 0;
+
+function buildProviderConfig(rawKey: string): AiProviderConfig {
+  const globalModel = Deno.env.get('AI_MODEL')?.trim();
 
   if (rawKey.startsWith('gsk_')) {
     return {
+      provider: 'groq',
       endpoint: 'https://api.groq.com/openai/v1/chat/completions',
       apiKey: rawKey,
-      model: Deno.env.get('AI_MODEL')?.trim() || 'llama-3.3-70b-versatile',
+      model: Deno.env.get('GROQ_MODEL')?.trim() || globalModel || 'llama-3.3-70b-versatile',
     };
   }
   if (rawKey.startsWith('sk-or-')) {
     return {
+      provider: 'openrouter',
       endpoint: 'https://openrouter.ai/api/v1/chat/completions',
       apiKey: rawKey,
-      model: Deno.env.get('AI_MODEL')?.trim() || 'openai/gpt-4o-mini',
+      model: Deno.env.get('OPENROUTER_MODEL')?.trim() || globalModel || 'openai/gpt-4o-mini',
+    };
+  }
+  if (rawKey.startsWith('AIza')) {
+    return {
+      provider: 'gemini',
+      endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+      apiKey: rawKey,
+      model: Deno.env.get('GEMINI_MODEL')?.trim() || globalModel || 'gemini-2.0-flash',
     };
   }
   return {
+    provider: 'openai',
     endpoint: 'https://api.openai.com/v1/chat/completions',
     apiKey: rawKey,
-    model: Deno.env.get('AI_MODEL')?.trim() || 'gpt-4o-mini',
+    model: Deno.env.get('OPENAI_MODEL')?.trim() || globalModel || 'gpt-4o-mini',
   };
+}
+
+function resolveServerAiPool(): AiProviderConfig[] {
+  const envSources = [
+    Deno.env.get('AI_API_KEYS'),
+    Deno.env.get('GROQ_API_KEYS'),
+    Deno.env.get('OPENROUTER_API_KEYS'),
+    Deno.env.get('GEMINI_API_KEYS'),
+    Deno.env.get('OPENAI_API_KEYS'),
+    Deno.env.get('AI_API_KEY'),
+    Deno.env.get('GROQ_API_KEY'),
+    Deno.env.get('OPENROUTER_API_KEY'),
+    Deno.env.get('GEMINI_API_KEY'),
+    Deno.env.get('OPENAI_API_KEY'),
+  ];
+
+  const seen = new Set<string>();
+  const keys: string[] = [];
+
+  for (const raw of envSources) {
+    if (!raw) continue;
+    for (const part of raw.split(/[\s,;]+/)) {
+      const cleaned = part.trim();
+      if (cleaned && !seen.has(cleaned)) {
+        seen.add(cleaned);
+        keys.push(cleaned);
+      }
+    }
+  }
+
+  return keys.map(buildProviderConfig);
+}
+
+function getOrderedActivePool(pool: AiProviderConfig[]): AiProviderConfig[] {
+  if (pool.length === 0) return [];
+  const now = Date.now();
+  const start = roundRobinCursor % pool.length;
+  roundRobinCursor = (roundRobinCursor + 1) % pool.length;
+
+  const rotated = [...pool.slice(start), ...pool.slice(0, start)];
+  const ready = rotated.filter((cfg) => (keyCooldownUntil.get(cfg.apiKey) ?? 0) <= now);
+  const cooling = rotated.filter((cfg) => (keyCooldownUntil.get(cfg.apiKey) ?? 0) > now);
+  return [...ready, ...cooling];
+}
+
+function markKeyCooldown(apiKey: string, status: number): void {
+  // 401/402/403 = invalid or out-of-credits key -> cool down 1 hour
+  // 429/5xx = rate limited or transient upstream error -> cool down 5 minutes
+  const durationMs = status === 401 || status === 402 || status === 403 ? 3600_000 : 300_000;
+  keyCooldownUntil.set(apiKey, Date.now() + durationMs);
 }
 
 async function handleRequest(req: Request, info: Deno.ServeHandlerInfo): Promise<Response> {
@@ -449,10 +516,10 @@ async function handleRequest(req: Request, info: Deno.ServeHandlerInfo): Promise
   }
 
   const sentiment = detectSentiment(experience);
-  const aiConfig = resolveServerAiConfig();
+  const aiPool = resolveServerAiPool();
 
-  // 5A. If server-side AI secret is configured and client requested SSE streaming
-  if (aiConfig && wantsStream) {
+  // 5A. If server-side AI pool is configured, rotate keys with automatic failover
+  if (aiPool.length > 0) {
     const userPrompt = `Business: ${business.name} (${business.category || 'local business'})
 Detected customer sentiment: ${sentiment}
 Variation attempt: ${attempt + 1}
@@ -460,103 +527,140 @@ Customer's actual feedback: "${experience}"
 
 Rewrite this into a clear, natural, human-sounding review that stays 100% faithful to the customer's words and sentiment:`;
 
-    try {
-      const upstreamRes = await fetch(aiConfig.endpoint, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${aiConfig.apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: aiConfig.model,
-          temperature: 0.65,
-          max_tokens: 350,
-          stream: true,
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: userPrompt },
-          ],
-        }),
-      });
+    const orderedCandidates = getOrderedActivePool(aiPool).slice(0, Math.min(aiPool.length, 6));
 
-      if (upstreamRes.ok && upstreamRes.body) {
-        const encoder = new TextEncoder();
-        const decoder = new TextDecoder();
-        const upstreamReader = upstreamRes.body.getReader();
+    for (const aiConfig of orderedCandidates) {
+      try {
+        const upstreamRes = await fetch(aiConfig.endpoint, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${aiConfig.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: aiConfig.model,
+            temperature: 0.65,
+            max_tokens: 350,
+            stream: wantsStream,
+            messages: [
+              { role: 'system', content: SYSTEM_PROMPT },
+              { role: 'user', content: userPrompt },
+            ],
+          }),
+        });
 
-        const stream = new ReadableStream({
-          async start(controller) {
-            let buffer = '';
-            let fullText = '';
+        if (!upstreamRes.ok) {
+          markKeyCooldown(aiConfig.apiKey, upstreamRes.status);
+          continue;
+        }
 
-            try {
-              while (true) {
-                const { done, value } = await upstreamReader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
+        if (wantsStream && upstreamRes.body) {
+          const encoder = new TextEncoder();
+          const decoder = new TextDecoder();
+          const upstreamReader = upstreamRes.body.getReader();
 
-                const lines = buffer.split('\n');
-                buffer = lines.pop() ?? '';
+          const stream = new ReadableStream({
+            async start(controller) {
+              let buffer = '';
+              let fullText = '';
 
-                for (const rawLine of lines) {
-                  const line = rawLine.trim();
-                  if (!line.startsWith('data:')) continue;
-                  const dataPayload = line.slice(5).trim();
-                  if (!dataPayload || dataPayload === '[DONE]') continue;
+              try {
+                while (true) {
+                  const { done, value } = await upstreamReader.read();
+                  if (done) break;
+                  buffer += decoder.decode(value, { stream: true });
 
-                  try {
-                    const parsed = JSON.parse(dataPayload) as {
-                      choices?: Array<{ delta?: { content?: string } }>;
-                    };
-                    const delta = parsed.choices?.[0]?.delta?.content ?? '';
-                    if (delta) {
-                      fullText += delta;
-                      controller.enqueue(
-                        encoder.encode(`data: ${JSON.stringify({ token: delta })}\n\n`),
-                      );
+                  const lines = buffer.split('\n');
+                  buffer = lines.pop() ?? '';
+
+                  for (const rawLine of lines) {
+                    const line = rawLine.trim();
+                    if (!line.startsWith('data:')) continue;
+                    const dataPayload = line.slice(5).trim();
+                    if (!dataPayload || dataPayload === '[DONE]') continue;
+
+                    try {
+                      const parsed = JSON.parse(dataPayload) as {
+                        choices?: Array<{ delta?: { content?: string } }>;
+                      };
+                      const delta = parsed.choices?.[0]?.delta?.content ?? '';
+                      if (delta) {
+                        fullText += delta;
+                        controller.enqueue(
+                          encoder.encode(`data: ${JSON.stringify({ token: delta })}\n\n`),
+                        );
+                      }
+                    } catch {
+                      // ignore partial chunk parse errors
                     }
-                  } catch {
-                    // ignore partial chunk parse errors
                   }
                 }
+
+                const finalReview =
+                  fullText.trim() || buildReviewDraft(business.name, experience, attempt);
+
+                await admin.rpc('record_customer_draft_with_events', {
+                  p_business_id: business.id,
+                  p_original_input: experience,
+                  p_generated_review: finalReview,
+                  p_mode: mode,
+                  p_sentiment: sentiment,
+                  p_attempt: attempt,
+                });
+
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ text: finalReview })}\n\n`),
+                );
+                controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+                controller.close();
+              } catch {
+                controller.error(new Error('Stream interrupted'));
+              } finally {
+                upstreamReader.releaseLock();
               }
+            },
+          });
 
-              const finalReview =
-                fullText.trim() || buildReviewDraft(business.name, experience, attempt);
+          return new Response(stream, {
+            status: 200,
+            headers: {
+              'Content-Type': 'text/event-stream; charset=utf-8',
+              'Cache-Control': 'no-cache, no-transform',
+              Connection: 'keep-alive',
+            },
+          });
+        }
 
-              await admin.rpc('record_customer_draft_with_events', {
-                p_business_id: business.id,
-                p_original_input: experience,
-                p_generated_review: finalReview,
-                p_mode: mode,
-                p_sentiment: sentiment,
-                p_attempt: attempt,
-              });
-
-              controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify({ text: finalReview })}\n\n`),
-              );
-              controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-              controller.close();
-            } catch {
-              controller.error(new Error('Stream interrupted'));
-            } finally {
-              upstreamReader.releaseLock();
+        if (!wantsStream) {
+          const jsonBody = (await upstreamRes.json()) as {
+            choices?: Array<{ message?: { content?: string } }>;
+          };
+          const aiText = jsonBody.choices?.[0]?.message?.content?.trim();
+          if (aiText) {
+            const { error: recordErr } = await admin.rpc('record_customer_draft_with_events', {
+              p_business_id: business.id,
+              p_original_input: experience,
+              p_generated_review: aiText,
+              p_mode: mode,
+              p_sentiment: sentiment,
+              p_attempt: attempt,
+            });
+            if (recordErr) {
+              return jsonResponse({ error: 'Unable to save review draft' }, 500);
             }
-          },
-        });
-
-        return new Response(stream, {
-          status: 200,
-          headers: {
-            'Content-Type': 'text/event-stream; charset=utf-8',
-            'Cache-Control': 'no-cache, no-transform',
-            Connection: 'keep-alive',
-          },
-        });
+            return jsonResponse(
+              {
+                text: aiText,
+                streamed: false,
+                generationSource: aiConfig.provider,
+              },
+              200,
+            );
+          }
+        }
+      } catch {
+        markKeyCooldown(aiConfig.apiKey, 503);
       }
-    } catch {
-      // Fall through cleanly to deterministic server draft below if upstream LLM is unreachable
     }
   }
 
