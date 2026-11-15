@@ -1,4 +1,4 @@
-﻿-- ============================================================================
+-- ============================================================================
 -- ReviewAssist — Hardened Multi-Tenant Database Schema & RLS Migration (v5)
 -- Target: Supabase PostgreSQL 15+
 -- Maps to TypeScript models in: src/types/business.ts
@@ -1710,8 +1710,8 @@ begin
   ),
   days as (
     select pg_catalog.generate_series(
-      (pg_catalog.current_date - 29)::timestamp,
-      pg_catalog.current_date::timestamp,
+      (current_date - 29)::timestamp,
+      current_date::timestamp,
       interval '1 day'
     )::date as day
   ),

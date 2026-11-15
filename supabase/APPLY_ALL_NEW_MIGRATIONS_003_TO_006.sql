@@ -1,4 +1,4 @@
-﻿-- ============================================================================
+-- ============================================================================
 -- ReviewAssist — Platform Admin Panel, Approval Workflow & Account Lifecycle
 -- Migration: 003_platform_admin_and_account_lifecycle.sql
 -- Depends on: 001_initial_schema.sql, 002_schedule_rate_limit_cleanup.sql
@@ -394,8 +394,8 @@ begin
   ),
   days as (
     select pg_catalog.generate_series(
-      (pg_catalog.current_date - 29)::timestamp,
-      pg_catalog.current_date::timestamp,
+      (current_date - 29)::timestamp,
+      current_date::timestamp,
       interval '1 day'
     )::date as day
   ),

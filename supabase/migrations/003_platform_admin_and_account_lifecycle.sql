@@ -394,8 +394,8 @@ begin
   ),
   days as (
     select pg_catalog.generate_series(
-      (pg_catalog.current_date - 29)::timestamp,
-      pg_catalog.current_date::timestamp,
+      (current_date - 29)::timestamp,
+      current_date::timestamp,
       interval '1 day'
     )::date as day
   ),
