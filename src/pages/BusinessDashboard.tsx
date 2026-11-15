@@ -8,7 +8,6 @@ import {
   MessageSquare,
   Settings,
   ExternalLink,
-  Database,
   Clock,
   ShieldAlert,
   Ban,
@@ -16,7 +15,6 @@ import {
 } from 'lucide-react';
 import type { Business, BusinessMetrics, AnalyticsEvent, CustomerDraftRecord } from '../types/business';
 import { businessRepository } from '../services/storage';
-import { isSupabaseConfigured } from '../lib/supabase';
 import { categoryLabels } from '../services/business/mockBusinesses';
 import { AnalyticsView } from '../components/dashboard/AnalyticsView';
 import { QRCodeManager } from '../components/dashboard/QRCodeManager';
@@ -193,27 +191,6 @@ export default function BusinessDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Architecture & Storage Notice */}
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#DDE4DC] bg-[#FFFFFF] px-4 py-2.5 text-[13px] text-[#626B65]">
-        <span className="flex items-center gap-2 font-medium text-[#252B29]">
-          <Database className="h-4 w-4 text-[#244B40]" aria-hidden />
-          {isSupabaseConfigured ? (
-            <>
-              Connected to Live Supabase PostgreSQL &amp; Edge Functions (Business ID:{' '}
-              <code className="font-mono text-[#244B40] font-bold">{currentBusiness.id}</code>)
-            </>
-          ) : (
-            <>
-              Local Demo Mode (Business ID:{' '}
-              <code className="font-mono text-[#244B40] font-bold">{currentBusiness.id}</code>)
-            </>
-          )}
-        </span>
-        <span className="rounded-full border border-[#A8BFA5] bg-[#EEF3EC] px-2.5 py-0.5 text-[12px] text-[#244B40] font-medium hidden sm:inline">
-          {isSupabaseConfigured ? 'RLS + Edge Functions Active' : 'Local Storage'}
-        </span>
-      </div>
-
       {/* Top Header & Tenant Switcher */}
       <div className="flex flex-col gap-4 rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-5 shadow-2xs sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div className="space-y-1.5">

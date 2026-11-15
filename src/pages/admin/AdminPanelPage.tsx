@@ -489,11 +489,7 @@ export default function AdminPanelPage() {
               Page not found
             </h1>
             <p className="text-xs text-slate-500 leading-relaxed">
-              This route is restricted to verified platform administrators in{' '}
-              <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[11px] text-slate-700">
-                public.platform_admins
-              </code>
-              .
+              The page you are looking for doesn&apos;t exist or you don&apos;t have permission to view it.
             </p>
           </div>
           <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:justify-center">
@@ -503,15 +499,6 @@ export default function AdminPanelPage() {
             >
               Return to Business Dashboard
             </Link>
-            {repoMode === 'supabase' && (
-              <button
-                type="button"
-                onClick={() => setRepoMode('mock')}
-                className="inline-flex items-center justify-center rounded-lg bg-[#244B40] px-3.5 py-2 text-xs font-medium text-white hover:bg-[#1C3B32] cursor-pointer"
-              >
-                Switch to Demo Sandbox
-              </button>
-            )}
             {simulateNonAdmin404 && (
               <button
                 type="button"
