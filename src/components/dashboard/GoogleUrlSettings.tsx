@@ -99,7 +99,17 @@ export function GoogleUrlSettings({ business, onUpdated }: Props) {
           label="Direct Google Review URL"
           type="url"
           value={googleUrl}
-          onChange={(e) => setGoogleUrl(e.target.value)}
+          onChange={(e) => {
+            const val = e.target.value;
+            setGoogleUrl(val);
+            if (
+              val.trim().startsWith('https://') &&
+              !val.includes('example.com') &&
+              !val.includes('placeholder')
+            ) {
+              setIsPlaceholder(false);
+            }
+          }}
           placeholder="https://g.page/r/YOUR_BUSINESS/review"
           required
         />

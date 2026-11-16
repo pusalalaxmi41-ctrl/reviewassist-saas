@@ -236,14 +236,14 @@ export default function BusinessDashboard() {
         </div>
 
         {/* Multi-tenant Switcher */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex min-h-11 items-center gap-2 rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-1.5">
-            <Building2 className="h-4 w-4 text-[#244B40]" aria-hidden />
+        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 sm:gap-3 w-full sm:w-auto">
+          <div className="flex min-h-11 items-center gap-2 rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-1.5 min-w-0">
+            <Building2 className="h-4 w-4 shrink-0 text-[#244B40]" aria-hidden />
             <select
               aria-label="Select active business"
               value={currentBusiness.slug}
               onChange={(e) => handleSelectBusiness(e.target.value)}
-              className="bg-transparent text-[14px] font-medium text-[#252B29] focus:outline-none cursor-pointer"
+              className="w-full min-w-0 truncate bg-transparent text-[14px] font-medium text-[#252B29] focus:outline-none cursor-pointer"
             >
               {businesses.map((b) => (
                 <option key={b.id} value={b.slug}>

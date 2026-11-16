@@ -3,7 +3,7 @@ import { MessageSquareHeart, LogOut, LogIn } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
-  `inline-flex min-h-10 items-center rounded-lg px-3 py-1.5 text-[14px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#244B40] ${
+  `inline-flex min-h-9 sm:min-h-10 items-center rounded-lg px-2.5 sm:px-3 py-1.5 text-[13px] sm:text-[14px] font-medium whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#244B40] ${
     isActive
       ? 'bg-[#EEF3EC] text-[#244B40] font-semibold'
       : 'text-[#626B65] hover:bg-[#F7F7F2] hover:text-[#252B29]'
@@ -20,17 +20,17 @@ export function Header() {
 
   return (
     <header className="border-b border-[#DDE4DC] bg-[#FFFFFF]">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
+      <div className="mx-auto flex h-14 sm:h-16 max-w-6xl items-center justify-between gap-2 px-3 sm:px-6">
         <Link
           to="/"
-          className="flex items-center gap-2.5 text-[18px] font-semibold tracking-tight text-[#252B29] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#244B40] rounded-lg"
+          className="flex min-w-0 items-center gap-2 text-[15px] sm:text-[18px] font-semibold tracking-tight text-[#252B29] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#244B40] rounded-lg"
         >
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#244B40] text-[#FFFFFF]">
-            <MessageSquareHeart className="h-5 w-5" aria-hidden />
+          <span className="flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-xl bg-[#244B40] text-[#FFFFFF]">
+            <MessageSquareHeart className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden />
           </span>
-          <span>Vitaran AI Reviews</span>
+          <span className="truncate">Vitaran AI Reviews</span>
         </Link>
-        <nav className="flex items-center gap-2 sm:gap-3" aria-label="Main">
+        <nav className="flex shrink-0 items-center gap-1.5 sm:gap-3" aria-label="Main">
           <NavLink to="/dashboard" className={navClass}>
             Dashboard
           </NavLink>

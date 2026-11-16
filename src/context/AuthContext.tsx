@@ -51,6 +51,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error ? error.message : null };
   }
 
+  async function signInWithGoogle(
+    redirectTo?: string,
+  ): Promise<{ error: string | null }> {
+    if (!supabase) {
+      return { error: 'Supabase is not configured.' };
+    }
+    const targetUrl =
+      typeof window !== 'undefined'
+        ? `${window.location.origin}${redirectTo || '/dashboard'}`
+        : undefined;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: targetUrl ? { redirectTo: targetUrl } : undefined,
+    });
+    return { error: error ? error.message : null };
+  }
+
   async function signUp(
     email: string,
     password: string,
@@ -88,6 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         isConfigured: isSupabaseConfigured,
         signIn,
+        signInWithGoogle,
         signUp,
         signOut,
       }}
