@@ -44,10 +44,17 @@ const CORS_ALLOWED_HEADERS = {
 // IP address or header values.
 const LOG_IP_SOURCE = Deno.env.get('LOG_IP_SOURCE') === 'true';
 
+function isAllowedOrigin(origin: string | null): origin is string {
+  if (!origin) return false;
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin)) return true;
+  return false;
+}
+
 function withCors(res: Response, req: Request): Response {
   res.headers.set('Vary', 'Origin');
   const origin = req.headers.get('origin');
-  if (origin && ALLOWED_ORIGINS.has(origin)) {
+  if (isAllowedOrigin(origin)) {
     res.headers.set('Access-Control-Allow-Origin', origin);
     for (const [key, value] of Object.entries(CORS_ALLOWED_HEADERS)) {
       res.headers.set(key, value);
