@@ -1,56 +1,55 @@
+import { ArrowLeft } from 'lucide-react';
 import type { ReviewFlowStep } from '../../types/business';
-import { cn } from '../../utils/cn';
 
-const steps: { id: ReviewFlowStep; label: string }[] = [
-  { id: 'welcome', label: 'Welcome' },
-  { id: 'experience', label: 'Your Visit' },
-  { id: 'review', label: 'AI Review' },
-  { id: 'google', label: 'Share' },
-];
+interface Props {
+  current: ReviewFlowStep;
+  onBack?: () => void;
+}
 
-export function ProgressSteps({ current }: { current: ReviewFlowStep }) {
-  const index = steps.findIndex((s) => s.id === current);
+const STEP_NUM: Record<ReviewFlowStep, number | null> = {
+  welcome: null,
+  rating: 1,
+  highlights: 2,
+  review: 3,
+  thanks: null,
+};
+
+export function ProgressSteps({ current, onBack }: Props) {
+  const num = STEP_NUM[current];
+  if (num === null) return null;
+
+  const pct = Math.round((num / 3) * 100);
 
   return (
-    <nav aria-label="Review progress" className="px-1">
-      <div className="mb-2 flex items-center justify-between text-[13px]">
-        <span className="font-medium text-[#252B29]">
-          Step {index + 1} of {steps.length}
+    <div className="flex items-center justify-between gap-4 pb-2">
+      <button
+        type="button"
+        onClick={onBack}
+        aria-label="Go back"
+        className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[#252B29] hover:bg-[#EEF3EC] transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#244B40]"
+      >
+        <ArrowLeft className="h-5 w-5" aria-hidden />
+      </button>
+
+      <div className="flex items-center gap-3">
+        <span className="text-[13px] font-semibold tabular-nums text-[#252B29]">
+          {num} / 3
         </span>
-        <span className="font-semibold text-[#244B40]">{steps[index]?.label}</span>
+        <div
+          className="h-1.5 w-24 overflow-hidden rounded-full bg-[#DDE4DC]"
+          role="progressbar"
+          aria-valuenow={num}
+          aria-valuemin={1}
+          aria-valuemax={3}
+        >
+          <div
+            className="h-full rounded-full bg-[#244B40] transition-all duration-300"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
       </div>
-      <ol className="grid grid-cols-4 gap-2" aria-hidden>
-        {steps.map((s, i) => {
-          const isCompleted = i < index;
-          const isCurrent = i === index;
-          return (
-            <li key={s.id} className="space-y-1.5">
-              <div
-                className={cn(
-                  'h-1.5 rounded-full transition-all duration-300',
-                  isCompleted
-                    ? 'bg-[#244B40]'
-                    : isCurrent
-                      ? 'bg-[#244B40] ring-2 ring-[#A8BFA5]/50'
-                      : 'bg-[#DDE4DC]',
-                )}
-              />
-              <span
-                className={cn(
-                  'block text-[13px] transition-colors',
-                  isCurrent
-                    ? 'font-semibold text-[#252B29]'
-                    : isCompleted
-                      ? 'font-medium text-[#244B40]'
-                      : 'text-[#626B65]',
-                )}
-              >
-                {s.label}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-    </nav>
+
+      <span className="w-9" aria-hidden />
+    </div>
   );
 }

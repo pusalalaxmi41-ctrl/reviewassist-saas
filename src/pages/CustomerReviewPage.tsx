@@ -4,6 +4,7 @@ import { SearchX, Loader2 } from 'lucide-react';
 import type {
   Business,
   ExperienceInputMode,
+  ExperienceRating,
   ReviewFlowStep,
 } from '../types/business';
 import { businessRepository } from '../services/storage';
@@ -11,7 +12,8 @@ import { aiProvider, AIProviderError } from '../services/ai';
 import { classifyEstimatedSentiment } from '../utils/sentimentClassifier';
 import { ProgressSteps } from '../components/review/ProgressSteps';
 import { WelcomeStep } from '../components/review/WelcomeStep';
-import { ExperienceStep } from '../components/review/ExperienceStep';
+import { RatingStep } from '../components/review/RatingStep';
+import { HighlightsStep } from '../components/review/HighlightsStep';
 import { ReviewPreviewStep } from '../components/review/ReviewPreviewStep';
 import { GoogleRedirectStep } from '../components/review/GoogleRedirectStep';
 
@@ -27,6 +29,10 @@ export default function CustomerReviewPage() {
 
   const [step, setStep] = useState<ReviewFlowStep>('welcome');
   const [mode, setMode] = useState<ExperienceInputMode>('text');
+  const [rating, setRating] = useState<ExperienceRating | null>(null);
+  const [likedIds, setLikedIds] = useState<string[]>([]);
+  const [improveIds, setImproveIds] = useState<string[]>([]);
+  const [note, setNote] = useState('');
   const [experience, setExperience] = useState('');
   const [review, setReview] = useState('');
   const [attempt, setAttempt] = useState(0);
@@ -38,14 +44,12 @@ export default function CustomerReviewPage() {
   const trackedScanRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Clean up any in-flight generation if the customer navigates away or refreshes
   useEffect(() => {
     return () => {
       abortControllerRef.current?.abort();
     };
   }, []);
 
-  // Load business by slug and track QR scan / visit
   useEffect(() => {
     async function init() {
       if (!businessSlug) {
@@ -76,7 +80,7 @@ export default function CustomerReviewPage() {
       <div
         role="status"
         aria-live="polite"
-        className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-12 text-center shadow-2xs"
+        className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-12 text-center shadow-2xs"
       >
         <Loader2 className="mx-auto h-7 w-7 animate-spin text-[#244B40]" aria-hidden />
         <p className="mt-3 text-[15px] font-medium text-[#626B65]">
@@ -90,7 +94,7 @@ export default function CustomerReviewPage() {
     return (
       <div
         role="alert"
-        className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-8 text-center shadow-2xs space-y-2.5"
+        className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-8 text-center shadow-2xs space-y-2.5"
       >
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#EEF3EC] text-[#244B40]">
           <SearchX className="h-6 w-6" aria-hidden />
@@ -105,20 +109,27 @@ export default function CustomerReviewPage() {
     );
   }
 
-  async function handleExperienceSubmit(text: string) {
+  async function handleHighlightsSubmit(payload: {
+    text: string;
+    likedIds: string[];
+    improveIds: string[];
+    note: string;
+  }) {
     if (!business) return;
-    setExperience(text);
+    setLikedIds(payload.likedIds);
+    setImproveIds(payload.improveIds);
+    setNote(payload.note);
+    setExperience(payload.text);
     setReview('');
     setStep('review');
 
-    // Track feedback submission event
     void businessRepository.trackEvent({
       businessId: business.id,
       eventType: 'feedback_submitted',
-      metadata: { mode, length: text.length },
+      metadata: { mode, length: payload.text.length },
     });
 
-    await generate(text, 0, business);
+    await generate(payload.text, 0, business);
   }
 
   async function generate(
@@ -126,7 +137,6 @@ export default function CustomerReviewPage() {
     nextAttempt: number,
     targetBiz: Business,
   ) {
-    // Cancel any previous in-flight request
     abortControllerRef.current?.abort();
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -172,7 +182,6 @@ export default function CustomerReviewPage() {
       setReview(finalText);
       setAttempt(nextAttempt);
 
-      // Track AI generation event
       void businessRepository.trackEvent({
         businessId: targetBiz.id,
         eventType: 'ai_generation',
@@ -183,7 +192,6 @@ export default function CustomerReviewPage() {
         },
       });
 
-      // Record customer draft record with 4-way estimated sentiment
       const sentiment = classifyEstimatedSentiment(text);
 
       void businessRepository.recordDraft({
@@ -221,12 +229,18 @@ export default function CustomerReviewPage() {
     }
   }
 
-  function handleBackToExperience() {
-    abortControllerRef.current?.abort();
-    setLoading(false);
-    setSlowResponse(false);
-    setError(null);
-    setStep('experience');
+  function handleStepBack() {
+    if (step === 'rating') {
+      setStep('welcome');
+    } else if (step === 'highlights') {
+      setStep('rating');
+    } else if (step === 'review') {
+      abortControllerRef.current?.abort();
+      setLoading(false);
+      setSlowResponse(false);
+      setError(null);
+      setStep('highlights');
+    }
   }
 
   function handleGoogleRedirect() {
@@ -239,32 +253,47 @@ export default function CustomerReviewPage() {
   }
 
   return (
-    <div className="space-y-5">
-      <ProgressSteps current={step} />
+    <div className="space-y-3">
       <div
         key={step}
-        className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-5 shadow-xs motion-safe:animate-fade-in sm:p-8"
+        className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-5 shadow-xs motion-safe:animate-fade-in sm:p-8"
       >
+        <ProgressSteps current={step} onBack={handleStepBack} />
+
         {step === 'welcome' && (
           <WelcomeStep
             business={business}
+            initialMode={mode}
             onSelect={(m) => {
               setMode(m);
-              setStep('experience');
+              setStep('rating');
             }}
           />
         )}
-        {step === 'experience' && (
-          <ExperienceStep
-            businessName={business.name}
-            category={business.category}
-            mode={mode}
-            initialText={experience}
-            onModeChange={setMode}
-            onBack={() => setStep('welcome')}
-            onSubmit={(text) => void handleExperienceSubmit(text)}
+
+        {step === 'rating' && (
+          <RatingStep
+            selected={rating}
+            onSelect={setRating}
+            onNext={() => {
+              if (rating) setStep('highlights');
+            }}
           />
         )}
+
+        {step === 'highlights' && rating && (
+          <HighlightsStep
+            category={business.category}
+            rating={rating}
+            mode={mode}
+            initialLikedIds={likedIds}
+            initialImproveIds={improveIds}
+            initialNote={note}
+            onModeChange={setMode}
+            onSubmit={(payload) => void handleHighlightsSubmit(payload)}
+          />
+        )}
+
         {step === 'review' && (
           <ReviewPreviewStep
             key={`draft-${attempt}-${loading ? 'loading' : 'ready'}`}
@@ -276,11 +305,13 @@ export default function CustomerReviewPage() {
             error={error}
             onChange={setReview}
             onRegenerate={() => void generate(experience, attempt + 1, business)}
-            onBack={handleBackToExperience}
+            onBack={handleStepBack}
             onGoogleRedirect={handleGoogleRedirect}
+            onContinueToThanks={() => setStep('thanks')}
           />
         )}
-        {step === 'google' && (
+
+        {step === 'thanks' && (
           <GoogleRedirectStep
             business={business}
             review={review.trim()}

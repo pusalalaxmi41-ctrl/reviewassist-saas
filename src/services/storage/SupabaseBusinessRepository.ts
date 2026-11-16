@@ -9,6 +9,7 @@ import type {
   CustomerDraftRecord,
   ExperienceInputMode,
   ResponseWorkflowStatus,
+  ReviewFontStyle,
   ReviewSentiment,
 } from '../../types/business';
 import type {
@@ -53,6 +54,7 @@ interface DbBusinessRow {
   city: string;
   google_review_url: string;
   google_review_url_is_placeholder: boolean;
+  review_font?: ReviewFontStyle;
   status?: BusinessStatus;
   status_changed_at?: string;
   status_reason?: string | null;
@@ -254,6 +256,7 @@ function mapBusinessRow(row: DbBusinessRow): Business {
     city: row.city,
     googleReviewUrl: row.google_review_url,
     googleReviewUrlIsPlaceholder: row.google_review_url_is_placeholder,
+    reviewFont: row.review_font ?? 'classic',
     status: row.status ?? overlay?.status ?? 'active',
     statusChangedAt: row.status_changed_at ?? overlay?.statusChangedAt ?? row.created_at,
     statusReason:
@@ -441,6 +444,25 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
 
     if (error || !updated) {
       throw new Error(error?.message || 'Unable to update business category.');
+    }
+
+    return this.rememberBusiness(mapBusinessRow(updated as DbBusinessRow));
+  }
+
+  async updateBusinessReviewFont(
+    businessId: string,
+    reviewFont: ReviewFontStyle,
+  ): Promise<Business> {
+    const client = this.requireClient();
+    const { data: updated, error } = await client
+      .from('businesses')
+      .update({ review_font: reviewFont })
+      .eq('id', businessId)
+      .select('*')
+      .single();
+
+    if (error || !updated) {
+      throw new Error(error?.message || 'Unable to update review font.');
     }
 
     return this.rememberBusiness(mapBusinessRow(updated as DbBusinessRow));

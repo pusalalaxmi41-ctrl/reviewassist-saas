@@ -39,7 +39,6 @@ import type {
 } from '../../types/admin';
 import type {
   AccountLifecycleState,
-  BusinessCategory,
   BusinessStatus,
 } from '../../types/business';
 import {
@@ -51,12 +50,7 @@ import {
   TableLoadingSkeleton,
 } from './AdminComponents';
 
-const CATEGORY_LABELS: Record<BusinessCategory, string> = {
-  restaurant: 'Restaurant',
-  cafe: 'Cafe',
-  hotel: 'Hotel',
-  pg: 'PG / Hostel',
-};
+import { categoryLabels as CATEGORY_LABELS } from '../../config/reviewExperience';
 
 function formatShortDate(iso: string | null | undefined): string {
   if (!iso) return 'Never';

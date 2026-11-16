@@ -17,7 +17,11 @@ import {
 } from 'lucide-react';
 import type { Business, BusinessCategory } from '../types/business';
 import { businessRepository, PLACEHOLDER_GOOGLE_REVIEW_URL } from '../services/storage';
-import { categoryLabels } from '../services/business/mockBusinesses';
+import {
+  CATEGORY_EXPERIENCE,
+  CATEGORY_ORDER,
+  categoryLabels,
+} from '../config/reviewExperience';
 import { copyText } from '../utils/clipboard';
 import { getCustomerReviewUrl, getWhatsAppShareLink } from '../utils/sharing';
 import { Button } from '../components/common/Button';
@@ -392,10 +396,11 @@ export default function BusinessSetupPage() {
                 onChange={(e) => setCategory(e.target.value as BusinessCategory)}
                 className="block min-h-11 w-full rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-2.5 text-[15px] text-[#252B29] focus:border-[#244B40] focus:outline-none focus:ring-2 focus:ring-[#244B40]/25"
               >
-                <option value="restaurant">Restaurant / Dining</option>
-                <option value="cafe">Cafe / Bakery / Coffee</option>
-                <option value="hotel">Hotel / Resort / Homestay</option>
-                <option value="pg">PG / Co-living Accommodation</option>
+                {CATEGORY_ORDER.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {CATEGORY_EXPERIENCE[cat].emoji} {CATEGORY_EXPERIENCE[cat].setupLabel}
+                  </option>
+                ))}
               </select>
             </div>
 

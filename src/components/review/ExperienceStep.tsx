@@ -27,7 +27,7 @@ interface QuickTag {
   tone: 'positive' | 'neutral' | 'construct';
 }
 
-const CATEGORY_QUICK_TAGS: Record<BusinessCategory, QuickTag[]> = {
+const CATEGORY_QUICK_TAGS: Partial<Record<BusinessCategory, QuickTag[]>> = {
   restaurant: [
     { id: 'r1', label: 'Food was tasty & fresh', phrase: 'the food was fresh and really tasty', tone: 'positive' },
     { id: 'r2', label: 'Clean hygiene & water', phrase: 'table hygiene and drinking water were clean', tone: 'positive' },
@@ -92,7 +92,7 @@ export function ExperienceStep({
   const speech = useSpeechRecognition();
 
   const quickTags =
-    CATEGORY_QUICK_TAGS[category] ?? CATEGORY_QUICK_TAGS.restaurant;
+    CATEGORY_QUICK_TAGS[category] ?? CATEGORY_QUICK_TAGS.restaurant ?? [];
 
   const value = mode === 'voice' ? speech.transcript || text : text;
 

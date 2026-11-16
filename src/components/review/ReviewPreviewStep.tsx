@@ -11,6 +11,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import type { Business } from '../../types/business';
+import { getReviewFont } from '../../config/reviewExperience';
 import { copyText } from '../../utils/clipboard';
 import { Button } from '../common/Button';
 import { Alert } from '../common/Alert';
@@ -30,6 +31,7 @@ interface Props {
   onRegenerate: () => void;
   onBack: () => void;
   onGoogleRedirect: () => void;
+  onContinueToThanks?: () => void;
 }
 
 type CopyStatus = 'idle' | 'copying' | 'copied' | 'failed';
@@ -45,7 +47,9 @@ export function ReviewPreviewStep({
   onRegenerate,
   onBack,
   onGoogleRedirect,
+  onContinueToThanks,
 }: Props) {
+  const activeFont = getReviewFont(business.reviewFont);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const prefersReducedMotion =
@@ -135,6 +139,10 @@ export function ReviewPreviewStep({
     const currentText = review.trim();
     if (currentText && copyStatus !== 'copied') {
       await handleCopyReview();
+    }
+    if (onContinueToThanks) {
+      onContinueToThanks();
+      return;
     }
     onGoogleRedirect();
     window.open(business.googleReviewUrl, '_blank', 'noopener,noreferrer');
@@ -324,7 +332,13 @@ export function ReviewPreviewStep({
                   value={review}
                   onChange={(e) => handleTextChange(e.target.value)}
                   placeholder="Write or adjust your review here…"
-                  className="block w-full resize-y border-0 bg-transparent p-0 font-sans text-[15px] leading-relaxed text-[#252B29] placeholder:text-[#626B65] focus:outline-none sm:text-[16px]"
+                  style={{
+                    fontFamily: activeFont.fontFamily,
+                    fontWeight: activeFont.fontWeight,
+                    fontSize: `${activeFont.fontSize}px`,
+                    lineHeight: activeFont.lineHeight,
+                  }}
+                  className="block w-full resize-y border-0 bg-transparent p-0 text-[#252B29] placeholder:text-[#626B65] focus:outline-none"
                 />
                 {isEmpty && (
                   <p className="text-[13px] font-medium text-red-700" role="alert">
@@ -340,8 +354,14 @@ export function ReviewPreviewStep({
                 role="region"
                 aria-live="polite"
                 aria-label="Generated review preview"
+                style={{
+                  fontFamily: activeFont.fontFamily,
+                  fontWeight: activeFont.fontWeight,
+                  fontSize: `${activeFont.fontSize}px`,
+                  lineHeight: activeFont.lineHeight,
+                }}
                 className={cn(
-                  'min-h-[112px] whitespace-pre-wrap font-sans text-[15px] leading-relaxed text-[#252B29] sm:text-[16px]',
+                  'min-h-[112px] whitespace-pre-wrap text-[#252B29]',
                   !isGeneratingOrRevealing && 'cursor-text',
                 )}
               >

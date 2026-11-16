@@ -72,10 +72,11 @@ interface PublicBusinessRow {
   id: string;
   slug: string;
   name: string;
-  category: 'restaurant' | 'cafe' | 'hotel' | 'pg';
+  category: string;
   city: string;
   google_review_url: string;
   google_review_url_is_placeholder: boolean;
+  review_font?: string | null;
   created_at: string;
 }
 
@@ -312,6 +313,7 @@ async function handleRequest(req: Request, info: Deno.ServeHandlerInfo): Promise
         city: row.city,
         googleReviewUrl: row.google_review_url,
         googleReviewUrlIsPlaceholder: row.google_review_url_is_placeholder,
+        reviewFont: row.review_font ?? 'classic',
         createdAt: row.created_at,
       },
     },

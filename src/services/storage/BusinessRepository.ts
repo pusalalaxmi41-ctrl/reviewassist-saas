@@ -1,6 +1,7 @@
 import type {
   Business,
   BusinessCategory,
+  ReviewFontStyle,
   AnalyticsEvent,
   AnalyticsEventType,
   BusinessMetrics,
@@ -45,6 +46,12 @@ export interface IBusinessRepository {
   updateBusinessCategory(
     businessId: string,
     category: BusinessCategory,
+  ): Promise<Business>;
+
+  /** Updates the review display font shown to customers while writing. */
+  updateBusinessReviewFont(
+    businessId: string,
+    reviewFont: ReviewFontStyle,
   ): Promise<Business>;
 
   /** Records an analytics interaction event (QR scan, feedback, AI generation, Google redirect). */

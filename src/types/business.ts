@@ -1,4 +1,28 @@
-export type BusinessCategory = 'restaurant' | 'cafe' | 'hotel' | 'pg';
+export type BusinessCategory =
+  | 'restaurant'
+  | 'cafe'
+  | 'hotel'
+  | 'pg'
+  | 'salon'
+  | 'clinic'
+  | 'gym'
+  | 'retail'
+  | 'services';
+
+/**
+ * Display font used on the customer review page while the AI writes the draft.
+ * Purely visual: the copied review is always plain text so it posts cleanly on Google.
+ */
+export type ReviewFontStyle =
+  | 'classic'
+  | 'handwritten'
+  | 'script'
+  | 'typewriter'
+  | 'gothic'
+  | 'gothic_bold';
+
+/** Overall rating the customer picks in step 1 of the review flow. */
+export type ExperienceRating = 'excellent' | 'good' | 'average' | 'not_good';
 
 export type BusinessStatus = 'pending' | 'active' | 'rejected' | 'suspended';
 
@@ -14,6 +38,8 @@ export interface Business {
   googleReviewUrl: string;
   /** True while the business has not configured its real Google review link. */
   googleReviewUrlIsPlaceholder?: boolean;
+  /** Font shown to customers while their review is being written. Defaults to 'classic'. */
+  reviewFont?: ReviewFontStyle;
   /** Platform approval status. Defaults to 'pending' on new signups. */
   status?: BusinessStatus;
   statusChangedAt?: string;
@@ -28,7 +54,7 @@ export interface Business {
 
 export type ExperienceInputMode = 'text' | 'voice';
 
-export type ReviewFlowStep = 'welcome' | 'experience' | 'review' | 'google';
+export type ReviewFlowStep = 'welcome' | 'rating' | 'highlights' | 'review' | 'thanks';
 
 /**
  * Estimated sentiment classification of customer feedback.

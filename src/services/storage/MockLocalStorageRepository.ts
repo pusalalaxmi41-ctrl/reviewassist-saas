@@ -261,6 +261,26 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     return updatedBiz;
   }
 
+  async updateBusinessReviewFont(
+    businessId: string,
+    reviewFont: NonNullable<Business['reviewFont']>,
+  ): Promise<Business> {
+    const list = await this.getBusinesses();
+    const index = list.findIndex((b) => b.id === businessId);
+    if (index === -1) {
+      throw new Error(`Business with ID ${businessId} not found.`);
+    }
+
+    const updatedBiz: Business = {
+      ...list[index],
+      reviewFont,
+    };
+
+    list[index] = updatedBiz;
+    this.write(STORAGE_KEYS.BUSINESSES, list);
+    return updatedBiz;
+  }
+
   async trackEvent(event: {
     businessId: string;
     eventType: AnalyticsEventType;
