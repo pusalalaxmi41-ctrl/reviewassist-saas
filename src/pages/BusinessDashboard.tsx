@@ -20,6 +20,7 @@ import { AnalyticsView } from '../components/dashboard/AnalyticsView';
 import { QRCodeManager } from '../components/dashboard/QRCodeManager';
 import { CustomerDraftsView } from '../components/dashboard/CustomerDraftsView';
 import { GoogleUrlSettings } from '../components/dashboard/GoogleUrlSettings';
+import { BusinessCategorySettings } from '../components/dashboard/BusinessCategorySettings';
 import { AIConfigurationSettings } from '../components/dashboard/AIConfigurationSettings';
 import { BusinessKnowledgeSettings } from '../components/dashboard/BusinessKnowledgeSettings';
 
@@ -416,6 +417,11 @@ export default function BusinessDashboard() {
           )}
           {activeTab === 'settings' && (
             <div className="space-y-6">
+              <BusinessCategorySettings
+                key={`biz-category-${currentBusiness.id}`}
+                business={currentBusiness}
+                onUpdated={handleBusinessUpdated}
+              />
               <AIConfigurationSettings
                 key={`ai-config-${currentBusiness.id}`}
                 business={currentBusiness}

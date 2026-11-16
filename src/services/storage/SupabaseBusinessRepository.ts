@@ -427,6 +427,25 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     return this.rememberBusiness(mapBusinessRow(updated as DbBusinessRow));
   }
 
+  async updateBusinessCategory(
+    businessId: string,
+    category: BusinessCategory,
+  ): Promise<Business> {
+    const client = this.requireClient();
+    const { data: updated, error } = await client
+      .from('businesses')
+      .update({ category })
+      .eq('id', businessId)
+      .select('*')
+      .single();
+
+    if (error || !updated) {
+      throw new Error(error?.message || 'Unable to update business category.');
+    }
+
+    return this.rememberBusiness(mapBusinessRow(updated as DbBusinessRow));
+  }
+
   async trackEvent(event: {
     businessId: string;
     eventType: AnalyticsEventType;

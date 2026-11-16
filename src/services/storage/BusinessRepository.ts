@@ -1,5 +1,6 @@
 import type {
   Business,
+  BusinessCategory,
   AnalyticsEvent,
   AnalyticsEventType,
   BusinessMetrics,
@@ -38,6 +39,12 @@ export interface IBusinessRepository {
     businessId: string,
     url: string,
     isPlaceholder?: boolean,
+  ): Promise<Business>;
+
+  /** Updates the business's category (updates QR quick-highlight options). */
+  updateBusinessCategory(
+    businessId: string,
+    category: BusinessCategory,
   ): Promise<Business>;
 
   /** Records an analytics interaction event (QR scan, feedback, AI generation, Google redirect). */

@@ -215,7 +215,7 @@ export function ExperienceStep({
         <div className="flex items-center justify-between">
           <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[#252B29]">
             <Sparkles className="h-3.5 w-3.5 text-[#244B40]" aria-hidden />
-            Optional quick highlights
+            Quick highlights (tap what fits your visit — no typing needed)
             {selectedTagIds.length > 0 && (
               <span className="rounded-full border border-[#A8BFA5] bg-[#EEF3EC] px-2 py-0.5 text-[12px] font-semibold text-[#244B40]">
                 {selectedTagIds.length} selected
