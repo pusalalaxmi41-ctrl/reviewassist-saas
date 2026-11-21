@@ -595,7 +595,7 @@ begin
     v_table_id,
     v_customer.id,
     v_rules.stars_per_verified_visit,
-    pg_catalog.substring(v_clean_label from 1 for 80),
+    pg_catalog.substr(v_clean_label, 1, 80),
     v_clean_idem
   )
   returning * into v_existing_visit;
@@ -617,7 +617,7 @@ begin
     v_rules.stars_per_verified_visit,
     v_new_stars,
     v_clean_idem,
-    pg_catalog.substring(v_clean_label from 1 for 80),
+    pg_catalog.substr(v_clean_label, 1, 80),
     pg_catalog.jsonb_build_object(
       'visitId', v_existing_visit.id,
       'tableId', v_table_id
@@ -706,7 +706,7 @@ begin
   update public.restaurant_reward_claims
      set status = 'fulfilled',
          fulfilled_at = pg_catalog.clock_timestamp(),
-         fulfilled_by = pg_catalog.substring(v_clean_label from 1 for 80)
+         fulfilled_by = pg_catalog.substr(v_clean_label, 1, 80)
    where id = v_claim.id
   returning * into v_claim;
 

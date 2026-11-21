@@ -294,7 +294,7 @@ begin
     v_clean_name := 'Guest Diner';
   end if;
   if pg_catalog.char_length(v_clean_name) > 80 then
-    v_clean_name := pg_catalog.substring(v_clean_name from 1 for 80);
+    v_clean_name := pg_catalog.substr(v_clean_name, 1, 80);
   end if;
 
   if v_clean_contact is not null then

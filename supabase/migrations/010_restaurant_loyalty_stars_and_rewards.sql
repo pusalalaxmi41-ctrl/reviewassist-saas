@@ -675,7 +675,7 @@ begin
 
   -- Generate 6-character uppercase alphanumeric claim code
   v_claim_code := pg_catalog.upper(
-    pg_catalog.substring(pg_catalog.replace(gen_random_uuid()::text, '-', '') from 1 for 6)
+    pg_catalog.substr(pg_catalog.replace(gen_random_uuid()::text, '-', ''), 1, 6)
   );
 
   insert into public.restaurant_loyalty_star_transactions (
@@ -812,7 +812,7 @@ begin
   values (
     v_biz.id,
     v_table_id,
-    case when v_clean_name is not null then pg_catalog.substring(v_clean_name from 1 for 80) else null end,
+    case when v_clean_name is not null then pg_catalog.substr(v_clean_name, 1, 80) else null end,
     v_clean_msg
   )
   returning * into v_inserted;
@@ -865,7 +865,7 @@ begin
     v_clean_name := 'Guest Diner';
   end if;
   if pg_catalog.char_length(v_clean_name) > 80 then
-    v_clean_name := pg_catalog.substring(v_clean_name from 1 for 80);
+    v_clean_name := pg_catalog.substr(v_clean_name, 1, 80);
   end if;
 
   if v_clean_contact is not null then
