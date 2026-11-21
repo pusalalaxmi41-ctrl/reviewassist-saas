@@ -163,12 +163,6 @@ export default function BusinessDashboard() {
   const currentPill = statusPillConfig[currentStatus];
   const StatusIcon = currentPill.Icon;
 
-  const showRestaurantTab =
-    currentBusiness.category === 'restaurant' ||
-    currentBusiness.category === 'cafe' ||
-    currentBusiness.category === 'hotel' ||
-    Boolean(restaurantProfile?.isEnabled);
-
   const navItems: {
     id: Tab;
     label: string;
@@ -189,16 +183,12 @@ export default function BusinessDashboard() {
       Icon: MessageSquare,
       badge: drafts.length,
     },
-    ...(showRestaurantTab
-      ? [
-          {
-            id: 'restaurant' as const,
-            label: 'Restaurant Menu & Tables',
-            shortLabel: 'Restaurant',
-            Icon: UtensilsCrossed,
-          },
-        ]
-      : []),
+    {
+      id: 'restaurant',
+      label: 'Restaurant Menu & Tables',
+      shortLabel: 'Restaurant',
+      Icon: UtensilsCrossed,
+    },
     {
       id: 'qr',
       label: 'QR Code & WhatsApp',
