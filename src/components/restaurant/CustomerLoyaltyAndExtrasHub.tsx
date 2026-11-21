@@ -464,7 +464,7 @@ export function CustomerRewardsAndExtrasView({
               onClick={onBackToMenu}
               className="inline-flex items-center gap-1.5 rounded-full border border-[#1E1B4B]/15 bg-[#FFFFFF] px-3.5 py-1.5 text-[13px] font-bold text-[#111827] shadow-2xs active:scale-[0.98] transition-all cursor-pointer"
             >
-              <ArrowLeft className="h-4 w-4" aria-hidden /> Back to Menu
+              <ArrowLeft className="h-4 w-4" aria-hidden /> Back to Table Hub
             </button>
           ) : (
             <span />

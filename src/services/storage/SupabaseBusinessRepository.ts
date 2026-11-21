@@ -26,7 +26,10 @@ import type {
   BusinessServiceItem,
 } from '../../types/businessKnowledge';
 import type {
+  ApplyMenuPresetResult,
   DietaryTag,
+  MenuPresetKey,
+  MenuThemeTemplate,
   PublicRestaurantMenuPayload,
   RestaurantCurrencyCode,
   RestaurantCustomerCheckInInput,
@@ -61,8 +64,11 @@ import type {
   RestaurantTableCallStatus,
   RestaurantTableCallType,
   RestaurantTableInput,
+  RestaurantTableOrder,
+  RestaurantTableOrderStatus,
   RestaurantTriviaQuestion,
 } from '../../types/restaurant';
+import { MENU_PRESET_PACKS } from '../../config/menuPresets';
 import {
   normalizeBusinessAIConfig,
   validateBusinessAIConfigInput,
@@ -77,6 +83,7 @@ import {
   getDefaultRestaurantGameConfigs,
   normalizeRestaurantLoyaltyRules,
   normalizeRestaurantProfile,
+  validateMenuPresetKey,
   validateRestaurantCustomerCheckInInput,
   validateRestaurantGameConfigInput,
   validateRestaurantLoyaltyRulesInput,
@@ -86,6 +93,8 @@ import {
   validateRestaurantRewardInput,
   validateRestaurantSuggestionInput,
   validateRestaurantTableInput,
+  validateTableOrderItemsInput,
+  validateTableOrderStatus,
 } from '../../utils/restaurantValidation';
 import {
   filterActiveRetentionDrafts,
@@ -1241,6 +1250,10 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         loyalty_enabled: boolean;
         staff_pin_hash?: string | null;
         min_hours_between_visit_stars?: number;
+        table_ordering_enabled?: boolean;
+        menu_theme_template?: MenuThemeTemplate;
+        custom_logo_url?: string | null;
+        custom_accent_color?: string | null;
         updated_at: string;
       };
       return normalizeRestaurantProfile(
@@ -1253,6 +1266,10 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
           loyaltyEnabled: row.loyalty_enabled,
           staffPinHash: row.staff_pin_hash ?? null,
           minHoursBetweenVisitStars: row.min_hours_between_visit_stars ?? 4,
+          tableOrderingEnabled: Boolean(row.table_ordering_enabled),
+          menuThemeTemplate: row.menu_theme_template ?? 'default',
+          customLogoUrl: row.custom_logo_url ?? null,
+          customAccentColor: row.custom_accent_color ?? null,
           updatedAt: row.updated_at,
         },
         'supabase',
@@ -1293,6 +1310,19 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       upsertPayload.min_hours_between_visit_stars =
         validation.value.minHoursBetweenVisitStars;
     }
+    if (validation.value.tableOrderingEnabled !== undefined) {
+      upsertPayload.table_ordering_enabled =
+        validation.value.tableOrderingEnabled;
+    }
+    if (validation.value.menuThemeTemplate !== undefined) {
+      upsertPayload.menu_theme_template = validation.value.menuThemeTemplate;
+    }
+    if (validation.value.customLogoUrl !== undefined) {
+      upsertPayload.custom_logo_url = validation.value.customLogoUrl;
+    }
+    if (validation.value.customAccentColor !== undefined) {
+      upsertPayload.custom_accent_color = validation.value.customAccentColor;
+    }
 
     const { data, error } = await client
       .from('restaurant_profiles')
@@ -1310,6 +1340,10 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         loyalty_enabled: boolean;
         staff_pin_hash?: string | null;
         min_hours_between_visit_stars?: number;
+        table_ordering_enabled?: boolean;
+        menu_theme_template?: MenuThemeTemplate;
+        custom_logo_url?: string | null;
+        custom_accent_color?: string | null;
         updated_at: string;
       };
       return normalizeRestaurantProfile(
@@ -1322,6 +1356,10 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
           loyaltyEnabled: row.loyalty_enabled,
           staffPinHash: row.staff_pin_hash ?? null,
           minHoursBetweenVisitStars: row.min_hours_between_visit_stars ?? 4,
+          tableOrderingEnabled: Boolean(row.table_ordering_enabled),
+          menuThemeTemplate: row.menu_theme_template ?? 'default',
+          customLogoUrl: row.custom_logo_url ?? null,
+          customAccentColor: row.custom_accent_color ?? null,
           updatedAt: row.updated_at,
         },
         'supabase',
@@ -2970,5 +3008,198 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     }
 
     return mockBusinessRepository.getRestaurantFloorAndAnalytics(params);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Master Upgrade: 1-Tap Preset Menu Injection & Optional Table Ordering
+  // ---------------------------------------------------------------------------
+
+  async applyRestaurantMenuPreset(
+    businessId: string,
+    presetKey: MenuPresetKey,
+    options?: AIConfigAccessOptions,
+  ): Promise<ApplyMenuPresetResult> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const presetCheck = validateMenuPresetKey(presetKey);
+    if (!presetCheck.ok) {
+      throw new Error(presetCheck.error);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('apply_restaurant_menu_preset', {
+      p_business_id: cleanId,
+      p_preset_key: presetCheck.value,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as ApplyMenuPresetResult;
+    }
+
+    if (error && error.message.includes('Unauthorized')) {
+      throw new Error(error.message);
+    }
+
+    // Graceful fallback if migration 012 RPC is not yet applied on remote DB
+    const pack = MENU_PRESET_PACKS[presetCheck.value];
+    const existingCats = await this.getRestaurantMenuCategories(
+      cleanId,
+      options,
+    );
+    let itemsInserted = 0;
+
+    for (let cIdx = 0; cIdx < pack.categories.length; cIdx++) {
+      const catSpec = pack.categories[cIdx];
+      const createdCat = await this.createRestaurantMenuCategory(
+        cleanId,
+        {
+          name: catSpec.name,
+          description: catSpec.description,
+          displayOrder: existingCats.length + cIdx,
+          isActive: true,
+        },
+        options,
+      );
+      for (let dIdx = 0; dIdx < catSpec.dishes.length; dIdx++) {
+        const dSpec = catSpec.dishes[dIdx];
+        await this.createRestaurantMenuItem(
+          cleanId,
+          {
+            categoryId: createdCat.id,
+            name: dSpec.name,
+            description: dSpec.description,
+            pricePaise: dSpec.pricePaise,
+            dietaryTag: dSpec.dietaryTag,
+            isAvailable: true,
+            isFeatured: Boolean(dSpec.isFeatured),
+            displayOrder: dIdx,
+          },
+          options,
+        );
+        itemsInserted++;
+      }
+    }
+
+    const existingRewards = await this.getRestaurantRewards(cleanId, options);
+    let rewardsInserted = 0;
+    if (existingRewards.length === 0) {
+      for (let rIdx = 0; rIdx < pack.starterRewards.length; rIdx++) {
+        const rSpec = pack.starterRewards[rIdx];
+        await this.createRestaurantReward(
+          cleanId,
+          {
+            title: rSpec.title,
+            description: rSpec.description,
+            starsRequired: rSpec.starsRequired,
+            isActive: true,
+            displayOrder: rIdx,
+          },
+          options,
+        );
+        rewardsInserted++;
+      }
+    }
+
+    const currentProf = await this.getRestaurantProfile(cleanId, options);
+    await this.updateRestaurantProfile(
+      cleanId,
+      {
+        isEnabled: true,
+        currencyCode: currentProf.currencyCode,
+        tagline: currentProf.tagline || pack.tagline,
+        gamesEnabled: currentProf.gamesEnabled,
+        loyaltyEnabled: currentProf.loyaltyEnabled,
+        tableOrderingEnabled: currentProf.tableOrderingEnabled,
+        menuThemeTemplate: pack.themeTemplate,
+      },
+      options,
+    );
+
+    return {
+      presetKey: pack.presetKey,
+      themeTemplate: pack.themeTemplate,
+      categoriesInserted: pack.categories.length,
+      itemsInserted,
+      rewardsInserted,
+    };
+  }
+
+  async submitCustomerTableOrder(params: {
+    businessSlug: string;
+    tableKey?: string | null;
+    customerId?: string | null;
+    guestName?: string | null;
+    items: Array<{ itemId: string; quantity: number; notes?: string | null }>;
+  }): Promise<RestaurantTableOrder> {
+    const itemsValidation = validateTableOrderItemsInput(params.items);
+    if (!itemsValidation.ok) {
+      throw new Error(itemsValidation.error);
+    }
+
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('submit_customer_table_order', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_table_key: params.tableKey ? deriveTableKey(params.tableKey) : null,
+      p_customer_id: params.customerId ?? null,
+      p_guest_name: params.guestName ?? null,
+      p_items: itemsValidation.value,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as RestaurantTableOrder;
+    }
+
+    if (
+      error &&
+      (error.message.includes('turned off') ||
+        error.message.includes('unavailable') ||
+        error.message.includes('not active'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.submitCustomerTableOrder(params);
+  }
+
+  async updateTableOrderStatus(params: {
+    businessSlug: string;
+    orderId: string;
+    status: RestaurantTableOrderStatus;
+    staffLabel?: string;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<RestaurantTableOrder> {
+    const statusCheck = validateTableOrderStatus(params.status);
+    if (!statusCheck.ok) {
+      throw new Error(statusCheck.error);
+    }
+
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('update_table_order_status', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_order_id: params.orderId,
+      p_new_status: statusCheck.value,
+      p_staff_label: params.staffLabel ?? 'Staff',
+      p_staff_pin_hash: params.staffPinHash ?? null,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as RestaurantTableOrder;
+    }
+
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('not found'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.updateTableOrderStatus(params);
   }
 }

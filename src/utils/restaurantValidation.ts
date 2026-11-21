@@ -1,6 +1,8 @@
 import {
   RESTAURANT_LIMITS,
   type DietaryTag,
+  type MenuPresetKey,
+  type MenuThemeTemplate,
   type RestaurantCurrencyCode,
   type RestaurantCustomerCheckInInput,
   type RestaurantGameCategory,
@@ -18,6 +20,7 @@ import {
   type RestaurantRewardInput,
   type RestaurantSuggestionInput,
   type RestaurantTableInput,
+  type RestaurantTableOrderStatus,
   type RestaurantTriviaQuestion,
 } from '../types/restaurant';
 import { validateBusinessId } from './aiConfigValidation';
@@ -49,6 +52,31 @@ export const ALLOWED_DIETARY_TAGS: ReadonlyArray<DietaryTag> = [
   'egg',
   'vegan',
   'none',
+];
+
+export const ALLOWED_MENU_THEME_TEMPLATES: ReadonlyArray<MenuThemeTemplate> = [
+  'default',
+  'masala',
+  'prakriti',
+  'bistro',
+  'samudra',
+  'sizzler',
+];
+
+export const ALLOWED_MENU_PRESET_KEYS: ReadonlyArray<MenuPresetKey> = [
+  'masala_indian',
+  'prakriti_organic',
+  'bistro_modern',
+  'samudra_coastal',
+  'sizzler_diner',
+];
+
+export const ALLOWED_TABLE_ORDER_STATUSES: ReadonlyArray<RestaurantTableOrderStatus> = [
+  'pending_approval',
+  'approved_for_kitchen',
+  'preparing',
+  'served',
+  'cancelled',
 ];
 
 export const DIETARY_TAG_METADATA: Record<
@@ -234,6 +262,10 @@ export function validateRestaurantProfileInput(
         loyaltyEnabled: boolean;
         staffPinHash?: string | null;
         minHoursBetweenVisitStars?: number;
+        tableOrderingEnabled?: boolean;
+        menuThemeTemplate?: MenuThemeTemplate;
+        customLogoUrl?: string | null;
+        customAccentColor?: string | null;
       };
     }
   | { ok: false; error: string } {
@@ -314,6 +346,65 @@ export function validateRestaurantProfileInput(
     minHoursBetweenVisitStars = rec.minHoursBetweenVisitStars;
   }
 
+  let tableOrderingEnabled: boolean | undefined = undefined;
+  if (rec.tableOrderingEnabled !== undefined) {
+    if (typeof rec.tableOrderingEnabled !== 'boolean') {
+      return { ok: false, error: 'tableOrderingEnabled must be a boolean.' };
+    }
+    tableOrderingEnabled = rec.tableOrderingEnabled;
+  }
+
+  let menuThemeTemplate: MenuThemeTemplate | undefined = undefined;
+  if (rec.menuThemeTemplate !== undefined) {
+    if (
+      typeof rec.menuThemeTemplate !== 'string' ||
+      !ALLOWED_MENU_THEME_TEMPLATES.includes(
+        rec.menuThemeTemplate as MenuThemeTemplate,
+      )
+    ) {
+      return {
+        ok: false,
+        error: `Menu theme template must be one of: ${ALLOWED_MENU_THEME_TEMPLATES.join(', ')}.`,
+      };
+    }
+    menuThemeTemplate = rec.menuThemeTemplate as MenuThemeTemplate;
+  }
+
+  let customLogoUrl: string | null | undefined = undefined;
+  if (rec.customLogoUrl !== undefined) {
+    if (rec.customLogoUrl === null || rec.customLogoUrl === '') {
+      customLogoUrl = null;
+    } else if (typeof rec.customLogoUrl === 'string') {
+      const cleanLogo = stripControlChars(rec.customLogoUrl);
+      if (cleanLogo && (!/^https?:\/\/.+/i.test(cleanLogo) || cleanLogo.length > 2048)) {
+        return {
+          ok: false,
+          error: 'Custom logo URL must be a valid http:// or https:// URL.',
+        };
+      }
+      customLogoUrl = cleanLogo || null;
+    } else {
+      return { ok: false, error: 'Custom logo URL must be text.' };
+    }
+  }
+
+  let customAccentColor: string | null | undefined = undefined;
+  if (rec.customAccentColor !== undefined) {
+    if (rec.customAccentColor === null || rec.customAccentColor === '') {
+      customAccentColor = null;
+    } else if (
+      typeof rec.customAccentColor === 'string' &&
+      /^#[0-9a-f]{6}$/i.test(rec.customAccentColor.trim())
+    ) {
+      customAccentColor = rec.customAccentColor.trim().toUpperCase();
+    } else {
+      return {
+        ok: false,
+        error: 'Custom accent color must be a valid 6-digit hex color (e.g. #7A1624).',
+      };
+    }
+  }
+
   return {
     ok: true,
     value: {
@@ -326,6 +417,10 @@ export function validateRestaurantProfileInput(
       ...(minHoursBetweenVisitStars !== undefined
         ? { minHoursBetweenVisitStars }
         : {}),
+      ...(tableOrderingEnabled !== undefined ? { tableOrderingEnabled } : {}),
+      ...(menuThemeTemplate !== undefined ? { menuThemeTemplate } : {}),
+      ...(customLogoUrl !== undefined ? { customLogoUrl } : {}),
+      ...(customAccentColor !== undefined ? { customAccentColor } : {}),
     },
   };
 }
@@ -360,6 +455,24 @@ export function normalizeRestaurantProfile(
       ? partial.minHoursBetweenVisitStars
       : 4;
 
+  const menuThemeTemplate: MenuThemeTemplate =
+    partial?.menuThemeTemplate &&
+    ALLOWED_MENU_THEME_TEMPLATES.includes(partial.menuThemeTemplate)
+      ? partial.menuThemeTemplate
+      : 'default';
+
+  const customLogoUrl =
+    typeof partial?.customLogoUrl === 'string' &&
+    /^https?:\/\/.+/i.test(partial.customLogoUrl.trim())
+      ? partial.customLogoUrl.trim()
+      : null;
+
+  const customAccentColor =
+    typeof partial?.customAccentColor === 'string' &&
+    /^#[0-9a-f]{6}$/i.test(partial.customAccentColor.trim())
+      ? partial.customAccentColor.trim().toUpperCase()
+      : null;
+
   return {
     businessId: cleanId,
     isEnabled: Boolean(partial?.isEnabled),
@@ -373,6 +486,10 @@ export function normalizeRestaurantProfile(
         : true,
     staffPinHash,
     minHoursBetweenVisitStars,
+    tableOrderingEnabled: Boolean(partial?.tableOrderingEnabled),
+    menuThemeTemplate,
+    customLogoUrl,
+    customAccentColor,
     updatedAt:
       (partial as Partial<RestaurantProfile> | undefined)?.updatedAt ||
       new Date().toISOString(),
@@ -1680,4 +1797,96 @@ export function parseCustomerLoyaltyLookup(rawLookup: string): {
     mode: 'id_or_contact',
     value: cleaned,
   };
+}
+
+// ===========================================================================
+// Master Upgrade: Menu Presets & Optional Table Ordering Validation
+// ===========================================================================
+
+export function validateMenuPresetKey(
+  rawKey: unknown,
+): { ok: true; value: MenuPresetKey } | { ok: false; error: string } {
+  if (
+    typeof rawKey !== 'string' ||
+    !ALLOWED_MENU_PRESET_KEYS.includes(rawKey.trim() as MenuPresetKey)
+  ) {
+    return {
+      ok: false,
+      error: `Preset key must be one of: ${ALLOWED_MENU_PRESET_KEYS.join(', ')}.`,
+    };
+  }
+  return { ok: true, value: rawKey.trim() as MenuPresetKey };
+}
+
+export function validateTableOrderStatus(
+  rawStatus: unknown,
+):
+  | { ok: true; value: RestaurantTableOrderStatus }
+  | { ok: false; error: string } {
+  if (
+    typeof rawStatus !== 'string' ||
+    !ALLOWED_TABLE_ORDER_STATUSES.includes(
+      rawStatus.trim() as RestaurantTableOrderStatus,
+    )
+  ) {
+    return {
+      ok: false,
+      error: `Order status must be one of: ${ALLOWED_TABLE_ORDER_STATUSES.join(', ')}.`,
+    };
+  }
+  return { ok: true, value: rawStatus.trim() as RestaurantTableOrderStatus };
+}
+
+export function validateTableOrderItemsInput(
+  rawItems: unknown,
+):
+  | {
+      ok: true;
+      value: Array<{ itemId: string; quantity: number; notes: string | null }>;
+    }
+  | { ok: false; error: string } {
+  if (!Array.isArray(rawItems) || rawItems.length === 0) {
+    return { ok: false, error: 'Please select at least one dish to order.' };
+  }
+  if (rawItems.length > 40) {
+    return { ok: false, error: 'Maximum of 40 distinct items per table order.' };
+  }
+  const normalized: Array<{
+    itemId: string;
+    quantity: number;
+    notes: string | null;
+  }> = [];
+
+  for (const entry of rawItems) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return { ok: false, error: 'Each order item must be an object.' };
+    }
+    const rec = entry as Record<string, unknown>;
+    const itemId =
+      typeof rec.itemId === 'string' ? stripControlChars(rec.itemId) : '';
+    if (!itemId) {
+      return { ok: false, error: 'Each order item must specify a valid itemId.' };
+    }
+    if (
+      typeof rec.quantity !== 'number' ||
+      !Number.isInteger(rec.quantity) ||
+      rec.quantity < 1 ||
+      rec.quantity > 25
+    ) {
+      return {
+        ok: false,
+        error: 'Each item quantity must be an integer between 1 and 25.',
+      };
+    }
+    let notes: string | null = null;
+    if (rec.notes !== undefined && rec.notes !== null) {
+      if (typeof rec.notes !== 'string') {
+        return { ok: false, error: 'Item notes must be text.' };
+      }
+      notes = stripControlChars(rec.notes).slice(0, 160) || null;
+    }
+    normalized.push({ itemId, quantity: rec.quantity, notes });
+  }
+
+  return { ok: true, value: normalized };
 }

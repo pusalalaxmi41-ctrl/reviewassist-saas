@@ -27,10 +27,15 @@ import {
   Minus,
   X,
   Ticket,
+  ChefHat,
+  Palette,
+  Wand2,
 } from 'lucide-react';
 import type { Business } from '../../types/business';
 import type {
   DietaryTag,
+  MenuPresetKey,
+  MenuThemeTemplate,
   RestaurantCurrencyCode,
   RestaurantFloorAndAnalyticsPayload,
   RestaurantGameConfig,
@@ -41,8 +46,10 @@ import type {
   RestaurantReward,
   RestaurantSuggestion,
   RestaurantTable,
+  RestaurantTableOrderStatus,
   RestaurantTriviaQuestion,
 } from '../../types/restaurant';
+import { MENU_THEME_LIST } from '../../config/menuPresets';
 import { businessRepository } from '../../services/storage';
 import {
   ALLOWED_CURRENCIES,
@@ -147,6 +154,12 @@ export function RestaurantManagerView({
   const [tagline, setTagline] = useState('');
   const [gamesEnabled, setGamesEnabled] = useState(true);
   const [loyaltyEnabled, setLoyaltyEnabled] = useState(true);
+  const [tableOrderingEnabled, setTableOrderingEnabled] = useState(false);
+  const [menuThemeTemplate, setMenuThemeTemplate] =
+    useState<MenuThemeTemplate>('default');
+  const [applyingPresetKey, setApplyingPresetKey] =
+    useState<MenuPresetKey | null>(null);
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
 
@@ -293,6 +306,8 @@ export function RestaurantManagerView({
         setTagline(prof.tagline ?? '');
         setGamesEnabled(prof.gamesEnabled);
         setLoyaltyEnabled(prof.loyaltyEnabled);
+        setTableOrderingEnabled(Boolean(prof.tableOrderingEnabled));
+        setMenuThemeTemplate(prof.menuThemeTemplate ?? 'default');
         setMinHoursCooldown(prof.minHoursBetweenVisitStars ?? 4);
 
         setCategories(cats);
@@ -382,14 +397,27 @@ export function RestaurantManagerView({
     }, 4000);
   }
 
-  async function handleSaveProfile(nextEnabledOverride?: boolean) {
+  async function handleSaveProfile(
+    overrides?: {
+      isEnabled?: boolean;
+      tableOrderingEnabled?: boolean;
+      menuThemeTemplate?: MenuThemeTemplate;
+      statusMessage?: string;
+    },
+  ) {
     setSavingProfile(true);
     setErrorMessage(null);
     try {
       const targetEnabled =
-        typeof nextEnabledOverride === 'boolean'
-          ? nextEnabledOverride
+        typeof overrides?.isEnabled === 'boolean'
+          ? overrides.isEnabled
           : isEnabled;
+      const targetOrdering =
+        typeof overrides?.tableOrderingEnabled === 'boolean'
+          ? overrides.tableOrderingEnabled
+          : tableOrderingEnabled;
+      const targetTheme = overrides?.menuThemeTemplate ?? menuThemeTemplate;
+
       const saved = await businessRepository.updateRestaurantProfile(
         business.id,
         {
@@ -400,20 +428,89 @@ export function RestaurantManagerView({
           loyaltyEnabled,
           staffPinHash: profile?.staffPinHash ?? null,
           minHoursBetweenVisitStars: minHoursCooldown,
+          tableOrderingEnabled: targetOrdering,
+          menuThemeTemplate: targetTheme,
         },
       );
       setProfile(saved);
       setIsEnabled(saved.isEnabled);
+      setTableOrderingEnabled(Boolean(saved.tableOrderingEnabled));
+      setMenuThemeTemplate(saved.menuThemeTemplate ?? 'default');
       onProfileChanged?.(saved);
       notifyStatus(
-        saved.isEnabled
-          ? 'Restaurant Experience is ACTIVE.'
-          : 'Restaurant Experience saved.',
+        overrides?.statusMessage ??
+          (saved.isEnabled
+            ? 'Restaurant Experience is ACTIVE.'
+            : 'Restaurant Experience saved.'),
       );
     } catch (err) {
       setErrorMessage((err as Error).message);
     } finally {
       setSavingProfile(false);
+    }
+  }
+
+  async function handleApplyPresetMenu(presetKey: MenuPresetKey) {
+    setApplyingPresetKey(presetKey);
+    setErrorMessage(null);
+    try {
+      const result = await businessRepository.applyRestaurantMenuPreset(
+        business.id,
+        presetKey,
+      );
+      const [prof, cats, menuItems, rwds] = await Promise.all([
+        businessRepository.getRestaurantProfile(business.id),
+        businessRepository.getRestaurantMenuCategories(business.id),
+        businessRepository.getRestaurantMenuItems(business.id),
+        businessRepository.getRestaurantRewards(business.id),
+      ]);
+      setProfile(prof);
+      setIsEnabled(prof.isEnabled);
+      setMenuThemeTemplate(prof.menuThemeTemplate ?? result.themeTemplate);
+      setTagline(prof.tagline ?? '');
+      setCategories(cats);
+      setItems(menuItems);
+      setRewards(rwds);
+      setSelectedCategoryId('all');
+      if (cats.length > 0) setItemCategoryId(cats[0].id);
+      onProfileChanged?.(prof);
+      notifyStatus(
+        `Applied "${result.themeTemplate.toUpperCase()}" style and added ${result.categoriesInserted} categories + ${result.itemsInserted} dishes${result.rewardsInserted > 0 ? ` + ${result.rewardsInserted} starter rewards` : ''}!`,
+      );
+    } catch (err) {
+      setErrorMessage((err as Error).message);
+    } finally {
+      setApplyingPresetKey(null);
+    }
+  }
+
+  async function handleUpdateOrderStatus(
+    orderId: string,
+    nextStatus: RestaurantTableOrderStatus,
+  ) {
+    setUpdatingOrderId(orderId);
+    setErrorMessage(null);
+    try {
+      await businessRepository.updateTableOrderStatus({
+        businessSlug: business.slug,
+        orderId,
+        status: nextStatus,
+        staffLabel: 'Owner',
+        staffPinHash: null,
+      });
+      await refreshFloorData();
+      const labels: Record<RestaurantTableOrderStatus, string> = {
+        pending_approval: 'Moved order back to Pending.',
+        approved_for_kitchen: 'Approved order → Sent to Chef Kitchen Queue!',
+        preparing: 'Order marked as Preparing in Kitchen.',
+        served: 'Order marked as Served ✓',
+        cancelled: 'Order rejected and cancelled.',
+      };
+      notifyStatus(labels[nextStatus]);
+    } catch (err) {
+      setErrorMessage((err as Error).message);
+    } finally {
+      setUpdatingOrderId(null);
     }
   }
 
@@ -1144,6 +1241,7 @@ export function RestaurantManagerView({
 
   const activeCalls = floorData?.activeTableCalls ?? [];
   const pendingClaims = floorData?.pendingRewardClaims ?? [];
+  const activeOrders = floorData?.tableOrders ?? [];
   const analytics = floorData?.analytics ?? {
     qrScans: 0,
     checkedInDiners: 0,
@@ -1252,7 +1350,7 @@ export function RestaurantManagerView({
                 onClick={() => {
                   const next = !isEnabled;
                   setIsEnabled(next);
-                  void handleSaveProfile(next);
+                  void handleSaveProfile({ isEnabled: next });
                 }}
                 className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] ${
                   isEnabled ? 'bg-[#059669]' : 'bg-[#6B7280]/30'
@@ -1408,6 +1506,205 @@ export function RestaurantManagerView({
               </div>
             </div>
           </div>
+
+          {/* Prominent Master Switch: Customer Phone Ordering (Send to Chef after Approval) */}
+          <div className="bistro-card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#1E1B4B] text-[#D2DB76] shadow-2xs">
+                <ChefHat className="h-5 w-5" aria-hidden />
+              </span>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-[15px] font-extrabold text-[#111827]">
+                    Customer Phone Ordering (Send to Chef after Approval)
+                  </p>
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider ${
+                      tableOrderingEnabled
+                        ? 'bg-emerald-50 text-[#059669] border border-emerald-200'
+                        : 'bg-gray-100 text-[#6B7280]'
+                    }`}
+                  >
+                    {tableOrderingEnabled ? 'ON' : 'OFF — View-Only Menu'}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-[13px] text-[#6B7280]">
+                  {tableOrderingEnabled
+                    ? 'Guests can tap + on dishes to send table orders for your approval before going to the Chef queue (zero payment or tax).'
+                    : 'Menu is view-only with zero + buttons. Guests tell their waiter directly.'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={tableOrderingEnabled}
+              aria-label="Toggle Customer Phone Ordering"
+              disabled={savingProfile}
+              onClick={() => {
+                const next = !tableOrderingEnabled;
+                setTableOrderingEnabled(next);
+                void handleSaveProfile({
+                  tableOrderingEnabled: next,
+                  statusMessage: next
+                    ? 'Customer Phone Ordering enabled — incoming table orders require Manager/Staff approval before sending to Chef.'
+                    : 'Customer Phone Ordering turned OFF — menu is now strictly view-only.',
+                });
+              }}
+              className={`relative inline-flex h-7 w-13 shrink-0 items-center rounded-full transition-colors duration-200 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] ${
+                tableOrderingEnabled ? 'bg-[#059669]' : 'bg-[#6B7280]/30'
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-[#FFFFFF] shadow-sm transition-transform duration-200 ${
+                  tableOrderingEnabled ? 'translate-x-7' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Incoming Table Orders Queue (Shown when Phone Ordering is ON or orders exist) */}
+          {(tableOrderingEnabled || activeOrders.length > 0) && (
+            <div className="bistro-card p-6 sm:p-8 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-[19px] font-bold text-[#111827] flex items-center gap-2">
+                    <ChefHat className="h-5 w-5 text-[#1E1B4B]" aria-hidden />
+                    Incoming Table Orders Queue
+                  </h2>
+                  <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[#D2DB76] px-2 text-[12px] font-extrabold text-[#1E1B4B] tabular-nums">
+                    {activeOrders.length}
+                  </span>
+                </div>
+                <span className="text-[12px] font-semibold text-[#6B7280]">
+                  Approve → Kitchen Queue → Served (Zero billing)
+                </span>
+              </div>
+
+              {activeOrders.length === 0 ? (
+                <div className="rounded-2xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-6 text-center text-[13px] font-medium text-[#6B7280]">
+                  No pending table orders right now. When guests submit a table order from the Digital Menu, it will appear here for 1-tap approval.
+                </div>
+              ) : (
+                <div className="divide-y divide-[#1E1B4B]/10 rounded-2xl border border-[#1E1B4B]/10 bg-[#FFFFFF]">
+                  {activeOrders.map((ord) => {
+                    const isBusy = updatingOrderId === ord.id;
+                    const itemSummary = ord.items
+                      .map((i) => `${i.quantity}× ${i.name}`)
+                      .join(', ');
+                    const firstNote = ord.items.find((i) => i.notes)?.notes;
+
+                    return (
+                      <div
+                        key={ord.id}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 p-4 sm:px-5"
+                      >
+                        <div className="space-y-1 min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[15px] font-extrabold text-[#111827]">
+                              {ord.tableNumber || 'Table Order'}
+                            </span>
+                            {ord.guestName && (
+                              <span className="text-[12px] font-semibold text-[#6B7280]">
+                                • {ord.guestName}
+                              </span>
+                            )}
+                            <span
+                              className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider ${
+                                ord.status === 'pending_approval'
+                                  ? 'bg-amber-50 text-[#D97706] border border-amber-300'
+                                  : ord.status === 'approved_for_kitchen'
+                                    ? 'bg-[#1E1B4B] text-[#D2DB76]'
+                                    : 'bg-emerald-50 text-[#059669] border border-emerald-200'
+                              }`}
+                            >
+                              {ord.status === 'pending_approval'
+                                ? 'Pending Approval'
+                                : ord.status === 'approved_for_kitchen'
+                                  ? 'Sent to Chef'
+                                  : 'Preparing'}
+                            </span>
+                            <span className="text-[12px] text-[#6B7280] tabular-nums">
+                              • {formatTimeAgo(ord.createdAt)}
+                            </span>
+                          </div>
+                          <p className="text-[14px] font-semibold text-[#111827]">
+                            {itemSummary}
+                          </p>
+                          {firstNote && (
+                            <p className="text-[12px] italic text-[#D97706]">
+                              Note: &ldquo;{firstNote}&rdquo;
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          {ord.status === 'pending_approval' && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() =>
+                                  void handleUpdateOrderStatus(
+                                    ord.id,
+                                    'approved_for_kitchen',
+                                  )
+                                }
+                                className="rounded-xl bg-[#1E1B4B] px-4 py-2 text-[12px] font-extrabold text-[#FFFFFF] hover:bg-[#2E2A6E] active:scale-[0.98] transition-all cursor-pointer"
+                              >
+                                Approve → Send to Chef
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() =>
+                                  void handleUpdateOrderStatus(
+                                    ord.id,
+                                    'cancelled',
+                                  )
+                                }
+                                className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2 text-[12px] font-bold text-red-700 hover:bg-red-100 active:scale-[0.98] transition-all cursor-pointer"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          )}
+                          {ord.status === 'approved_for_kitchen' && (
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() =>
+                                void handleUpdateOrderStatus(
+                                  ord.id,
+                                  'preparing',
+                                )
+                              }
+                              className="rounded-xl bg-[#1E1B4B] px-4 py-2 text-[12px] font-extrabold text-[#FFFFFF] hover:bg-[#2E2A6E] active:scale-[0.98] transition-all cursor-pointer"
+                            >
+                              Start Preparing
+                            </button>
+                          )}
+                          {ord.status === 'preparing' && (
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() =>
+                                void handleUpdateOrderStatus(ord.id, 'served')
+                              }
+                              className="rounded-xl bg-[#059669] px-4 py-2 text-[12px] font-extrabold text-[#FFFFFF] hover:bg-emerald-700 active:scale-[0.98] transition-all cursor-pointer"
+                            >
+                              Mark Served ✓
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Live Table Alerts Card (Matching Mockup 1) */}
           <div className="bistro-card p-6 sm:p-8 space-y-5">
@@ -1608,6 +1905,182 @@ export function RestaurantManagerView({
               >
                 <Plus className="h-4 w-4" aria-hidden /> Add Dish
               </Button>
+            </div>
+          </div>
+
+          {/* Customer Phone Ordering Master Switch inside Digital Menu */}
+          <div className="bistro-card px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#1E1B4B] text-[#D2DB76]">
+                <ChefHat className="h-4 w-4" aria-hidden />
+              </span>
+              <div>
+                <p className="text-[14px] font-extrabold text-[#111827]">
+                  Customer Phone Ordering (Send to Chef after Approval):{' '}
+                  <span
+                    className={
+                      tableOrderingEnabled ? 'text-[#059669]' : 'text-[#6B7280]'
+                    }
+                  >
+                    {tableOrderingEnabled ? 'ON' : 'OFF'}
+                  </span>
+                </p>
+                <p className="text-[12px] text-[#6B7280]">
+                  {tableOrderingEnabled
+                    ? 'Dishes display + buttons so guests can submit orders for your approval.'
+                    : 'View-only menu with zero + buttons. Toggle ON anytime to accept table orders.'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={tableOrderingEnabled}
+              aria-label="Toggle Customer Phone Ordering on Digital Menu"
+              disabled={savingProfile}
+              onClick={() => {
+                const next = !tableOrderingEnabled;
+                setTableOrderingEnabled(next);
+                void handleSaveProfile({
+                  tableOrderingEnabled: next,
+                  statusMessage: next
+                    ? 'Customer Phone Ordering turned ON.'
+                    : 'Customer Phone Ordering turned OFF (View-Only Menu).',
+                });
+              }}
+              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 cursor-pointer ${
+                tableOrderingEnabled ? 'bg-[#059669]' : 'bg-[#6B7280]/30'
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-[#FFFFFF] shadow-sm transition-transform duration-200 ${
+                  tableOrderingEnabled ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* 1-Tap Preset Menu & 5 Cultural Theme Studio */}
+          <div className="bistro-card p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-[18px] font-extrabold text-[#111827] flex items-center gap-2">
+                  <Palette className="h-5 w-5 text-[#1E1B4B]" aria-hidden />
+                  Cultural Menu Theme &amp; 1-Tap Preset Studio
+                </h2>
+                <p className="mt-0.5 text-[13px] text-[#6B7280]">
+                  Pick a cultural template to transform your guest Digital Menu immediately — or load 10 authentic sample dishes in 1 tap.
+                </p>
+              </div>
+              {isBusinessLive && (
+                <a
+                  href={menuUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#1E1B4B]/20 bg-[#F8F9FA] px-3.5 text-[12px] font-bold text-[#1E1B4B] hover:bg-[#1E1B4B] hover:text-[#FFFFFF] transition-colors"
+                >
+                  Preview Live Menu <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                </a>
+              )}
+            </div>
+
+            <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+              {MENU_THEME_LIST.map((tpl) => {
+                const isSelected = menuThemeTemplate === tpl.id;
+                const isApplying =
+                  tpl.presetKey !== undefined &&
+                  applyingPresetKey === tpl.presetKey;
+
+                return (
+                  <div
+                    key={tpl.id}
+                    className={`rounded-2xl border p-4 flex flex-col justify-between gap-3 transition-all ${
+                      isSelected
+                        ? 'border-2 border-[#1E1B4B] bg-[#FFFFFF] ring-2 ring-[#D2DB76] shadow-sm'
+                        : 'border-[#1E1B4B]/12 bg-[#FFFFFF] hover:border-[#1E1B4B]/40'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      disabled={savingProfile}
+                      onClick={() => {
+                        setMenuThemeTemplate(tpl.id);
+                        void handleSaveProfile({
+                          menuThemeTemplate: tpl.id,
+                          statusMessage: `Switched Digital Menu theme to "${tpl.name}".`,
+                        });
+                      }}
+                      className="text-left space-y-3 cursor-pointer"
+                    >
+                      {/* Mini Visual Swatch Preview */}
+                      <div
+                        className="rounded-xl p-3 border border-black/10 flex items-center justify-between gap-2"
+                        style={{
+                          backgroundColor: tpl.previewBg,
+                          color: tpl.previewText,
+                        }}
+                      >
+                        <div className="min-w-0">
+                          <p className="text-[14px] font-extrabold truncate">
+                            {tpl.name}
+                          </p>
+                          <p className="text-[10.5px] opacity-80 truncate">
+                            {tpl.vibeBadge}
+                          </p>
+                        </div>
+                        <span
+                          className={`shrink-0 px-2.5 py-1 text-[10px] font-bold ${tpl.previewButtonStyle}`}
+                        >
+                          Menu
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          {tpl.swatches.map((hex) => (
+                            <span
+                              key={hex}
+                              className="h-4 w-4 rounded-full border border-black/15"
+                              style={{ backgroundColor: hex }}
+                              title={hex}
+                            />
+                          ))}
+                        </div>
+                        {isSelected ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[10.5px] font-extrabold text-[#059669]">
+                            <Check className="h-3 w-3" aria-hidden /> Active Theme
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-bold text-[#1E1B4B] underline">
+                            Apply Theme
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="text-[12px] text-[#6B7280] leading-snug">
+                        {tpl.subtitle}
+                      </p>
+                    </button>
+
+                    {tpl.presetKey && (
+                      <button
+                        type="button"
+                        disabled={applyingPresetKey !== null}
+                        onClick={() =>
+                          void handleApplyPresetMenu(tpl.presetKey!)
+                        }
+                        className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-xl bg-[#1E1B4B]/[0.06] px-3 text-[12px] font-extrabold text-[#1E1B4B] hover:bg-[#1E1B4B] hover:text-[#FFFFFF] active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
+                      >
+                        <Wand2 className="h-3.5 w-3.5" aria-hidden />
+                        {isApplying
+                          ? 'Loading 10 Dishes…'
+                          : 'Load Sample Dishes (1-Tap)'}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 

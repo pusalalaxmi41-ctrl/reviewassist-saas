@@ -8,12 +8,14 @@ import {
   Camera,
   CameraOff,
   Search,
+  ChefHat,
 } from 'lucide-react';
 import type { Business } from '../../types/business';
 import type {
   RestaurantFloorAndAnalyticsPayload,
   RestaurantProfile,
   RestaurantTable,
+  RestaurantTableOrderStatus,
 } from '../../types/restaurant';
 import { businessRepository } from '../../services/storage';
 import { parseCustomerLoyaltyLookup } from '../../utils/restaurantValidation';
@@ -56,6 +58,7 @@ function getShortTableCode(tableNumber: string, index: number): string {
 
 export function RestaurantFloorAndStaffPanel({
   business,
+  profile,
   tables,
   staffPinHash,
   staffLabel = 'Floor Staff',
@@ -357,6 +360,35 @@ export function RestaurantFloorAndStaffPanel({
     }
   }
 
+  async function handleUpdateTableOrder(
+    orderId: string,
+    nextStatus: RestaurantTableOrderStatus,
+  ) {
+    setProcessingLookup(true);
+    try {
+      await businessRepository.updateTableOrderStatus({
+        businessSlug: business.slug,
+        orderId,
+        status: nextStatus,
+        staffLabel,
+        staffPinHash: staffPinHash ?? null,
+      });
+      await refreshFloorData();
+      const statusLabels: Record<RestaurantTableOrderStatus, string> = {
+        pending_approval: 'Moved to Pending.',
+        approved_for_kitchen: 'Approved → Sent to Chef Kitchen Queue!',
+        preparing: 'Kitchen started preparing order.',
+        served: 'Order marked Served ✓',
+        cancelled: 'Order cancelled.',
+      };
+      reportStatus(statusLabels[nextStatus]);
+    } catch (err) {
+      reportError((err as Error).message);
+    } finally {
+      setProcessingLookup(false);
+    }
+  }
+
   if (loading && !floorData) {
     return (
       <div className="bistro-card p-10 text-center">
@@ -369,6 +401,11 @@ export function RestaurantFloorAndStaffPanel({
 
   const activeCalls = floorData?.activeTableCalls ?? [];
   const pendingClaims = floorData?.pendingRewardClaims ?? [];
+  const tableOrders = floorData?.tableOrders ?? [];
+  const orderingActive =
+    Boolean(floorData?.tableOrderingEnabled) ||
+    Boolean(profile?.tableOrderingEnabled) ||
+    tableOrders.length > 0;
 
   return (
     <div className="space-y-5 animate-fadeSlideUp">
@@ -539,6 +576,134 @@ export function RestaurantFloorAndStaffPanel({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ORDER APPROVAL & CHEF KITCHEN QUEUE (Shown when tableOrderingEnabled is ON) */}
+      {orderingActive && (
+        <div className="bistro-card p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-[13px] font-extrabold uppercase tracking-wider text-[#111827] flex items-center gap-1.5">
+              <ChefHat className="h-4 w-4 text-[#1E1B4B]" aria-hidden />
+              Order Approval &amp; Chef Queue ({tableOrders.length})
+            </h2>
+            <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[10px] font-extrabold uppercase text-[#059669]">
+              Ordering ON
+            </span>
+          </div>
+
+          {tableOrders.length === 0 ? (
+            <p className="rounded-xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-4 text-center text-[12px] font-medium text-[#6B7280]">
+              No pending table orders — new orders appear here automatically.
+            </p>
+          ) : (
+            <div className="space-y-2.5">
+              {tableOrders.map((ord) => {
+                const itemsLine = ord.items
+                  .map((i) => `${i.quantity}× ${i.name}`)
+                  .join(', ');
+                const note = ord.items.find((i) => i.notes)?.notes;
+
+                return (
+                  <div
+                    key={ord.id}
+                    className={`rounded-2xl border p-3.5 space-y-2.5 ${
+                      ord.status === 'pending_approval'
+                        ? 'border-amber-300 bg-amber-50/70'
+                        : ord.status === 'approved_for_kitchen'
+                          ? 'border-[#1E1B4B]/20 bg-[#F8F9FA]'
+                          : 'border-emerald-200 bg-emerald-50/50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[14px] font-extrabold text-[#111827]">
+                        {ord.tableNumber || 'Table Order'}
+                        {ord.guestName ? ` • ${ord.guestName}` : ''}
+                      </span>
+                      <span
+                        className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase ${
+                          ord.status === 'pending_approval'
+                            ? 'bg-[#D97706] text-[#FFFFFF]'
+                            : ord.status === 'approved_for_kitchen'
+                              ? 'bg-[#1E1B4B] text-[#D2DB76]'
+                              : 'bg-[#059669] text-[#FFFFFF]'
+                        }`}
+                      >
+                        {ord.status === 'pending_approval'
+                          ? 'Pending Approval'
+                          : ord.status === 'approved_for_kitchen'
+                            ? 'Kitchen Queue'
+                            : 'Preparing'}
+                      </span>
+                    </div>
+
+                    <p className="text-[13px] font-semibold text-[#111827]">
+                      {itemsLine}
+                    </p>
+                    {note && (
+                      <p className="text-[11.5px] italic text-[#D97706]">
+                        Note: &ldquo;{note}&rdquo;
+                      </p>
+                    )}
+
+                    <div className="flex items-center gap-2 pt-0.5">
+                      {ord.status === 'pending_approval' && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={processingLookup}
+                            onClick={() =>
+                              void handleUpdateTableOrder(
+                                ord.id,
+                                'approved_for_kitchen',
+                              )
+                            }
+                            className="flex-1 rounded-xl bg-[#1E1B4B] py-2 text-[12px] font-extrabold text-[#FFFFFF] active:scale-[0.98] transition-all cursor-pointer"
+                          >
+                            Approve to Chef →
+                          </button>
+                          <button
+                            type="button"
+                            disabled={processingLookup}
+                            onClick={() =>
+                              void handleUpdateTableOrder(ord.id, 'cancelled')
+                            }
+                            className="rounded-xl border border-red-200 bg-[#FFFFFF] px-3 py-2 text-[12px] font-bold text-red-700 cursor-pointer"
+                          >
+                            Reject
+                          </button>
+                        </>
+                      )}
+                      {ord.status === 'approved_for_kitchen' && (
+                        <button
+                          type="button"
+                          disabled={processingLookup}
+                          onClick={() =>
+                            void handleUpdateTableOrder(ord.id, 'preparing')
+                          }
+                          className="flex-1 rounded-xl bg-[#1E1B4B] py-2 text-[12px] font-extrabold text-[#FFFFFF] active:scale-[0.98] transition-all cursor-pointer"
+                        >
+                          Chef: Start Preparing
+                        </button>
+                      )}
+                      {ord.status === 'preparing' && (
+                        <button
+                          type="button"
+                          disabled={processingLookup}
+                          onClick={() =>
+                            void handleUpdateTableOrder(ord.id, 'served')
+                          }
+                          className="flex-1 rounded-xl bg-[#059669] py-2 text-[12px] font-extrabold text-[#FFFFFF] active:scale-[0.98] transition-all cursor-pointer"
+                        >
+                          Mark Served ✓
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

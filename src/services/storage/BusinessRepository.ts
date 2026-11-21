@@ -17,6 +17,8 @@ import type {
   BusinessKnowledgeProfile,
 } from '../../types/businessKnowledge';
 import type {
+  ApplyMenuPresetResult,
+  MenuPresetKey,
   PublicRestaurantMenuPayload,
   RestaurantCustomerCheckInInput,
   RestaurantCustomerWalletState,
@@ -49,6 +51,8 @@ import type {
   RestaurantTableCallStatus,
   RestaurantTableCallType,
   RestaurantTableInput,
+  RestaurantTableOrder,
+  RestaurantTableOrderStatus,
 } from '../../types/restaurant';
 
 export interface AIConfigAccessOptions {
@@ -455,7 +459,7 @@ export interface IBusinessRepository {
   }): Promise<RestaurantRewardClaim & { customerName?: string }>;
 
   /**
-   * Returns live table floor alerts, pending reward claims, and accurate engagement funnel
+   * Returns live table floor alerts, pending reward claims, active table orders, and accurate engagement funnel
    * metrics (explicitly separating QR scans from verified paid visits).
    */
   getRestaurantFloorAndAnalytics(params: {
@@ -463,4 +467,43 @@ export interface IBusinessRepository {
     staffPinHash?: string | null;
     options?: AIConfigAccessOptions;
   }): Promise<RestaurantFloorAndAnalyticsPayload>;
+
+  // ---------------------------------------------------------------------------
+  // Master Upgrade: 1-Tap Preset Menu Injection & Optional Table Ordering
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Injects one of the 5 complete cultural menu preset packs (3 categories, 10 dishes,
+   * matching cultural theme template, and 2 starter rewards if none exist).
+   */
+  applyRestaurantMenuPreset(
+    businessId: string,
+    presetKey: MenuPresetKey,
+    options?: AIConfigAccessOptions,
+  ): Promise<ApplyMenuPresetResult>;
+
+  /**
+   * Submits a guest table order strictly when `tableOrderingEnabled === true`.
+   * Resolves canonical dish names and prices from the backend catalog (zero payment/tax).
+   */
+  submitCustomerTableOrder(params: {
+    businessSlug: string;
+    tableKey?: string | null;
+    customerId?: string | null;
+    guestName?: string | null;
+    items: Array<{ itemId: string; quantity: number; notes?: string | null }>;
+  }): Promise<RestaurantTableOrder>;
+
+  /**
+   * Lets Owner or Staff (via Staff PIN) move a table order through:
+   * 'pending_approval' -> 'approved_for_kitchen' -> 'preparing' -> 'served' | 'cancelled'
+   */
+  updateTableOrderStatus(params: {
+    businessSlug: string;
+    orderId: string;
+    status: RestaurantTableOrderStatus;
+    staffLabel?: string;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<RestaurantTableOrder>;
 }

@@ -7,25 +7,33 @@ import {
   Star,
   SearchX,
   Loader2,
-  Sparkles,
   MessageSquareHeart,
+  Wifi,
+  BellRing,
+  ChevronRight,
+  Copy,
+  Check,
+  X,
+  Receipt,
+  CheckCircle2,
+  UserPlus,
+  Inbox,
 } from 'lucide-react';
 import type {
-  DietaryTag,
   PublicRestaurantMenuPayload,
   RestaurantCustomerWalletState,
+  RestaurantTableCall,
+  RestaurantTableCallType,
 } from '../types/restaurant';
 import { businessRepository } from '../services/storage';
-import {
-  DIETARY_TAG_METADATA,
-  formatPriceFromPaise,
-} from '../utils/restaurantValidation';
+import { MENU_THEME_LIST } from '../config/menuPresets';
+import { copyText } from '../utils/clipboard';
 import { CustomerGameArena } from '../components/restaurant/CustomerGameArena';
 import {
-  CustomerFloatingServicePill,
   CustomerLoyaltyHeroCard,
   CustomerRewardsAndExtrasView,
 } from '../components/restaurant/CustomerLoyaltyAndExtrasHub';
+import { CustomerDigitalMenuView } from '../components/restaurant/CustomerDigitalMenuView';
 
 const CUSTOMER_STORAGE_KEY = 'vitaran_diner_session_v1';
 
@@ -67,64 +75,7 @@ function saveStoredDinerIdentity(identity: StoredDinerIdentity): void {
   }
 }
 
-function getDishVisualPalette(
-  dishName: string,
-  dietaryTag: DietaryTag,
-): { bg: string; emoji: string; accent: string } {
-  const lower = dishName.toLowerCase();
-  if (
-    lower.includes('biryani') ||
-    lower.includes('rice') ||
-    lower.includes('pulao')
-  ) {
-    return {
-      bg: 'from-amber-100 via-orange-50 to-amber-50',
-      emoji: '🍛',
-      accent: '#D97706',
-    };
-  }
-  if (
-    lower.includes('cooler') ||
-    lower.includes('lime') ||
-    lower.includes('mojito') ||
-    lower.includes('juice') ||
-    lower.includes('drink') ||
-    lower.includes('coffee') ||
-    lower.includes('chai')
-  ) {
-    return {
-      bg: 'from-emerald-100 via-teal-50 to-lime-50',
-      emoji: '🍹',
-      accent: '#059669',
-    };
-  }
-  if (
-    lower.includes('paneer') ||
-    lower.includes('starter') ||
-    lower.includes('tikka') ||
-    lower.includes('kebab')
-  ) {
-    return {
-      bg: 'from-orange-100 via-amber-50 to-yellow-50',
-      emoji: '🥘',
-      accent: '#EA580C',
-    };
-  }
-  if (dietaryTag === 'non_veg') {
-    return {
-      bg: 'from-rose-100 via-orange-50 to-amber-50',
-      emoji: '🍗',
-      accent: '#DC2626',
-    };
-  }
-  return {
-    bg: 'from-[#D2DB76]/45 via-emerald-50 to-[#F8F9FA]',
-    emoji: '🥗',
-    accent: '#059669',
-  };
-}
-
-type HubView = 'menu' | 'games' | 'rewards' | 'extras';
+type HubView = 'launcher' | 'menu' | 'games' | 'rewards' | 'extras';
 
 export default function CustomerRestaurantMenuPage() {
   const { businessSlug, tableKey } = useParams<{
@@ -139,9 +90,27 @@ export default function CustomerRestaurantMenuPage() {
     null,
   );
   const [loading, setLoading] = useState(true);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
-  const [vegOnly, setVegOnly] = useState(false);
-  const [activeView, setActiveView] = useState<HubView>('menu');
+  const [activeView, setActiveView] = useState<HubView>('launcher');
+
+  // Quick 5-Second Loyalty Join Modal (New Guests)
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [joinName, setJoinName] = useState('');
+  const [joinPhone, setJoinPhone] = useState('');
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+
+  // Instant Wi-Fi Modal
+  const [showWifiModal, setShowWifiModal] = useState(false);
+  const [copiedWifi, setCopiedWifi] = useState(false);
+
+  // 2-Button Call Waiter / Ready for Bill Pop-up
+  const [showCallModal, setShowCallModal] = useState(false);
+  const [activeCall, setActiveCall] = useState<RestaurantTableCall | null>(
+    null,
+  );
+  const [callingType, setCallingType] =
+    useState<RestaurantTableCallType | null>(null);
+  const [callError, setCallError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadMenuAndWallet() {
@@ -203,6 +172,70 @@ export default function CustomerRestaurantMenuPage() {
     return created;
   }
 
+  async function handleQuickJoinSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!businessSlug) return;
+    setJoinError(null);
+    setJoining(true);
+    try {
+      const existing = loadStoredDinerIdentity();
+      const guestTokenHash =
+        existing?.guestTokenHash ?? getOrCreateGuestTokenHash();
+      const created =
+        await businessRepository.registerOrResumeRestaurantCustomer({
+          displayName: joinName.trim() || 'Guest Diner',
+          phoneOrEmail: joinPhone.trim() || null,
+          guestTokenHash,
+          businessSlug,
+        });
+      saveStoredDinerIdentity({
+        displayName: created.customer.displayName,
+        phoneOrEmail: created.customer.phoneOrEmail,
+        guestTokenHash,
+      });
+      setWallet(created);
+      setShowJoinModal(false);
+    } catch (err) {
+      setJoinError((err as Error).message);
+    } finally {
+      setJoining(false);
+    }
+  }
+
+  async function handleCopyWifi(pwd: string) {
+    const ok = await copyText(pwd);
+    if (ok) {
+      setCopiedWifi(true);
+      window.setTimeout(() => setCopiedWifi(false), 2000);
+    }
+  }
+
+  async function handleRequestStaff(callType: RestaurantTableCallType) {
+    if (!payload) return;
+    const resolvedKey = payload.table?.tableKey ?? tableKey ?? null;
+    if (!resolvedKey) {
+      setCallError(
+        'Scan the QR standee on your table so your server knows which table to visit.',
+      );
+      return;
+    }
+    setCallError(null);
+    setCallingType(callType);
+    try {
+      const created = await businessRepository.createRestaurantTableCall({
+        businessSlug: payload.business.slug,
+        tableKey: resolvedKey,
+        customerId: wallet?.customer.id ?? null,
+        callType,
+      });
+      setActiveCall(created);
+    } catch (err) {
+      setCallError((err as Error).message);
+    } finally {
+      setCallingType(null);
+    }
+  }
+
   if (loading) {
     return (
       <div
@@ -253,38 +286,114 @@ export default function CustomerRestaurantMenuPage() {
   const { business, profile, table, categories, items, loyaltyRules, rewards } =
     payload;
 
-  const visibleItems = items.filter((item) => {
-    if (
-      selectedCategoryId !== 'all' &&
-      item.categoryId !== selectedCategoryId
-    ) {
-      return false;
-    }
-    if (vegOnly && item.dietaryTag !== 'veg' && item.dietaryTag !== 'vegan') {
-      return false;
-    }
-    return true;
-  });
+  // Full-Screen Culturally Themed Digital Menu Sub-View
+  if (activeView === 'menu') {
+    return (
+      <CustomerDigitalMenuView
+        businessSlug={business.slug}
+        businessName={business.name}
+        businessCity={business.city}
+        profile={profile}
+        table={table}
+        tableKey={tableKey}
+        categories={categories}
+        items={items}
+        wallet={wallet}
+        onBackToHub={() => setActiveView('launcher')}
+      />
+    );
+  }
+
+  // Smooth Sub-Views: Games, Rewards, Extras
+  if (activeView === 'games' && profile.gamesEnabled) {
+    return (
+      <div className="mx-auto w-full max-w-md pb-10">
+        <CustomerGameArena
+          businessId={business.id}
+          businessSlug={business.slug}
+          businessName={business.name}
+          tableKey={table?.tableKey ?? tableKey ?? null}
+          tableNumber={table?.tableNumber ?? null}
+          availableGames={payload.games}
+          onWalletUpdated={(next) => setWallet(next)}
+          onClose={() => setActiveView('launcher')}
+        />
+      </div>
+    );
+  }
+
+  if (activeView === 'rewards' && profile.loyaltyEnabled) {
+    return (
+      <div className="mx-auto w-full max-w-md pb-10">
+        <CustomerRewardsAndExtrasView
+          businessId={business.id}
+          businessSlug={business.slug}
+          businessName={business.name}
+          tableKey={table?.tableKey ?? tableKey ?? null}
+          loyaltyRules={loyaltyRules}
+          rewards={rewards}
+          wallet={wallet}
+          onWalletUpdated={(next) => setWallet(next)}
+          onEnsureCustomerWallet={ensureCustomerWallet}
+          mode="rewards"
+          onBackToMenu={() => setActiveView('launcher')}
+        />
+      </div>
+    );
+  }
+
+  if (activeView === 'extras') {
+    return (
+      <div className="mx-auto w-full max-w-md pb-10">
+        <CustomerRewardsAndExtrasView
+          businessId={business.id}
+          businessSlug={business.slug}
+          businessName={business.name}
+          tableKey={table?.tableKey ?? tableKey ?? null}
+          loyaltyRules={loyaltyRules}
+          rewards={rewards}
+          wallet={wallet}
+          onWalletUpdated={(next) => setWallet(next)}
+          onEnsureCustomerWallet={ensureCustomerWallet}
+          mode="extras"
+          onBackToMenu={() => setActiveView('launcher')}
+        />
+      </div>
+    );
+  }
+
+  const activeThemeMeta =
+    MENU_THEME_LIST.find(
+      (t) => t.id === (profile.menuThemeTemplate ?? 'default'),
+    ) ?? MENU_THEME_LIST[MENU_THEME_LIST.length - 1];
 
   return (
-    <div className="mx-auto w-full max-w-md pb-24 space-y-3.5 animate-fadeSlideUp">
-      {/* 1. TOP BRAND HEADER (Matches Mockup 2) */}
-      <header className="bistro-card px-4 py-3.5 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#1E1B4B] text-[#D2DB76] shadow-2xs">
-            <UtensilsCrossed className="h-5 w-5" aria-hidden />
-          </div>
+    <div className="mx-auto w-full max-w-md pb-8 space-y-4 animate-fadeSlideUp">
+      {/* 1. TOP BRAND HEADER CARD */}
+      <header className="bistro-card px-5 py-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3.5 min-w-0">
+          {profile.customLogoUrl ? (
+            <img
+              src={profile.customLogoUrl}
+              alt={`${business.name} logo`}
+              className="h-12 w-12 shrink-0 rounded-2xl object-cover border border-[#1E1B4B]/10"
+            />
+          ) : (
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#1E1B4B] text-[#D2DB76] shadow-sm">
+              <UtensilsCrossed className="h-5 w-5" aria-hidden />
+            </div>
+          )}
           <div className="min-w-0">
-            <h1 className="truncate text-[19px] font-extrabold tracking-tight text-[#111827]">
+            <h1 className="truncate text-[20px] font-extrabold tracking-tight text-[#111827]">
               {business.name}
             </h1>
             <p className="truncate text-[12px] font-medium text-[#6B7280]">
-              {profile.tagline || `${business.city} • Table Menu & Loyalty`}
+              {profile.tagline || `${business.city} • Welcome to Your Table`}
             </p>
           </div>
         </div>
 
-        {/* Warm Champagne Gold Table Pill Badge */}
+        {/* Champagne Gold Table Pill Badge */}
         {table ? (
           <div
             data-testid="detected-table-badge"
@@ -303,286 +412,514 @@ export default function CustomerRestaurantMenuPage() {
         )}
       </header>
 
-      {/* 2. COMPACT LOYALTY & QUICK-ACTION STRIP (Directly Above the Menu) */}
-      <CustomerLoyaltyHeroCard
-        businessId={business.id}
-        businessSlug={business.slug}
-        businessName={business.name}
-        loyaltyEnabled={profile.loyaltyEnabled}
-        loyaltyRules={loyaltyRules}
-        rewards={rewards}
-        wallet={wallet}
-        onWalletUpdated={(next) => setWallet(next)}
-        onEnsureCustomerWallet={ensureCustomerWallet}
-        onOpenRewards={() => setActiveView('rewards')}
-      />
+      {/* 2. LOYALTY STATUS & QUICK JOIN CARD */}
+      {profile.loyaltyEnabled &&
+        (wallet ? (
+          <CustomerLoyaltyHeroCard
+            businessId={business.id}
+            businessSlug={business.slug}
+            businessName={business.name}
+            loyaltyEnabled={profile.loyaltyEnabled}
+            loyaltyRules={loyaltyRules}
+            rewards={rewards}
+            wallet={wallet}
+            onWalletUpdated={(next) => setWallet(next)}
+            onEnsureCustomerWallet={ensureCustomerWallet}
+            onOpenRewards={() => setActiveView('rewards')}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setJoinError(null);
+              setShowJoinModal(true);
+            }}
+            className="w-full rounded-2xl border border-[#1E1B4B]/10 bg-[#1E1B4B] p-4 text-left text-[#FFFFFF] shadow-md transition-all duration-150 hover:bg-[#2E2A6E] active:scale-[0.98] cursor-pointer flex items-center justify-between gap-3"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#D2DB76] text-[#1E1B4B]">
+                <Star className="h-5 w-5" fill="currentColor" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <p className="text-[14px] font-extrabold text-[#FFFFFF]">
+                  ★ Join Loyalty &amp; Collect Stars
+                </p>
+                <p className="text-[12px] text-[#D2DB76] font-semibold">
+                  Tap to Start (5 sec) • Unlock free dining perks
+                </p>
+              </div>
+            </div>
+            <ChevronRight
+              className="h-5 w-5 shrink-0 text-[#D2DB76]"
+              aria-hidden
+            />
+          </button>
+        ))}
 
-      {/* 3 Horizontal Action Pills (Matches Mockup 2) */}
-      <div className="grid grid-cols-3 gap-2">
+      {/* 3. STACKED FULL-WIDTH HORIZONTAL ACTION BLOCKS (6 Blocks) */}
+      <nav aria-label="Table Hub Actions" className="space-y-3">
+        {/* BLOCK 1: DIGITAL MENU */}
+        <button
+          type="button"
+          data-testid="launcher-block-menu"
+          onClick={() => setActiveView('menu')}
+          className="bistro-card w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 hover:border-[#1E1B4B]/30 active:scale-[0.98] cursor-pointer"
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            <span
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl shadow-2xs"
+              style={{
+                backgroundColor: activeThemeMeta.swatches[0],
+                color: activeThemeMeta.swatches[2],
+              }}
+            >
+              <UtensilsCrossed className="h-5 w-5" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[16px] font-extrabold text-[#111827]">
+                  Digital Menu
+                </span>
+                <span className="rounded-full bg-[#D2DB76]/55 px-2.5 py-0.5 text-[10.5px] font-extrabold text-[#1E1B4B]">
+                  {items.length} Dishes
+                </span>
+              </div>
+              <p className="mt-0.5 text-[12.5px] font-medium text-[#6B7280]">
+                {profile.tableOrderingEnabled
+                  ? 'Explore Digital Menu & Send Table Order'
+                  : 'Explore Digital Menu'}
+              </p>
+            </div>
+          </div>
+          <ChevronRight
+            className="h-5 w-5 shrink-0 text-[#6B7280]"
+            aria-hidden
+          />
+        </button>
+
+        {/* BLOCK 2: GUEST WI-FI */}
+        <button
+          type="button"
+          data-testid="launcher-block-wifi"
+          onClick={() => setShowWifiModal(true)}
+          className="bistro-card w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 hover:border-[#1E1B4B]/30 active:scale-[0.98] cursor-pointer"
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#1E1B4B]/[0.07] text-[#1E1B4B]">
+              <Wifi className="h-5 w-5" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <span className="text-[16px] font-extrabold text-[#111827]">
+                Guest Wi-Fi
+              </span>
+              <p className="mt-0.5 text-[12.5px] font-medium text-[#6B7280]">
+                {loyaltyRules?.wifiNetworkName
+                  ? `Connect to Wi-Fi (${loyaltyRules.wifiNetworkName})`
+                  : 'Connect to Wi-Fi & Table Notes'}
+              </p>
+            </div>
+          </div>
+          <ChevronRight
+            className="h-5 w-5 shrink-0 text-[#6B7280]"
+            aria-hidden
+          />
+        </button>
+
+        {/* BLOCK 3: PLAY TABLE GAMES */}
         {profile.gamesEnabled && (
           <button
             type="button"
-            onClick={() =>
-              setActiveView((v) => (v === 'games' ? 'menu' : 'games'))
-            }
-            className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-full px-3 text-[12px] font-extrabold transition-all duration-150 active:scale-[0.98] cursor-pointer ${
-              activeView === 'games'
-                ? 'bg-[#D2DB76] text-[#1E1B4B] ring-2 ring-[#1E1B4B]'
-                : 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs hover:bg-[#2E2A6E]'
-            }`}
+            data-testid="launcher-block-games"
+            onClick={() => setActiveView('games')}
+            className="bistro-card w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 hover:border-[#1E1B4B]/30 active:scale-[0.98] cursor-pointer"
           >
-            <span>Play Games</span>
-            <Gamepad2 className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
+            <div className="flex items-center gap-3.5 min-w-0">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#1E1B4B] text-[#D2DB76]">
+                <Gamepad2 className="h-5 w-5" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <span className="text-[16px] font-extrabold text-[#111827]">
+                  Play Table Games
+                </span>
+                <p className="mt-0.5 text-[12.5px] font-medium text-[#6B7280]">
+                  Play &amp; Earn Game Points while you wait
+                </p>
+              </div>
+            </div>
+            <ChevronRight
+              className="h-5 w-5 shrink-0 text-[#6B7280]"
+              aria-hidden
+            />
           </button>
         )}
 
+        {/* BLOCK 4: REWARDS & LOYALTY WALLET */}
         {profile.loyaltyEnabled && (
           <button
             type="button"
-            onClick={() =>
-              setActiveView((v) => (v === 'rewards' ? 'menu' : 'rewards'))
-            }
-            className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-full px-3 text-[12px] font-extrabold transition-all duration-150 active:scale-[0.98] cursor-pointer ${
-              activeView === 'rewards'
-                ? 'bg-[#D2DB76] text-[#1E1B4B] ring-2 ring-[#1E1B4B]'
-                : 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs hover:bg-[#2E2A6E]'
-            }`}
+            data-testid="launcher-block-rewards"
+            onClick={() => setActiveView('rewards')}
+            className="bistro-card w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 hover:border-[#1E1B4B]/30 active:scale-[0.98] cursor-pointer"
           >
-            <span>Rewards</span>
-            <Gift className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
+            <div className="flex items-center gap-3.5 min-w-0">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#D2DB76]/55 text-[#1E1B4B]">
+                <Gift className="h-5 w-5" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-[16px] font-extrabold text-[#111827]">
+                    Rewards &amp; Loyalty Wallet
+                  </span>
+                  {(rewards ?? []).length > 0 && (
+                    <span className="rounded-full bg-[#1E1B4B]/[0.08] px-2 py-0.5 text-[10.5px] font-extrabold text-[#1E1B4B] tabular-nums">
+                      {(rewards ?? []).length}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-0.5 text-[12.5px] font-medium text-[#6B7280]">
+                  Rewards &amp; Star Conversion
+                </p>
+              </div>
+            </div>
+            <ChevronRight
+              className="h-5 w-5 shrink-0 text-[#6B7280]"
+              aria-hidden
+            />
           </button>
         )}
 
+        {/* BLOCK 5: LEAVE A GOOGLE REVIEW */}
         <Link
           to={`/r/${business.slug}`}
-          className="inline-flex h-10 items-center justify-center gap-1 rounded-full border border-[#1E1B4B]/20 bg-[#FFFFFF] px-3 text-[12px] font-extrabold text-[#111827] shadow-2xs transition-all duration-150 hover:border-[#1E1B4B] active:scale-[0.98]"
+          data-testid="launcher-block-review"
+          className="bistro-card w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 hover:border-[#1E1B4B]/30 active:scale-[0.98]"
         >
-          <span>Google Review</span>
-          <Star
-            className="h-3.5 w-3.5 text-[#D97706]"
-            fill="#D2DB76"
+          <div className="flex items-center gap-3.5 min-w-0">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-50 border border-amber-200 text-[#D97706]">
+              <Star className="h-5 w-5" fill="#FACC15" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <span className="text-[16px] font-extrabold text-[#111827]">
+                Leave a Google Review
+              </span>
+              <p className="mt-0.5 text-[12.5px] font-medium text-[#6B7280]">
+                Share Your Experience in 30 seconds
+              </p>
+            </div>
+          </div>
+          <ChevronRight
+            className="h-5 w-5 shrink-0 text-[#6B7280]"
             aria-hidden
           />
         </Link>
-      </div>
 
-      {/* 3. ACTIVE VIEW: MENU FIRST vs. SMOOTH SUB-VIEWS (GAMES / REWARDS / WI-FI) */}
-      {activeView === 'games' && profile.gamesEnabled ? (
-        <CustomerGameArena
-          businessId={business.id}
-          businessSlug={business.slug}
-          businessName={business.name}
-          tableKey={table?.tableKey ?? tableKey ?? null}
-          tableNumber={table?.tableNumber ?? null}
-          availableGames={payload.games}
-          onWalletUpdated={(next) => setWallet(next)}
-          onClose={() => setActiveView('menu')}
-        />
-      ) : activeView === 'rewards' && profile.loyaltyEnabled ? (
-        <CustomerRewardsAndExtrasView
-          businessId={business.id}
-          businessSlug={business.slug}
-          businessName={business.name}
-          tableKey={table?.tableKey ?? tableKey ?? null}
-          loyaltyRules={loyaltyRules}
-          rewards={rewards}
-          wallet={wallet}
-          onWalletUpdated={(next) => setWallet(next)}
-          onEnsureCustomerWallet={ensureCustomerWallet}
-          mode="rewards"
-          onBackToMenu={() => setActiveView('menu')}
-        />
-      ) : activeView === 'extras' ? (
-        <CustomerRewardsAndExtrasView
-          businessId={business.id}
-          businessSlug={business.slug}
-          businessName={business.name}
-          tableKey={table?.tableKey ?? tableKey ?? null}
-          loyaltyRules={loyaltyRules}
-          rewards={rewards}
-          wallet={wallet}
-          onWalletUpdated={(next) => setWallet(next)}
-          onEnsureCustomerWallet={ensureCustomerWallet}
-          mode="extras"
-          onBackToMenu={() => setActiveView('menu')}
-        />
-      ) : (
-        /* DIGITAL MENU FIRST (Matches Mockup 2) */
-        <section aria-label="Digital Menu" className="space-y-3">
-          {/* Section Header + Classy Waiter Note */}
-          <div className="flex items-baseline justify-between px-1 pt-1">
-            <h2 className="text-[19px] font-extrabold tracking-tight text-[#111827]">
-              Digital Menu
-            </h2>
-            <p className="text-[11px] font-semibold text-[#6B7280]">
-              Ready to order? Just let your server know.
-            </p>
-          </div>
-
-          {/* Sticky Horizontal Category Tabs + Pure Veg Filter Pill */}
-          <div className="sticky top-2 z-20 flex items-center gap-1.5 overflow-x-auto rounded-2xl border border-[#1E1B4B]/10 bg-[#FFFFFF]/95 p-1.5 shadow-sm backdrop-blur-md">
-            <button
-              type="button"
-              onClick={() => setSelectedCategoryId('all')}
-              className={`rounded-full px-3.5 py-1.5 text-[12px] font-extrabold whitespace-nowrap transition-all active:scale-[0.98] cursor-pointer ${
-                selectedCategoryId === 'all'
-                  ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
-                  : 'text-[#6B7280] hover:text-[#111827]'
-              }`}
-            >
-              All
-            </button>
-
-            {categories.map((cat) => {
-              const active = selectedCategoryId === cat.id;
-              return (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() => setSelectedCategoryId(cat.id)}
-                  className={`rounded-full px-3.5 py-1.5 text-[12px] font-extrabold whitespace-nowrap transition-all active:scale-[0.98] cursor-pointer ${
-                    active
-                      ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
-                      : 'text-[#6B7280] hover:text-[#111827]'
-                  }`}
-                >
-                  {cat.name}
-                </button>
-              );
-            })}
-
-            <button
-              type="button"
-              aria-pressed={vegOnly}
-              onClick={() => setVegOnly((v) => !v)}
-              className={`ml-auto inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-extrabold whitespace-nowrap transition-all active:scale-[0.98] cursor-pointer ${
-                vegOnly
-                  ? 'border-[#059669] bg-emerald-50 text-[#059669]'
-                  : 'border-[#1E1B4B]/15 bg-[#F8F9FA] text-[#111827]'
-              }`}
-            >
-              <span className="h-2 w-2 rounded-full bg-[#059669]" />
-              Pure Veg
-            </button>
-          </div>
-
-          {/* 2-Column Mobile Grid of Appetizing Dish Cards (Strictly ZERO + Cart Buttons) */}
-          {visibleItems.length === 0 ? (
-            <div className="bistro-card p-8 text-center space-y-2">
-              <UtensilsCrossed
-                className="mx-auto h-7 w-7 text-[#6B7280]"
-                aria-hidden
-              />
-              <h3 className="text-[16px] font-bold text-[#111827]">
-                {vegOnly
-                  ? 'No Pure Veg dishes in this category'
-                  : 'Menu items are being updated'}
-              </h3>
-              <p className="text-[12px] text-[#6B7280]">
-                {vegOnly
-                  ? 'Tap "Pure Veg" again or switch categories to view all dishes.'
-                  : 'Please ask your server for today’s specials.'}
+        {/* BLOCK 6: CALL WAITER / READY FOR BILL */}
+        <button
+          type="button"
+          data-testid="launcher-block-waiter"
+          onClick={() => {
+            setCallError(null);
+            setShowCallModal(true);
+          }}
+          className="bistro-card w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 hover:border-[#D97706]/50 active:scale-[0.98] cursor-pointer"
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/15 text-[#D97706]">
+              <BellRing className="h-5 w-5" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-[16px] font-extrabold text-[#111827]">
+                  Call Waiter / Ready for Bill
+                </span>
+                {activeCall && (
+                  <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-extrabold text-[#059669]">
+                    Notified ✓
+                  </span>
+                )}
+              </div>
+              <p className="mt-0.5 text-[12.5px] font-medium text-[#6B7280]">
+                Notify Your Server directly from your table
               </p>
             </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              {visibleItems.map((dish) => {
-                const dMeta = DIETARY_TAG_METADATA[dish.dietaryTag];
-                const visual = getDishVisualPalette(dish.name, dish.dietaryTag);
+          </div>
+          <ChevronRight
+            className="h-5 w-5 shrink-0 text-[#6B7280]"
+            aria-hidden
+          />
+        </button>
+      </nav>
 
-                return (
-                  <article
-                    key={dish.id}
-                    className="bistro-card p-3 flex flex-col justify-between space-y-2.5"
-                  >
-                    <div className="space-y-2.5">
-                      {/* Rounded Appetizing Dish Visual Header */}
-                      <div
-                        className={`relative flex h-28 w-full items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br ${visual.bg} border border-[#1E1B4B]/[0.06]`}
-                      >
-                        {dish.imageUrl ? (
-                          <img
-                            src={dish.imageUrl}
-                            alt={dish.name}
-                            className="h-full w-full object-cover"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="flex flex-col items-center justify-center">
-                            <span
-                              className="text-[36px] drop-shadow-xs select-none"
-                              aria-hidden
-                            >
-                              {visual.emoji}
-                            </span>
-                          </div>
-                        )}
-
-                        {dish.isFeatured && (
-                          <span className="absolute top-2 left-2 inline-flex items-center gap-0.5 rounded-full bg-[#1E1B4B]/90 px-2 py-0.5 text-[10px] font-bold text-[#D2DB76] backdrop-blur-xs">
-                            <Sparkles className="h-2.5 w-2.5" aria-hidden />
-                            Special
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Bold Dish Name */}
-                      <h3 className="text-[14px] font-extrabold text-[#111827] leading-snug line-clamp-1">
-                        {dish.name}
-                      </h3>
-
-                      {/* Formatted Price + Green/Red Veg/Non-Veg Pill Badge */}
-                      <div className="flex items-center justify-between gap-1.5">
-                        <span className="text-[14px] font-extrabold text-[#111827] tabular-nums">
-                          {formatPriceFromPaise(
-                            dish.pricePaise,
-                            profile.currencyCode,
-                          )}
-                        </span>
-
-                        {dish.dietaryTag !== 'none' && (
-                          <span
-                            className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider"
-                            style={{
-                              borderColor: dMeta.borderColor,
-                              backgroundColor: dMeta.bgColor,
-                              color: dMeta.textColor,
-                            }}
-                          >
-                            <span
-                              className="h-1.5 w-1.5 rounded-full"
-                              style={{ backgroundColor: dMeta.dotColor }}
-                            />
-                            {dMeta.shortLabel}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* 2-Line Description */}
-                      {dish.description && (
-                        <p className="text-[11.5px] text-[#6B7280] leading-relaxed line-clamp-2">
-                          {dish.description}
-                        </p>
-                      )}
-                    </div>
-                  </article>
-                );
-              })}
+      {/* =====================================================================
+          MODAL 1: 5-SECOND QUICK LOYALTY JOIN (Name + Phone)
+         ===================================================================== */}
+      {showJoinModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Join Loyalty & Collect Stars"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
+        >
+          <form
+            onSubmit={(e) => void handleQuickJoinSubmit(e)}
+            className="w-full max-w-sm rounded-3xl bg-[#FFFFFF] p-6 shadow-2xl space-y-4 animate-fadeSlideUp"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#1E1B4B] text-[#D2DB76]">
+                  <UserPlus className="h-5 w-5" aria-hidden />
+                </span>
+                <div>
+                  <h3 className="text-[18px] font-extrabold text-[#111827]">
+                    Join {business.name} Loyalty
+                  </h3>
+                  <p className="text-[12px] text-[#6B7280]">
+                    Takes 5 seconds — save Stars across every visit
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowJoinModal(false)}
+                className="rounded-full p-1.5 text-[#6B7280] hover:bg-[#F8F9FA] cursor-pointer"
+              >
+                <X className="h-5 w-5" aria-hidden />
+              </button>
             </div>
-          )}
-        </section>
+
+            {joinError && (
+              <p className="rounded-xl bg-red-50 border border-red-200 px-3 py-2 text-[12px] font-semibold text-red-800">
+                {joinError}
+              </p>
+            )}
+
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label
+                  htmlFor="quickJoinName"
+                  className="block text-[12px] font-bold text-[#111827]"
+                >
+                  Your Name
+                </label>
+                <input
+                  id="quickJoinName"
+                  type="text"
+                  required
+                  maxLength={80}
+                  placeholder="e.g. Aarav"
+                  value={joinName}
+                  onChange={(e) => setJoinName(e.target.value)}
+                  className="block h-11 w-full rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-3.5 text-[14px] text-[#111827] focus:border-[#1E1B4B] focus:outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label
+                  htmlFor="quickJoinPhone"
+                  className="block text-[12px] font-bold text-[#111827]"
+                >
+                  Phone Number
+                </label>
+                <input
+                  id="quickJoinPhone"
+                  type="tel"
+                  required
+                  maxLength={160}
+                  placeholder="e.g. +91 98765 43210"
+                  value={joinPhone}
+                  onChange={(e) => setJoinPhone(e.target.value)}
+                  className="block h-11 w-full rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-3.5 text-[14px] text-[#111827] focus:border-[#1E1B4B] focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={joining}
+              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#1E1B4B] px-5 py-3 text-[14px] font-extrabold text-[#FFFFFF] hover:bg-[#2E2A6E] active:scale-[0.98] transition-all cursor-pointer"
+            >
+              <Star
+                className="h-4 w-4 text-[#D2DB76]"
+                fill="currentColor"
+                aria-hidden
+              />
+              {joining ? 'Creating Pass…' : 'Create My Loyalty Pass'}
+            </button>
+          </form>
+        </div>
       )}
 
-      {/* 4. FLOATING BOTTOM SERVICE PILL (Matches Mockup 2) */}
-      <CustomerFloatingServicePill
-        businessSlug={business.slug}
-        tableKey={table?.tableKey ?? tableKey ?? null}
-        tableNumber={table?.tableNumber ?? null}
-        customerId={wallet?.customer.id ?? null}
-        onOpenWifiAndExtras={() =>
-          setActiveView((v) => (v === 'extras' ? 'menu' : 'extras'))
-        }
-      />
+      {/* =====================================================================
+          MODAL 2: INSTANT GUEST WI-FI MODAL (1-Tap Copy Password)
+         ===================================================================== */}
+      {showWifiModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Guest Wi-Fi"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
+        >
+          <div className="w-full max-w-sm rounded-3xl bg-[#FFFFFF] p-6 shadow-2xl space-y-4 animate-fadeSlideUp">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#1E1B4B] text-[#D2DB76]">
+                  <Wifi className="h-5 w-5" aria-hidden />
+                </span>
+                <div>
+                  <h3 className="text-[18px] font-extrabold text-[#111827]">
+                    Guest Wi-Fi
+                  </h3>
+                  <p className="text-[12px] text-[#6B7280]">
+                    Complimentary dining room Wi-Fi
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowWifiModal(false)}
+                className="rounded-full p-1.5 text-[#6B7280] hover:bg-[#F8F9FA] cursor-pointer"
+              >
+                <X className="h-5 w-5" aria-hidden />
+              </button>
+            </div>
+
+            {loyaltyRules?.wifiNetworkName ? (
+              <div className="rounded-2xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-4 space-y-3">
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#6B7280]">
+                    Network Name (SSID)
+                  </span>
+                  <p className="text-[16px] font-extrabold text-[#111827]">
+                    {loyaltyRules.wifiNetworkName}
+                  </p>
+                </div>
+                {loyaltyRules.wifiPassword && (
+                  <div className="flex items-center justify-between gap-2 border-t border-[#1E1B4B]/10 pt-3">
+                    <div>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-[#6B7280]">
+                        Password
+                      </span>
+                      <p className="font-mono text-[15px] font-extrabold text-[#1E1B4B]">
+                        {loyaltyRules.wifiPassword}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void handleCopyWifi(loyaltyRules.wifiPassword!)
+                      }
+                      className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#1E1B4B] px-4 text-[12px] font-extrabold text-[#FFFFFF] hover:bg-[#2E2A6E] active:scale-[0.98] transition-all cursor-pointer"
+                    >
+                      {copiedWifi ? (
+                        <>
+                          <Check className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
+                          Copied!
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
+                          Copy Password
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="rounded-2xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-4 text-[13px] text-[#6B7280]">
+                Ask your server for today&apos;s guest Wi-Fi password.
+              </p>
+            )}
+
+            {(loyaltyRules?.suggestionBoxEnabled ?? true) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowWifiModal(false);
+                  setActiveView('extras');
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#1E1B4B]/15 bg-[#FFFFFF] px-4 py-2.5 text-[13px] font-bold text-[#1E1B4B] hover:bg-[#F8F9FA] cursor-pointer"
+              >
+                <Inbox className="h-4 w-4" aria-hidden /> Open Private Suggestion Box
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          MODAL 3: 2-BUTTON CALL WAITER / READY FOR BILL POP-UP
+         ===================================================================== */}
+      {showCallModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Call Waiter or Ready for Bill"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
+        >
+          <div className="w-full max-w-sm rounded-3xl bg-[#FFFFFF] p-6 shadow-2xl space-y-4 animate-fadeSlideUp">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-[18px] font-extrabold text-[#111827]">
+                  Notify Your Server {table ? `• ${table.tableNumber}` : ''}
+                </h3>
+                <p className="text-[12px] text-[#6B7280]">
+                  Your request appears immediately on our staff floor screen
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCallModal(false)}
+                className="rounded-full p-1.5 text-[#6B7280] hover:bg-[#F8F9FA] cursor-pointer"
+              >
+                <X className="h-5 w-5" aria-hidden />
+              </button>
+            </div>
+
+            {callError && (
+              <p className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-[12px] font-semibold text-[#D97706]">
+                {callError}
+              </p>
+            )}
+
+            {activeCall && (
+              <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-3.5 text-[13px] font-bold text-[#059669] flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+                <span>
+                  {activeCall.callType === 'ready_for_bill'
+                    ? 'Server notified to bring your bill!'
+                    : 'Server notified — right over to your table!'}
+                </span>
+              </div>
+            )}
+
+            <div className="grid gap-3">
+              <button
+                type="button"
+                disabled={callingType !== null}
+                onClick={() => void handleRequestStaff('assistance')}
+                className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#1E1B4B] px-4 py-3 text-[14px] font-extrabold text-[#FFFFFF] hover:bg-[#2E2A6E] active:scale-[0.98] transition-all cursor-pointer"
+              >
+                <BellRing className="h-4 w-4 text-[#D2DB76]" aria-hidden />
+                {callingType === 'assistance'
+                  ? 'Notifying Server…'
+                  : 'Call Waiter (Need Assistance)'}
+              </button>
+
+              <button
+                type="button"
+                disabled={callingType !== null}
+                onClick={() => void handleRequestStaff('ready_for_bill')}
+                className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border-2 border-[#1E1B4B] bg-[#FFFFFF] px-4 py-3 text-[14px] font-extrabold text-[#111827] hover:bg-[#F8F9FA] active:scale-[0.98] transition-all cursor-pointer"
+              >
+                <Receipt className="h-4 w-4 text-[#1E1B4B]" aria-hidden />
+                {callingType === 'ready_for_bill'
+                  ? 'Notifying Server…'
+                  : 'Ready for Bill'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

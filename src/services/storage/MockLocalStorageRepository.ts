@@ -33,6 +33,8 @@ import {
 } from '../../utils/reviewResponseValidation';
 import {
   RESTAURANT_LIMITS,
+  type ApplyMenuPresetResult,
+  type MenuPresetKey,
   type PublicRestaurantMenuPayload,
   type RestaurantCustomer,
   type RestaurantCustomerCheckInInput,
@@ -69,8 +71,12 @@ import {
   type RestaurantTableCallStatus,
   type RestaurantTableCallType,
   type RestaurantTableInput,
+  type RestaurantTableOrder,
+  type RestaurantTableOrderItem,
+  type RestaurantTableOrderStatus,
   type RestaurantVerifiedVisit,
 } from '../../types/restaurant';
+import { MENU_PRESET_PACKS } from '../../config/menuPresets';
 import {
   buildServerSeedAndClientChallenge,
   deriveTableKey,
@@ -79,6 +85,7 @@ import {
   normalizeRestaurantLoyaltyRules,
   normalizeRestaurantProfile,
   parseCustomerLoyaltyLookup,
+  validateMenuPresetKey,
   validateRestaurantCustomerCheckInInput,
   validateRestaurantGameConfigInput,
   validateRestaurantLoyaltyRulesInput,
@@ -88,6 +95,8 @@ import {
   validateRestaurantRewardInput,
   validateRestaurantSuggestionInput,
   validateRestaurantTableInput,
+  validateTableOrderItemsInput,
+  validateTableOrderStatus,
   verifyGameSubmissionAgainstServerSeed,
 } from '../../utils/restaurantValidation';
 
@@ -115,6 +124,7 @@ const STORAGE_KEYS = {
   RESTAURANT_SUGGESTIONS: 'reviewassist_mock_restaurant_suggestions_v1',
   RESTAURANT_TABLE_CALLS: 'reviewassist_mock_restaurant_table_calls_v1',
   RESTAURANT_VERIFIED_VISITS: 'reviewassist_mock_restaurant_verified_visits_v1',
+  RESTAURANT_TABLE_ORDERS: 'reviewassist_mock_restaurant_table_orders_v1',
 };
 
 // Initial seed businesses for development & preview
@@ -765,6 +775,22 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         validation.value.minHoursBetweenVisitStars !== undefined
           ? validation.value.minHoursBetweenVisitStars
           : (existing?.minHoursBetweenVisitStars ?? 4),
+      tableOrderingEnabled:
+        validation.value.tableOrderingEnabled !== undefined
+          ? validation.value.tableOrderingEnabled
+          : Boolean(existing?.tableOrderingEnabled),
+      menuThemeTemplate:
+        validation.value.menuThemeTemplate !== undefined
+          ? validation.value.menuThemeTemplate
+          : (existing?.menuThemeTemplate ?? 'default'),
+      customLogoUrl:
+        validation.value.customLogoUrl !== undefined
+          ? validation.value.customLogoUrl
+          : (existing?.customLogoUrl ?? null),
+      customAccentColor:
+        validation.value.customAccentColor !== undefined
+          ? validation.value.customAccentColor
+          : (existing?.customAccentColor ?? null),
       updatedAt: new Date().toISOString(),
       storageSource: 'local',
     };
@@ -3123,9 +3149,24 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     for (const tx of starTxs) distinctCustomers.add(tx.customerId);
     for (const v of verifiedVisits) distinctCustomers.add(v.customerId);
 
+    const allOrders = this.read<RestaurantTableOrder[]>(
+      STORAGE_KEYS.RESTAURANT_TABLE_ORDERS,
+      [],
+    ).filter(
+      (o) =>
+        o.businessId === business.id &&
+        (o.status === 'pending_approval' ||
+          o.status === 'approved_for_kitchen' ||
+          o.status === 'preparing'),
+    );
+
+    const activeTableOrders = [...allOrders].reverse();
+
     return {
       activeTableCalls: calls,
       pendingRewardClaims,
+      tableOrderingEnabled: Boolean(profile.tableOrderingEnabled),
+      tableOrders: activeTableOrders,
       analytics: {
         qrScans: metrics.qrScans,
         checkedInDiners: distinctCustomers.size,
@@ -3138,6 +3179,326 @@ export class MockLocalStorageRepository implements IBusinessRepository {
           .length,
       },
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Master Upgrade: 1-Tap Preset Menu Injection & Optional Table Ordering
+  // ---------------------------------------------------------------------------
+
+  async applyRestaurantMenuPreset(
+    businessId: string,
+    presetKey: MenuPresetKey,
+    options?: AIConfigAccessOptions,
+  ): Promise<ApplyMenuPresetResult> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const presetCheck = validateMenuPresetKey(presetKey);
+    if (!presetCheck.ok) {
+      throw new Error(presetCheck.error);
+    }
+
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    const pack = MENU_PRESET_PACKS[presetCheck.value];
+
+    const catStore = this.read<Record<string, RestaurantMenuCategory[]>>(
+      STORAGE_KEYS.RESTAURANT_CATEGORIES,
+      {},
+    );
+    const itemStore = this.read<Record<string, RestaurantMenuItem[]>>(
+      STORAGE_KEYS.RESTAURANT_ITEMS,
+      {},
+    );
+    const rewardStore = this.read<Record<string, RestaurantReward[]>>(
+      STORAGE_KEYS.RESTAURANT_REWARDS,
+      {},
+    );
+    const profileStore = this.read<Record<string, RestaurantProfile>>(
+      STORAGE_KEYS.RESTAURANT_PROFILES,
+      {},
+    );
+
+    const existingCats = catStore[cleanId] ?? [];
+    const existingItems = itemStore[cleanId] ?? [];
+    const existingRewards = rewardStore[cleanId] ?? [];
+    const now = new Date().toISOString();
+
+    const newCategories: RestaurantMenuCategory[] = [];
+    const newItems: RestaurantMenuItem[] = [];
+
+    pack.categories.forEach((catSpec, catIdx) => {
+      const catId = `cat-preset-${Date.now()}-${catIdx}-${Math.random().toString(36).slice(2, 6)}`;
+      newCategories.push({
+        id: catId,
+        businessId: cleanId,
+        name: catSpec.name,
+        description: catSpec.description,
+        displayOrder: existingCats.length + catIdx,
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      catSpec.dishes.forEach((dishSpec, dishIdx) => {
+        newItems.push({
+          id: `item-preset-${Date.now()}-${catIdx}-${dishIdx}-${Math.random().toString(36).slice(2, 6)}`,
+          businessId: cleanId,
+          categoryId: catId,
+          name: dishSpec.name,
+          description: dishSpec.description,
+          pricePaise: dishSpec.pricePaise,
+          dietaryTag: dishSpec.dietaryTag,
+          isAvailable: true,
+          isFeatured: Boolean(dishSpec.isFeatured),
+          imageUrl: null,
+          displayOrder: dishIdx,
+          createdAt: now,
+          updatedAt: now,
+        });
+      });
+    });
+
+    catStore[cleanId] = [...existingCats, ...newCategories];
+    itemStore[cleanId] = [...existingItems, ...newItems];
+    this.write(STORAGE_KEYS.RESTAURANT_CATEGORIES, catStore);
+    this.write(STORAGE_KEYS.RESTAURANT_ITEMS, itemStore);
+
+    let rewardsInserted = 0;
+    if (existingRewards.length === 0) {
+      const seededRewards: RestaurantReward[] = pack.starterRewards.map(
+        (rSpec, idx) => ({
+          id: `rwd-preset-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+          businessId: cleanId,
+          title: rSpec.title,
+          description: rSpec.description,
+          starsRequired: rSpec.starsRequired,
+          isActive: true,
+          maxRedemptionsTotal: null,
+          redemptionsCount: 0,
+          displayOrder: idx,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      );
+      rewardStore[cleanId] = seededRewards;
+      this.write(STORAGE_KEYS.RESTAURANT_REWARDS, rewardStore);
+      rewardsInserted = seededRewards.length;
+    }
+
+    const existingProf = normalizeRestaurantProfile(
+      cleanId,
+      profileStore[cleanId],
+      'local',
+    );
+    profileStore[cleanId] = {
+      ...existingProf,
+      isEnabled: true,
+      menuThemeTemplate: pack.themeTemplate,
+      tagline: existingProf.tagline || pack.tagline,
+      updatedAt: now,
+    };
+    this.write(STORAGE_KEYS.RESTAURANT_PROFILES, profileStore);
+
+    return {
+      presetKey: pack.presetKey,
+      themeTemplate: pack.themeTemplate,
+      categoriesInserted: newCategories.length,
+      itemsInserted: newItems.length,
+      rewardsInserted,
+    };
+  }
+
+  async submitCustomerTableOrder(params: {
+    businessSlug: string;
+    tableKey?: string | null;
+    customerId?: string | null;
+    guestName?: string | null;
+    items: Array<{ itemId: string; quantity: number; notes?: string | null }>;
+  }): Promise<RestaurantTableOrder> {
+    const itemsValidation = validateTableOrderItemsInput(params.items);
+    if (!itemsValidation.ok) {
+      throw new Error(itemsValidation.error);
+    }
+
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (!business) {
+      throw new Error('Restaurant is not active.');
+    }
+
+    const profileStore = this.read<Record<string, RestaurantProfile>>(
+      STORAGE_KEYS.RESTAURANT_PROFILES,
+      {},
+    );
+    const profile = normalizeRestaurantProfile(
+      business.id,
+      profileStore[business.id],
+      'local',
+    );
+    if (!profile.isEnabled) {
+      throw new Error('Digital menu is not enabled for this restaurant.');
+    }
+    if (!profile.tableOrderingEnabled) {
+      throw new Error(
+        'Customer phone ordering is currently turned off. Please place your order with your server.',
+      );
+    }
+
+    const catStore = this.read<Record<string, RestaurantMenuCategory[]>>(
+      STORAGE_KEYS.RESTAURANT_CATEGORIES,
+      {},
+    );
+    const activeCatIds = new Set(
+      (catStore[business.id] ?? [])
+        .filter((c) => c.isActive)
+        .map((c) => c.id),
+    );
+
+    const itemStore = this.read<Record<string, RestaurantMenuItem[]>>(
+      STORAGE_KEYS.RESTAURANT_ITEMS,
+      {},
+    );
+    const bizItems = itemStore[business.id] ?? [];
+
+    const validatedItems: RestaurantTableOrderItem[] = [];
+    for (const reqItem of itemsValidation.value) {
+      const catalogItem = bizItems.find(
+        (i) =>
+          i.id === reqItem.itemId &&
+          i.isAvailable &&
+          activeCatIds.has(i.categoryId),
+      );
+      if (!catalogItem) {
+        throw new Error(
+          'One or more selected menu items are currently unavailable.',
+        );
+      }
+      validatedItems.push({
+        itemId: catalogItem.id,
+        name: catalogItem.name,
+        quantity: reqItem.quantity,
+        pricePaise: catalogItem.pricePaise,
+        notes: reqItem.notes,
+      });
+    }
+
+    let tableId: string | null = null;
+    let tableNumber: string | null = null;
+    let resolvedTableKey: string | null = null;
+    if (params.tableKey && params.tableKey.trim()) {
+      const cleanKey = deriveTableKey(params.tableKey);
+      const tableStore = this.read<Record<string, RestaurantTable[]>>(
+        STORAGE_KEYS.RESTAURANT_TABLES,
+        {},
+      );
+      const tbl = (tableStore[business.id] ?? []).find(
+        (t) => t.tableKey === cleanKey && t.isActive,
+      );
+      if (tbl) {
+        tableId = tbl.id;
+        tableNumber = tbl.tableNumber;
+        resolvedTableKey = tbl.tableKey;
+      }
+    }
+
+    const now = new Date().toISOString();
+    const order: RestaurantTableOrder = {
+      id: `tord-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      businessId: business.id,
+      tableId,
+      tableNumber,
+      tableKey: resolvedTableKey,
+      customerId: params.customerId ?? null,
+      guestName: params.guestName?.trim().slice(0, 80) || null,
+      items: validatedItems,
+      status: 'pending_approval',
+      approvedBy: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const orders = this.read<RestaurantTableOrder[]>(
+      STORAGE_KEYS.RESTAURANT_TABLE_ORDERS,
+      [],
+    );
+    orders.push(order);
+    this.write(STORAGE_KEYS.RESTAURANT_TABLE_ORDERS, orders);
+    return order;
+  }
+
+  async updateTableOrderStatus(params: {
+    businessSlug: string;
+    orderId: string;
+    status: RestaurantTableOrderStatus;
+    staffLabel?: string;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<RestaurantTableOrder> {
+    const statusCheck = validateTableOrderStatus(params.status);
+    if (!statusCheck.ok) {
+      throw new Error(statusCheck.error);
+    }
+
+    const list = await this.getBusinesses();
+    const business =
+      list.find(
+        (b) => b.slug.toLowerCase() === params.businessSlug.trim().toLowerCase(),
+      ) ?? null;
+    if (!business) {
+      throw new Error('Restaurant not found.');
+    }
+
+    const profileStore = this.read<Record<string, RestaurantProfile>>(
+      STORAGE_KEYS.RESTAURANT_PROFILES,
+      {},
+    );
+    const profile = normalizeRestaurantProfile(
+      business.id,
+      profileStore[business.id],
+      'local',
+    );
+    this.assertOwnerOrStaffPin(
+      business,
+      profile,
+      params.staffPinHash,
+      params.options,
+    );
+
+    const orders = this.read<RestaurantTableOrder[]>(
+      STORAGE_KEYS.RESTAURANT_TABLE_ORDERS,
+      [],
+    );
+    const idx = orders.findIndex(
+      (o) => o.id === params.orderId && o.businessId === business.id,
+    );
+    if (idx === -1) {
+      throw new Error('Table order not found for this restaurant.');
+    }
+
+    const staffLabel = (params.staffLabel ?? '').trim().slice(0, 80) || 'Staff';
+    const existing = orders[idx];
+    const shouldRecordApprover =
+      statusCheck.value === 'approved_for_kitchen' ||
+      statusCheck.value === 'preparing' ||
+      statusCheck.value === 'served';
+
+    const updated: RestaurantTableOrder = {
+      ...existing,
+      status: statusCheck.value,
+      approvedBy: shouldRecordApprover
+        ? (existing.approvedBy ?? staffLabel)
+        : existing.approvedBy,
+      updatedAt: new Date().toISOString(),
+    };
+    orders[idx] = updated;
+    this.write(STORAGE_KEYS.RESTAURANT_TABLE_ORDERS, orders);
+    return updated;
   }
 }
 

@@ -16,6 +16,7 @@
     "test:games": "deno run tests/verify-restaurant-games.ts",
     "test:loyalty": "deno run tests/verify-restaurant-loyalty.ts",
     "test:staff": "deno run tests/verify-restaurant-staff-and-analytics.ts",
+    "test:templates": "deno run tests/verify-restaurant-templates-and-orders.ts",
     "preview": "vite preview"
   },
   "dependencies": {

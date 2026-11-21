@@ -10,6 +10,59 @@ export type RestaurantCurrencyCode =
 
 export type DietaryTag = 'veg' | 'non_veg' | 'egg' | 'vegan' | 'none';
 
+export type MenuThemeTemplate =
+  | 'default'
+  | 'masala'
+  | 'prakriti'
+  | 'bistro'
+  | 'samudra'
+  | 'sizzler';
+
+export type MenuPresetKey =
+  | 'masala_indian'
+  | 'prakriti_organic'
+  | 'bistro_modern'
+  | 'samudra_coastal'
+  | 'sizzler_diner';
+
+export type RestaurantTableOrderStatus =
+  | 'pending_approval'
+  | 'approved_for_kitchen'
+  | 'preparing'
+  | 'served'
+  | 'cancelled';
+
+export interface RestaurantTableOrderItem {
+  itemId: string;
+  name: string;
+  quantity: number;
+  pricePaise: number;
+  notes?: string | null;
+}
+
+export interface RestaurantTableOrder {
+  id: string;
+  businessId: string;
+  tableId: string | null;
+  tableNumber?: string | null;
+  tableKey?: string | null;
+  customerId: string | null;
+  guestName: string | null;
+  items: RestaurantTableOrderItem[];
+  status: RestaurantTableOrderStatus;
+  approvedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ApplyMenuPresetResult {
+  presetKey: MenuPresetKey;
+  themeTemplate: MenuThemeTemplate;
+  categoriesInserted: number;
+  itemsInserted: number;
+  rewardsInserted: number;
+}
+
 export const RESTAURANT_LIMITS = {
   TAGLINE_MAX_LENGTH: 160,
   TABLE_NUMBER_MAX_LENGTH: 40,
@@ -36,6 +89,14 @@ export interface RestaurantProfile {
   staffPinHash?: string | null;
   /** Minimum hours between verified visit star awards for the same diner (default 4). */
   minHoursBetweenVisitStars?: number;
+  /** Owner master switch for optional guest table ordering (default false = view-only menu). */
+  tableOrderingEnabled?: boolean;
+  /** Selected visual cultural theme for the customer Digital Menu view. */
+  menuThemeTemplate?: MenuThemeTemplate;
+  /** Optional custom restaurant logo URL. */
+  customLogoUrl?: string | null;
+  /** Optional custom hex accent color (#RRGGBB). */
+  customAccentColor?: string | null;
   updatedAt: string;
   storageSource?: 'supabase' | 'local';
 }
@@ -48,6 +109,10 @@ export interface RestaurantProfileInput {
   loyaltyEnabled?: boolean;
   staffPinHash?: string | null;
   minHoursBetweenVisitStars?: number;
+  tableOrderingEnabled?: boolean;
+  menuThemeTemplate?: MenuThemeTemplate;
+  customLogoUrl?: string | null;
+  customAccentColor?: string | null;
 }
 
 export interface RestaurantTable {
@@ -488,5 +553,7 @@ export interface RestaurantFloorAndAnalyticsPayload {
   pendingRewardClaims: Array<
     RestaurantRewardClaim & { customerName?: string }
   >;
+  tableOrderingEnabled?: boolean;
+  tableOrders?: RestaurantTableOrder[];
   analytics: RestaurantEngagementAnalytics;
 }
