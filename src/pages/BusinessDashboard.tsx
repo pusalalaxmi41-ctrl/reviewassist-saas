@@ -335,6 +335,16 @@ export default function BusinessDashboard() {
                   {currentBusiness.deletedReason || currentBusiness.statusReason}
                 </p>
               )}
+              {isBusinessLive && restaurantProfile?.isEnabled && (
+                <Link
+                  to={`/r/${currentBusiness.slug}/menu`}
+                  target="_blank"
+                  className="inline-flex items-center gap-1 rounded-full bg-[#EEF3EC] px-2.5 py-0.5 text-[12px] font-semibold text-[#244B40] hover:underline"
+                >
+                  Digital Menu (/r/{currentBusiness.slug}/menu){' '}
+                  <ExternalLink className="h-3 w-3" aria-hidden />
+                </Link>
+              )}
             </div>
           </div>
         </div>
