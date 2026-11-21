@@ -23,7 +23,7 @@ export function TextField({
     <div className="space-y-1.5">
       <label
         htmlFor={inputId}
-        className="block text-[13px] font-medium text-[#252B29] sm:text-[14px]"
+        className="block text-[13px] font-semibold text-[#111827] sm:text-[14px]"
       >
         {label}
       </label>
@@ -35,16 +35,16 @@ export function TextField({
           undefined
         }
         className={cn(
-          'block min-h-11 w-full rounded-xl border bg-[#FFFFFF] px-3.5 py-2.5 text-[15px] text-[#252B29] placeholder:text-[#626B65] focus:outline-none focus-visible:ring-2 disabled:bg-[#E8EBE7] disabled:text-[#747B76]',
+          'block h-11 min-h-11 w-full rounded-xl border bg-[#FFFFFF] px-3.5 py-2.5 text-[15px] text-[#111827] placeholder:text-[#6B7280] transition-colors focus:outline-none focus-visible:ring-2 disabled:bg-[#F3F4F6] disabled:text-[#9CA3AF]',
           error
             ? 'border-red-600 focus-visible:border-red-600 focus-visible:ring-red-600/30'
-            : 'border-[#87928A] focus-visible:border-[#244B40] focus-visible:ring-[#244B40]/25',
+            : 'border-[#1E1B4B]/20 focus-visible:border-[#1E1B4B] focus-visible:ring-[#1E1B4B]/25',
           className,
         )}
         {...props}
       />
       {hint && (
-        <p id={hintId} className="text-[13px] text-[#626B65]">
+        <p id={hintId} className="text-[13px] text-[#6B7280]">
           {hint}
         </p>
       )}

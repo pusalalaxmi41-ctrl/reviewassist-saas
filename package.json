@@ -11,6 +11,7 @@
     "test:ai-config": "deno run tests/verify-ai-config.ts",
     "test:knowledge": "deno run tests/verify-business-knowledge.ts",
     "test:reviews": "deno run tests/verify-review-management.ts",
+    "test:menu": "deno run tests/verify-restaurant-menu.ts",
     "test:restaurant": "deno run tests/verify-restaurant-menu.ts",
     "test:games": "deno run tests/verify-restaurant-games.ts",
     "test:loyalty": "deno run tests/verify-restaurant-loyalty.ts",

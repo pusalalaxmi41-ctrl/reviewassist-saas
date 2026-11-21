@@ -5,16 +5,16 @@ import { cn } from '../../utils/cn';
 type Tone = 'info' | 'warning' | 'success' | 'error';
 
 const styles: Record<Tone, string> = {
-  info: 'border-[#DDE4DC] bg-[#EEF3EC] text-[#252B29]',
-  warning: 'border-[#E4BD63] bg-[#FAF3DF] text-[#252B29]',
-  success: 'border-[#A8BFA5] bg-[#EEF3EC] text-[#252B29]',
+  info: 'border-[#1E1B4B]/15 bg-[#1E1B4B]/[0.04] text-[#111827]',
+  warning: 'border-[#D97706]/30 bg-amber-50/80 text-[#111827]',
+  success: 'border-[#059669]/30 bg-emerald-50/80 text-[#111827]',
   error: 'border-red-300 bg-red-50 text-red-950',
 };
 
 const iconStyles: Record<Tone, string> = {
-  info: 'text-[#244B40]',
-  warning: 'text-[#252B29]',
-  success: 'text-[#244B40]',
+  info: 'text-[#1E1B4B]',
+  warning: 'text-[#D97706]',
+  success: 'text-[#059669]',
   error: 'text-red-700',
 };
 
@@ -40,7 +40,7 @@ export function Alert({
       role={tone === 'error' ? 'alert' : 'status'}
       aria-live={tone === 'error' ? 'assertive' : 'polite'}
       className={cn(
-        'flex gap-3 rounded-xl border p-3.5 text-[14px] leading-relaxed',
+        'flex gap-3 rounded-2xl border p-4 text-[14px] leading-relaxed',
         styles[tone],
         className,
       )}

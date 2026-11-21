@@ -2,49 +2,70 @@
 
 :root {
   color-scheme: light;
-  /* ReviewAssist v1.0 Core Brand Colours */
-  --ra-forest: #244B40;
-  --ra-forest-hover: #1C3B32;
-  --ra-sage: #A8BFA5;
-  --ra-sage-tint: #EEF3EC;
-  --ra-yellow: #E4BD63;
-  --ra-yellow-tint: #FAF3DF;
-  --ra-bg: #F7F7F2;
-  --ra-charcoal: #252B29;
 
-  /* Supporting Interface Colours */
+  /* Vitaran / BistroOS Global Design System Tokens (Milk, Midnight Navy & Champagne Gold) */
+  --brand-bg: #F8F9FA;
+  --brand-surface: #FFFFFF;
+  --brand-primary: #1E1B4B;
+  --brand-primary-hover: #2E2A6E;
+  --brand-accent: #D2DB76;
+  --brand-accent-dark: #1E1B4B;
+  --brand-text: #111827;
+  --brand-muted: #6B7280;
+  --brand-success: #059669;
+  --brand-warning: #D97706;
+  --brand-border: rgba(30, 27, 75, 0.08);
+  --brand-shadow: 0 4px 20px -2px rgba(30, 27, 75, 0.05);
+
+  /* Backwards-compatible aliases mapped to BistroOS palette */
+  --ra-forest: #1E1B4B;
+  --ra-forest-hover: #2E2A6E;
+  --ra-sage: #C7D2FE;
+  --ra-sage-tint: #EEF2FF;
+  --ra-yellow: #D2DB76;
+  --ra-yellow-tint: #F7F9E4;
+  --ra-bg: #F8F9FA;
+  --ra-charcoal: #111827;
   --ra-white: #FFFFFF;
-  --ra-border: #DDE4DC;
-  --ra-border-strong: #87928A;
-  --ra-text-secondary: #626B65;
-  --ra-disabled-bg: #E8EBE7;
-  --ra-disabled-text: #747B76;
+  --ra-border: #E5E7EB;
+  --ra-border-strong: #9CA3AF;
+  --ra-text-secondary: #6B7280;
+  --ra-disabled-bg: #F3F4F6;
+  --ra-disabled-text: #9CA3AF;
 }
 
 @theme {
-  --font-sans: "DM Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --color-ra-forest: #244B40;
-  --color-ra-forest-hover: #1C3B32;
-  --color-ra-sage: #A8BFA5;
-  --color-ra-sage-tint: #EEF3EC;
-  --color-ra-yellow: #E4BD63;
-  --color-ra-yellow-tint: #FAF3DF;
-  --color-ra-bg: #F7F7F2;
-  --color-ra-charcoal: #252B29;
+  --font-sans: "Inter", "DM Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --color-ra-forest: #1E1B4B;
+  --color-ra-forest-hover: #2E2A6E;
+  --color-ra-sage: #C7D2FE;
+  --color-ra-sage-tint: #EEF2FF;
+  --color-ra-yellow: #D2DB76;
+  --color-ra-yellow-tint: #F7F9E4;
+  --color-ra-bg: #F8F9FA;
+  --color-ra-charcoal: #111827;
   --color-ra-white: #FFFFFF;
-  --color-ra-border: #DDE4DC;
-  --color-ra-border-strong: #87928A;
-  --color-ra-secondary: #626B65;
-  --color-ra-disabled-bg: #E8EBE7;
-  --color-ra-disabled-text: #747B76;
+  --color-ra-border: #E5E7EB;
+  --color-ra-border-strong: #9CA3AF;
+  --color-ra-secondary: #6B7280;
+  --color-ra-disabled-bg: #F3F4F6;
+  --color-ra-disabled-text: #9CA3AF;
 
-  --animate-fade-in: fade-in 220ms ease-out;
+  --animate-fade-in: fadeSlideUp 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-fadeSlideUp: fadeSlideUp 220ms cubic-bezier(0.16, 1, 0.3, 1);
   --animate-float-slow: float-slow 3.2s ease-in-out infinite;
   --animate-pop-in: pop-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-gold-shimmer: gold-shimmer 2.4s ease-in-out infinite;
 
-  @keyframes fade-in {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: none; }
+  @keyframes fadeSlideUp {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   @keyframes float-slow {
@@ -53,19 +74,39 @@
   }
 
   @keyframes pop-in {
-    0% { opacity: 0; transform: scale(0.92); }
+    0% { opacity: 0; transform: scale(0.94); }
     100% { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes gold-shimmer {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.08); }
   }
 }
 
 body {
   font-family: var(--font-sans);
-  background-color: var(--ra-bg);
-  color: var(--ra-charcoal);
+  background-color: var(--brand-bg);
+  color: var(--brand-text);
   font-size: 15px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4 {
+  letter-spacing: -0.02em;
+}
+
+.bistro-card {
+  background-color: var(--brand-surface);
+  border: 1px solid rgba(30, 27, 75, 0.08);
+  box-shadow: 0 4px 20px -2px rgba(30, 27, 75, 0.05);
+  border-radius: 1rem;
+}
+
+.animate-fadeSlideUp {
+  animation: fadeSlideUp 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {

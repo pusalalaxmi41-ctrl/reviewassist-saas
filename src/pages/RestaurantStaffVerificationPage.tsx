@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import {
   KeyRound,
   UtensilsCrossed,
-  LogOut,
+  Lock,
   Loader2,
   SearchX,
   AlertCircle,
@@ -50,7 +50,7 @@ export default function RestaurantStaffVerificationPage() {
           setProfile(prof);
           setTables(tbls);
         } catch {
-          // ignore if public staff tablet hasn't authenticated as owner
+          // ignore if public staff phone hasn't authenticated as owner
         }
       }
       setLoading(false);
@@ -89,14 +89,14 @@ export default function RestaurantStaffVerificationPage() {
     return (
       <div
         role="status"
-        className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-12 text-center shadow-2xs"
+        className="mx-auto max-w-md bistro-card p-12 text-center"
       >
         <Loader2
-          className="mx-auto h-7 w-7 animate-spin text-[#244B40]"
+          className="mx-auto h-7 w-7 animate-spin text-[#1E1B4B]"
           aria-hidden
         />
-        <p className="mt-3 text-[15px] font-medium text-[#626B65]">
-          Loading Staff Verification Console…
+        <p className="mt-3 text-[15px] font-medium text-[#6B7280]">
+          Loading Waiter Dashboard…
         </p>
       </div>
     );
@@ -106,15 +106,15 @@ export default function RestaurantStaffVerificationPage() {
     return (
       <div
         role="alert"
-        className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-8 text-center shadow-2xs space-y-3"
+        className="mx-auto max-w-md bistro-card p-8 text-center space-y-3"
       >
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#EEF3EC] text-[#244B40]">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#1E1B4B] text-[#D2DB76]">
           <SearchX className="h-6 w-6" aria-hidden />
         </div>
-        <h1 className="text-[22px] font-semibold text-[#252B29]">
+        <h1 className="text-[22px] font-extrabold text-[#111827]">
           Restaurant not found
         </h1>
-        <p className="text-[14px] text-[#626B65]">
+        <p className="text-[14px] text-[#6B7280]">
           Please check the restaurant URL and try again.
         </p>
       </div>
@@ -122,59 +122,65 @@ export default function RestaurantStaffVerificationPage() {
   }
 
   return (
-    <div className="space-y-5">
-      {/* Staff Console Header */}
-      <div className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-5 shadow-2xs flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#EEF3EC] px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-[#244B40]">
-            <UtensilsCrossed className="h-3 w-3" aria-hidden /> Staff Floor &amp; Verification Mode
+    <div className="mx-auto w-full max-w-md space-y-4 pb-10 animate-fadeSlideUp">
+      {/* Top Bar — WAITER DASHBOARD (Matches Mockup 3) */}
+      <header className="bistro-card px-4 py-3.5 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#1E1B4B] text-[#D2DB76]">
+            <UtensilsCrossed className="h-4 w-4" aria-hidden />
           </span>
-          <h1 className="mt-1 text-[22px] font-bold text-[#252B29]">
-            {business.name}
-          </h1>
+          <div className="min-w-0">
+            <h1 className="text-[14px] font-extrabold uppercase tracking-wider text-[#111827]">
+              WAITER DASHBOARD
+            </h1>
+            <p className="truncate text-[12px] font-medium text-[#6B7280]">
+              {business.name}
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <Link
             to={`/r/${business.slug}/menu`}
-            className="rounded-xl border border-[#DDE4DC] bg-[#F7F7F2] px-3 py-1.5 text-[12px] font-semibold text-[#252B29] hover:border-[#244B40]"
+            className="rounded-xl border border-[#1E1B4B]/15 bg-[#F8F9FA] px-3 py-1.5 text-[12px] font-bold text-[#111827] hover:border-[#1E1B4B]"
           >
-            Guest Menu
+            Menu
           </Link>
           {verifiedPinHash && (
             <button
               type="button"
               onClick={() => setVerifiedPinHash(null)}
-              className="inline-flex items-center gap-1 rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3 py-1.5 text-[12px] font-semibold text-[#252B29] hover:bg-[#F7F7F2] cursor-pointer"
+              aria-label="Lock Waiter Floor"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[#1E1B4B]/15 bg-[#FFFFFF] text-[#111827] hover:bg-[#F8F9FA] cursor-pointer"
             >
-              <LogOut className="h-3.5 w-3.5" aria-hidden /> Lock Screen
+              <Lock className="h-4 w-4" aria-hidden />
             </button>
           )}
         </div>
-      </div>
+      </header>
 
-      {/* Staff PIN Unlock Gate vs. Live Floor & Verification Console */}
+      {/* Clean PIN Unlock Screen vs. Waiter Floor Console */}
       {!verifiedPinHash ? (
         <form
           onSubmit={(e) => void handleUnlockWithPin(e)}
-          className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-6 sm:p-8 shadow-2xs space-y-5"
+          className="bistro-card p-6 sm:p-8 space-y-5"
         >
-          <div className="text-center space-y-1.5">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#EEF3EC] text-[#244B40]">
+          <div className="text-center space-y-2">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#1E1B4B] text-[#D2DB76] shadow-sm">
               <KeyRound className="h-6 w-6" aria-hidden />
             </div>
-            <h2 className="text-[20px] font-bold text-[#252B29]">
-              Enter Staff Verification PIN
+            <h2 className="text-[22px] font-extrabold tracking-tight text-[#111827]">
+              Unlock Staff Floor
             </h2>
-            <p className="text-[13px] text-[#626B65]">
-              Enter the 4–6 digit Staff PIN set by the owner of {business.name} to access the table floor map, verify paid visits, and fulfill reward tickets.
+            <p className="text-[13px] text-[#6B7280]">
+              Enter your 4–6 digit Waiter PIN for <strong>{business.name}</strong> to scan guest loyalty passes and manage live table calls.
             </p>
           </div>
 
           {authError && (
             <div
               role="alert"
-              className="flex items-center gap-2 rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-[13px] font-medium text-red-900"
+              className="flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] font-semibold text-red-900"
             >
               <AlertCircle
                 className="h-4 w-4 shrink-0 text-red-700"
@@ -184,29 +190,29 @@ export default function RestaurantStaffVerificationPage() {
             </div>
           )}
 
-          <div className="space-y-3">
-            <div className="space-y-1">
+          <div className="space-y-3.5">
+            <div className="space-y-1.5">
               <label
                 htmlFor="staffNameLabelInput"
-                className="block text-[12px] font-semibold uppercase tracking-wider text-[#626B65]"
+                className="block text-[12px] font-bold uppercase tracking-wider text-[#6B7280]"
               >
-                Your Staff Name / Station
+                Staff Name / Station
               </label>
               <input
                 id="staffNameLabelInput"
                 type="text"
                 maxLength={60}
-                placeholder="e.g. Waiter Rahul or Cashier Desk"
+                placeholder="e.g. Waiter Rahul"
                 value={staffLabel}
                 onChange={(e) => setStaffLabel(e.target.value)}
-                className="block min-h-11 w-full rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-2 text-[14px] text-[#252B29]"
+                className="block h-11 w-full rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-3.5 text-[14px] font-semibold text-[#111827] focus:border-[#1E1B4B] focus:outline-none"
               />
             </div>
 
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <label
                 htmlFor="staffPinPadInput"
-                className="block text-[12px] font-semibold uppercase tracking-wider text-[#626B65]"
+                className="block text-[12px] font-bold uppercase tracking-wider text-[#6B7280]"
               >
                 4–6 Digit Staff PIN
               </label>
@@ -219,7 +225,7 @@ export default function RestaurantStaffVerificationPage() {
                 placeholder="••••"
                 value={pinInput}
                 onChange={(e) => setPinInput(e.target.value)}
-                className="block min-h-12 w-full rounded-xl border border-[#87928A] bg-[#FFFFFF] px-4 py-2.5 text-center font-mono text-[20px] font-bold tracking-widest text-[#252B29]"
+                className="block h-13 w-full rounded-xl border border-[#1E1B4B]/25 bg-[#F8F9FA] px-4 text-center font-mono text-[24px] font-extrabold tracking-[0.35em] text-[#1E1B4B] focus:border-[#1E1B4B] focus:bg-[#FFFFFF] focus:outline-none"
               />
             </div>
           </div>
@@ -227,11 +233,11 @@ export default function RestaurantStaffVerificationPage() {
           <Button
             type="submit"
             variant="primary"
-            className="w-full"
+            className="w-full min-h-12 text-[15px]"
             disabled={verifying || pinInput.trim().length < 4}
           >
-            <KeyRound className="h-4 w-4" aria-hidden />
-            {verifying ? 'Verifying PIN…' : 'Unlock Staff Floor Console'}
+            <KeyRound className="h-4 w-4 text-[#D2DB76]" aria-hidden />
+            {verifying ? 'Unlocking…' : 'Unlock Staff Floor'}
           </Button>
         </form>
       ) : (

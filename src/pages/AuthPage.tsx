@@ -98,18 +98,18 @@ export default function AuthPage() {
   }
 
   return (
-    <div className="mx-auto max-w-md space-y-6 py-6">
+    <div className="mx-auto max-w-md space-y-6 py-6 animate-fadeSlideUp">
       <div className="text-center space-y-2">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border border-[#A8BFA5] bg-[#EEF3EC] text-[#244B40]">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#1E1B4B] text-[#D2DB76] shadow-sm">
           <KeyRound className="h-5 w-5" aria-hidden />
         </div>
-        <h1 className="text-[24px] font-bold tracking-tight text-[#252B29] sm:text-[28px]">
-          {mode === 'signin' ? 'Business Owner Sign In' : 'Create Owner Account'}
+        <h1 className="text-[26px] font-extrabold tracking-tight text-[#111827] sm:text-[28px]">
+          {mode === 'signin' ? 'Restaurant Owner Sign In' : 'Create Owner Account'}
         </h1>
-        <p className="text-[14px] text-[#626B65]">
+        <p className="text-[14px] text-[#6B7280]">
           {mode === 'signin'
-            ? 'Sign in to manage your businesses, QR codes, and customer review drafts.'
-            : 'Create an owner account to register your business and generate your review QR code.'}
+            ? 'Access your Live Overview, Digital Menu, Table QRs, Loyalty Rules, and AI Reviews.'
+            : 'Create an owner account to launch your restaurant digital menu, table games, and loyalty hub.'}
         </p>
       </div>
 
@@ -117,7 +117,7 @@ export default function AuthPage() {
       <div
         role="tablist"
         aria-label="Authentication mode"
-        className="grid grid-cols-2 rounded-xl border border-[#DDE4DC] bg-[#FFFFFF] p-1 text-[14px] font-medium"
+        className="grid grid-cols-2 rounded-2xl border border-[#1E1B4B]/10 bg-[#FFFFFF] p-1.5 text-[14px] font-medium shadow-2xs"
       >
         <button
           type="button"
@@ -127,10 +127,10 @@ export default function AuthPage() {
             setMode('signin');
             setError(null);
           }}
-          className={`flex min-h-10 items-center justify-center gap-1.5 rounded-lg py-2 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#244B40] ${
+          className={`flex min-h-10 items-center justify-center gap-1.5 rounded-xl py-2 transition-all duration-150 active:scale-[0.98] cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] ${
             mode === 'signin'
-              ? 'bg-[#244B40] text-[#FFFFFF] font-semibold'
-              : 'text-[#626B65] hover:text-[#252B29]'
+              ? 'bg-[#1E1B4B] text-[#FFFFFF] font-semibold shadow-sm'
+              : 'text-[#6B7280] hover:text-[#111827]'
           }`}
         >
           <LogIn className="h-4 w-4" aria-hidden /> Sign In
@@ -143,10 +143,10 @@ export default function AuthPage() {
             setMode('signup');
             setError(null);
           }}
-          className={`flex min-h-10 items-center justify-center gap-1.5 rounded-lg py-2 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#244B40] ${
+          className={`flex min-h-10 items-center justify-center gap-1.5 rounded-xl py-2 transition-all duration-150 active:scale-[0.98] cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] ${
             mode === 'signup'
-              ? 'bg-[#244B40] text-[#FFFFFF] font-semibold'
-              : 'text-[#626B65] hover:text-[#252B29]'
+              ? 'bg-[#1E1B4B] text-[#FFFFFF] font-semibold shadow-sm'
+              : 'text-[#6B7280] hover:text-[#111827]'
           }`}
         >
           <UserPlus className="h-4 w-4" aria-hidden /> Create Account
@@ -168,13 +168,13 @@ export default function AuthPage() {
       <form
         onSubmit={(e) => void handleSubmit(e)}
         noValidate
-        className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-6 sm:p-8 shadow-2xs space-y-5"
+        className="bistro-card p-6 sm:p-8 space-y-5"
       >
         <TextField
           label="Email Address"
           type="email"
           autoComplete="email"
-          placeholder="owner@yourbusiness.com"
+          placeholder="owner@yourrestaurant.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
@@ -205,7 +205,7 @@ export default function AuthPage() {
         <Button type="submit" loading={submitting} className="w-full">
           {mode === 'signin' ? (
             <>
-              <LogIn className="h-4 w-4" aria-hidden /> Sign In to Dashboard
+              <LogIn className="h-4 w-4" aria-hidden /> Sign In to Workspace
             </>
           ) : (
             <>
@@ -215,18 +215,18 @@ export default function AuthPage() {
         </Button>
 
         <div className="relative flex items-center py-1">
-          <div className="grow border-t border-[#DDE4DC]" />
-          <span className="mx-3 shrink text-[12px] font-medium uppercase tracking-wider text-[#626B65]">
+          <div className="grow border-t border-[#1E1B4B]/10" />
+          <span className="mx-3 shrink text-[12px] font-semibold uppercase tracking-wider text-[#6B7280]">
             or
           </span>
-          <div className="grow border-t border-[#DDE4DC]" />
+          <div className="grow border-t border-[#1E1B4B]/10" />
         </div>
 
         <button
           type="button"
           disabled={submitting}
           onClick={() => void handleGoogleSignIn()}
-          className="flex min-h-11 w-full items-center justify-center gap-2.5 rounded-xl border border-[#87928A] bg-[#FFFFFF] px-4 py-2 text-[14px] font-medium text-[#252B29] hover:border-[#244B40] hover:bg-[#F7F7F2] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#244B40] cursor-pointer disabled:opacity-60"
+          className="flex min-h-11 w-full items-center justify-center gap-2.5 rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-4 py-2 text-[14px] font-semibold text-[#111827] hover:border-[#1E1B4B] hover:bg-[#F8F9FA] active:scale-[0.98] transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] cursor-pointer disabled:opacity-60"
         >
           <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
             <path
@@ -250,9 +250,9 @@ export default function AuthPage() {
         </button>
       </form>
 
-      <div className="flex items-center justify-center gap-2 text-[13px] text-[#626B65]">
-        <ShieldCheck className="h-4 w-4 text-[#244B40] shrink-0" aria-hidden />
-        <span>Your account and business data are private and protected.</span>
+      <div className="flex items-center justify-center gap-2 text-[13px] text-[#6B7280]">
+        <ShieldCheck className="h-4 w-4 text-[#1E1B4B] shrink-0" aria-hidden />
+        <span>Your restaurant workspace and customer ledgers are private and protected.</span>
       </div>
     </div>
   );

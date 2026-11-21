@@ -33,6 +33,7 @@ interface Props {
   tableKey?: string | null;
   tableNumber?: string | null;
   availableGames?: RestaurantGameConfig[];
+  onWalletUpdated?: (wallet: RestaurantCustomerWalletState) => void;
   onClose?: () => void;
 }
 
@@ -83,6 +84,7 @@ export function CustomerGameArena({
   tableKey,
   tableNumber,
   availableGames,
+  onWalletUpdated,
   onClose,
 }: Props) {
   const [wallet, setWallet] = useState<RestaurantCustomerWalletState | null>(
@@ -126,7 +128,6 @@ export function CustomerGameArena({
       ? availableGames.filter((g) => g.isEnabled)
       : getDefaultRestaurantGameConfigs(businessId);
 
-  // Auto-resume stored diner session on mount
   useEffect(() => {
     const stored = loadStoredDinerIdentity();
     if (!stored) return;
@@ -142,12 +143,13 @@ export function CustomerGameArena({
           },
         );
         setWallet(state);
+        onWalletUpdated?.(state);
       } catch {
         // ignore auto-resume error
       }
     }
     void resume();
-  }, [businessSlug]);
+  }, [businessSlug, onWalletUpdated]);
 
   async function handleCheckIn(
     e?: React.FormEvent,
@@ -184,6 +186,7 @@ export function CustomerGameArena({
       });
 
       setWallet(state);
+      onWalletUpdated?.(state);
       setDisplayName(state.customer.displayName);
       setPhoneOrEmail(state.customer.phoneOrEmail ?? '');
       setShowCheckInForm(false);
@@ -200,7 +203,6 @@ export function CustomerGameArena({
 
     let activeWallet = wallet;
     if (!activeWallet) {
-      // Automatically create an instant guest check-in if they haven't checked in yet
       try {
         const guestTokenHash = getOrCreateGuestTokenHash();
         activeWallet =
@@ -216,6 +218,7 @@ export function CustomerGameArena({
           guestTokenHash,
         });
         setWallet(activeWallet);
+        onWalletUpdated?.(activeWallet);
         setDisplayName(activeWallet.customer.displayName);
       } catch (err) {
         setErrorMessage((err as Error).message);
@@ -248,7 +251,6 @@ export function CustomerGameArena({
           '🥘',
           '🥘',
         ];
-        // Deterministic shuffle using current timestamp
         const shuffled = [...sourceCards].sort(() => Math.random() - 0.5);
         setMemoryDeck(shuffled);
         setFlippedIndices([]);
@@ -331,7 +333,6 @@ export function CustomerGameArena({
 
       setCompletionResult(res);
 
-      // Refresh customer wallet state so ledger and balance update immediately
       const stored = loadStoredDinerIdentity();
       const refreshed =
         await businessRepository.registerOrResumeRestaurantCustomer({
@@ -341,6 +342,7 @@ export function CustomerGameArena({
           businessSlug,
         });
       setWallet(refreshed);
+      onWalletUpdated?.(refreshed);
     } catch (err) {
       setErrorMessage((err as Error).message);
     } finally {
@@ -349,53 +351,48 @@ export function CustomerGameArena({
   }
 
   return (
-    <div className="space-y-4">
-      {/* Top Game Points Wallet & Customer Check-In Bar */}
-      <div className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-5 shadow-2xs space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            {onClose && (
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="Back to Digital Menu"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[#DDE4DC] bg-[#F7F7F2] text-[#252B29] hover:border-[#244B40] cursor-pointer"
-              >
-                <ArrowLeft className="h-4 w-4" aria-hidden />
-              </button>
-            )}
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-[19px] font-bold text-[#252B29] flex items-center gap-2">
-                  <Gamepad2 className="h-5 w-5 text-[#244B40]" aria-hidden />
-                  Table Game Arena
-                </h2>
-                {tableNumber && (
-                  <span className="rounded-full bg-[#244B40] px-2.5 py-0.5 text-[11px] font-semibold text-[#FFFFFF]">
-                    {tableNumber}
-                  </span>
-                )}
-              </div>
-              <p className="text-[12px] text-[#626B65]">
-                Play restaurant-approved games &amp; earn verified Game Points at {businessName}.
-              </p>
-            </div>
-          </div>
-
-          {/* Distinct Game Points Wallet Badge */}
-          <div
-            data-testid="game-points-wallet-badge"
-            className="flex items-center gap-2.5 rounded-2xl border border-[#A8BFA5] bg-[#EEF3EC] px-3.5 py-2"
+    <div className="space-y-4 animate-fadeSlideUp">
+      {/* Top Back to Menu Bar */}
+      <div className="flex items-center justify-between">
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex items-center gap-1.5 rounded-full border border-[#1E1B4B]/15 bg-[#FFFFFF] px-3.5 py-1.5 text-[13px] font-bold text-[#111827] shadow-2xs active:scale-[0.98] transition-all cursor-pointer"
           >
-            <Trophy className="h-4 w-4 text-[#244B40]" aria-hidden />
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-[#626B65]">
-                Game Points Wallet
-              </p>
-              <p className="text-[16px] font-bold text-[#244B40] leading-tight">
-                {wallet?.gamePointsBalance ?? 0} pts
-              </p>
+            <ArrowLeft className="h-4 w-4" aria-hidden /> Back to Menu
+          </button>
+        ) : (
+          <span />
+        )}
+
+        <div
+          data-testid="game-points-wallet-badge"
+          className="inline-flex items-center gap-1.5 rounded-full bg-[#D2DB76]/60 px-3.5 py-1 text-[12px] font-extrabold text-[#1E1B4B] tabular-nums"
+        >
+          <Trophy className="h-3.5 w-3.5" aria-hidden />
+          <span>{wallet?.gamePointsBalance ?? 0} Game Points</span>
+        </div>
+      </div>
+
+      {/* Top Game Points Wallet & Customer Check-In Card */}
+      <div className="bistro-card p-5 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-[18px] font-extrabold text-[#111827] flex items-center gap-2">
+                <Gamepad2 className="h-5 w-5 text-[#1E1B4B]" aria-hidden />
+                Table Game Arena
+              </h2>
+              {tableNumber && (
+                <span className="rounded-full bg-[#D2DB76]/55 px-2.5 py-0.5 text-[11px] font-bold text-[#1E1B4B]">
+                  {tableNumber}
+                </span>
+              )}
             </div>
+            <p className="mt-0.5 text-[12px] text-[#6B7280]">
+              Win Game Points while your meal is prepared at {businessName}.
+            </p>
           </div>
         </div>
 
@@ -403,25 +400,25 @@ export function CustomerGameArena({
         {!wallet || showCheckInForm ? (
           <form
             onSubmit={(e) => void handleCheckIn(e, false)}
-            className="rounded-2xl border border-[#DDE4DC] bg-[#F7F7F2] p-4 space-y-3"
+            className="rounded-2xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-4 space-y-3"
           >
             <div className="flex items-center justify-between">
-              <p className="text-[13px] font-semibold text-[#252B29] flex items-center gap-1.5">
-                <UserCheck className="h-4 w-4 text-[#244B40]" aria-hidden />
+              <p className="text-[13px] font-bold text-[#111827] flex items-center gap-1.5">
+                <UserCheck className="h-4 w-4 text-[#1E1B4B]" aria-hidden />
                 Save Your Game Points &amp; Stars Across Visits
               </p>
               {wallet && (
                 <button
                   type="button"
                   onClick={() => setShowCheckInForm(false)}
-                  className="text-[12px] font-medium text-[#626B65] hover:text-[#252B29] cursor-pointer"
+                  className="text-[12px] font-medium text-[#6B7280] hover:text-[#111827] cursor-pointer"
                 >
                   Close
                 </button>
               )}
             </div>
 
-            <div className="grid gap-2.5 sm:grid-cols-2">
+            <div className="grid gap-2.5">
               <input
                 type="text"
                 required
@@ -429,7 +426,7 @@ export function CustomerGameArena({
                 placeholder="Your Name (e.g. Aarav)"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                className="block min-h-10 w-full rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3 py-2 text-[13px] text-[#252B29]"
+                className="block h-10 w-full rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-3 text-[13px] text-[#111827]"
               />
               <input
                 type="text"
@@ -437,7 +434,7 @@ export function CustomerGameArena({
                 placeholder="Phone or Email (Optional — saves across visits)"
                 value={phoneOrEmail}
                 onChange={(e) => setPhoneOrEmail(e.target.value)}
-                className="block min-h-10 w-full rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3 py-2 text-[13px] text-[#252B29]"
+                className="block h-10 w-full rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-3 text-[13px] text-[#111827]"
               />
             </div>
 
@@ -452,25 +449,25 @@ export function CustomerGameArena({
                   disabled={checkingIn}
                   onClick={() => void handleCheckIn(undefined, true)}
                 >
-                  Continue as Instant Guest
+                  Play as Instant Guest
                 </Button>
               )}
             </div>
           </form>
         ) : (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#DDE4DC] bg-[#F7F7F2]/80 px-3.5 py-2.5 text-[12px]">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#1E1B4B]/10 bg-[#F8F9FA] px-3.5 py-2.5 text-[12px]">
             <div className="flex items-center gap-2">
-              <UserCheck className="h-4 w-4 text-[#244B40]" aria-hidden />
-              <span className="font-semibold text-[#252B29]">
-                Playing as {wallet.customer.displayName}
+              <UserCheck className="h-4 w-4 text-[#1E1B4B]" aria-hidden />
+              <span className="font-bold text-[#111827]">
+                {wallet.customer.displayName}
               </span>
               {wallet.customer.phoneOrEmail ? (
-                <span className="rounded-full bg-[#EEF3EC] px-2 py-0.5 text-[11px] font-medium text-[#244B40]">
-                  Saved ({wallet.customer.phoneOrEmail})
+                <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[11px] font-semibold text-[#059669]">
+                  Linked
                 </span>
               ) : (
-                <span className="rounded-full bg-[#FAF3DF] border border-[#E4BD63] px-2 py-0.5 text-[11px] font-medium text-[#252B29]">
-                  Guest Session
+                <span className="rounded-full bg-[#D2DB76]/45 px-2 py-0.5 text-[11px] font-semibold text-[#1E1B4B]">
+                  Guest
                 </span>
               )}
             </div>
@@ -479,19 +476,17 @@ export function CustomerGameArena({
               <button
                 type="button"
                 onClick={() => setShowCheckInForm(true)}
-                className="font-semibold text-[#244B40] hover:underline cursor-pointer"
+                className="font-bold text-[#1E1B4B] hover:underline cursor-pointer"
               >
-                {wallet.customer.phoneOrEmail
-                  ? 'Edit Profile'
-                  : 'Link Phone/Email'}
+                {wallet.customer.phoneOrEmail ? 'Edit' : 'Save Profile'}
               </button>
               <button
                 type="button"
                 onClick={() => setShowLedger((prev) => !prev)}
-                className="inline-flex items-center gap-1 font-semibold text-[#252B29] hover:text-[#244B40] cursor-pointer"
+                className="inline-flex items-center gap-1 font-bold text-[#6B7280] hover:text-[#111827] cursor-pointer"
               >
                 <History className="h-3.5 w-3.5" aria-hidden />
-                {showLedger ? 'Hide History' : 'Points History'}
+                {showLedger ? 'Hide History' : 'Ledger'}
               </button>
             </div>
           </div>
@@ -499,34 +494,34 @@ export function CustomerGameArena({
 
         {/* Expandable Game-Points Ledger History */}
         {showLedger && wallet && (
-          <div className="rounded-2xl border border-[#DDE4DC] bg-[#F7F7F2]/60 p-3.5 space-y-2">
-            <p className="text-[12px] font-semibold uppercase tracking-wider text-[#626B65]">
-              Verified Game Points Ledger (Separate from Loyalty Stars)
+          <div className="rounded-2xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-3.5 space-y-2">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-[#6B7280]">
+              Game Points Ledger (Separate from Loyalty Stars)
             </p>
             {wallet.recentTransactions.length === 0 ? (
-              <p className="text-[12px] text-[#626B65]">
+              <p className="text-[12px] text-[#6B7280]">
                 No game point transactions yet. Win a game below to earn your first points!
               </p>
             ) : (
-              <div className="space-y-1.5 max-h-44 overflow-y-auto">
+              <div className="space-y-1.5 max-h-40 overflow-y-auto">
                 {wallet.recentTransactions.map((tx) => (
                   <div
                     key={tx.id}
-                    className="flex items-center justify-between rounded-xl bg-[#FFFFFF] border border-[#DDE4DC] px-3 py-2 text-[12px]"
+                    className="flex items-center justify-between rounded-xl bg-[#FFFFFF] border border-[#1E1B4B]/10 px-3 py-2 text-[12px] tabular-nums"
                   >
                     <div>
-                      <span className="font-semibold text-[#252B29]">
+                      <span className="font-bold text-[#111827]">
                         {tx.txType === 'game_win'
                           ? `Game Win (${String(tx.metadata?.gameSlug ?? 'Table Game')})`
                           : tx.txType}
                       </span>
-                      <p className="text-[11px] text-[#626B65]">
-                        Balance after: {tx.balanceAfter} pts
+                      <p className="text-[11px] text-[#6B7280]">
+                        Balance: {tx.balanceAfter} pts
                       </p>
                     </div>
                     <span
-                      className={`font-bold ${
-                        tx.pointsDelta >= 0 ? 'text-[#244B40]' : 'text-red-700'
+                      className={`font-extrabold ${
+                        tx.pointsDelta >= 0 ? 'text-[#059669]' : 'text-red-700'
                       }`}
                     >
                       {tx.pointsDelta >= 0 ? `+${tx.pointsDelta}` : tx.pointsDelta} pts
@@ -541,7 +536,7 @@ export function CustomerGameArena({
         {errorMessage && (
           <div
             role="alert"
-            className="flex items-center gap-2 rounded-2xl border border-red-300 bg-red-50 px-3.5 py-2.5 text-[13px] font-medium text-red-900"
+            className="flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] font-medium text-red-900"
           >
             <AlertCircle className="h-4 w-4 shrink-0 text-red-700" aria-hidden />
             <span>{errorMessage}</span>
@@ -551,13 +546,13 @@ export function CustomerGameArena({
 
       {/* ACTIVE GAME PLAY VIEW vs. GAME SELECTION LOBBY */}
       {activeSession ? (
-        <div className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-5 sm:p-6 shadow-2xs space-y-5">
-          <div className="flex items-center justify-between border-b border-[#DDE4DC] pb-3.5">
+        <div className="bistro-card p-5 space-y-5">
+          <div className="flex items-center justify-between border-b border-[#1E1B4B]/10 pb-3.5">
             <div>
-              <span className="rounded-full bg-[#EEF3EC] px-2.5 py-0.5 text-[11px] font-semibold text-[#244B40]">
+              <span className="rounded-full bg-[#D2DB76]/60 px-2.5 py-0.5 text-[11px] font-extrabold text-[#1E1B4B] tabular-nums">
                 Win +{activeSession.pointsPerWin} Game Points
               </span>
-              <h3 className="mt-1 text-[20px] font-bold text-[#252B29]">
+              <h3 className="mt-1 text-[19px] font-extrabold text-[#111827]">
                 {activeSession.title}
               </h3>
             </div>
@@ -567,31 +562,30 @@ export function CustomerGameArena({
                 setActiveSession(null);
                 setCompletionResult(null);
               }}
-              className="rounded-xl border border-[#DDE4DC] bg-[#F7F7F2] px-3 py-1.5 text-[12px] font-semibold text-[#252B29] hover:border-[#244B40] cursor-pointer"
+              className="rounded-full border border-[#1E1B4B]/15 bg-[#F8F9FA] px-3.5 py-1.5 text-[12px] font-bold text-[#111827] hover:bg-[#1E1B4B] hover:text-[#FFFFFF] transition-colors cursor-pointer"
             >
               All Games
             </button>
           </div>
 
-          {/* GAME COMPLETION BANNER */}
           {completionResult ? (
-            <div className="rounded-2xl border border-[#A8BFA5] bg-[#EEF3EC]/70 p-6 text-center space-y-3">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#244B40] text-[#FFFFFF]">
+            <div className="rounded-2xl border border-[#D2DB76] bg-[#D2DB76]/20 p-6 text-center space-y-3">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#1E1B4B] text-[#D2DB76]">
                 {completionResult.passed ? (
                   <Trophy className="h-6 w-6" aria-hidden />
                 ) : (
                   <RotateCcw className="h-6 w-6" aria-hidden />
                 )}
               </div>
-              <h4 className="text-[20px] font-bold text-[#252B29]">
+              <h4 className="text-[20px] font-extrabold text-[#111827]">
                 {completionResult.passed
                   ? `You Won +${completionResult.pointsAwarded} Game Points!`
                   : 'Good Try! Almost There'}
               </h4>
-              <p className="text-[13px] text-[#626B65]">
+              <p className="text-[13px] text-[#6B7280] tabular-nums">
                 {completionResult.passed
-                  ? `Verified score: ${completionResult.score} · Your updated Game Points balance is ${completionResult.newBalance} pts.`
-                  : `Score: ${completionResult.score}. Try another table game to earn points!`}
+                  ? `Score: ${completionResult.score} • Updated balance: ${completionResult.newBalance} pts.`
+                  : `Score: ${completionResult.score}. Try another game to earn points!`}
               </p>
               <div className="flex justify-center gap-2.5 pt-2">
                 <Button
@@ -615,12 +609,12 @@ export function CustomerGameArena({
                     {activeSession.challenge.questions.map((q) => (
                       <div
                         key={q.index}
-                        className="rounded-2xl border border-[#DDE4DC] bg-[#F7F7F2]/60 p-4 space-y-2.5"
+                        className="rounded-2xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-4 space-y-2.5"
                       >
-                        <p className="text-[14px] font-bold text-[#252B29]">
+                        <p className="text-[14px] font-bold text-[#111827]">
                           {q.index + 1}. {q.prompt}
                         </p>
-                        <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="grid gap-2">
                           {q.options.map((opt, optIdx) => {
                             const selected =
                               selectedAnswers[q.index] === optIdx;
@@ -634,10 +628,10 @@ export function CustomerGameArena({
                                     [q.index]: optIdx,
                                   }))
                                 }
-                                className={`rounded-xl border px-3.5 py-2.5 text-left text-[13px] font-medium transition-colors cursor-pointer ${
+                                className={`rounded-xl border px-3.5 py-2.5 text-left text-[13px] font-semibold transition-all active:scale-[0.98] cursor-pointer ${
                                   selected
-                                    ? 'border-[#244B40] bg-[#244B40] text-[#FFFFFF] font-semibold'
-                                    : 'border-[#DDE4DC] bg-[#FFFFFF] text-[#252B29] hover:border-[#244B40]'
+                                    ? 'border-[#1E1B4B] bg-[#1E1B4B] text-[#FFFFFF]'
+                                    : 'border-[#1E1B4B]/15 bg-[#FFFFFF] text-[#111827] hover:border-[#1E1B4B]'
                                 }`}
                               >
                                 {opt}
@@ -670,9 +664,9 @@ export function CustomerGameArena({
               {/* GAME 2: FLAVOR MEMORY MATCH (memory-match) */}
               {activeSession.gameSlug === 'memory-match' && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between text-[13px] font-medium text-[#626B65]">
+                  <div className="flex items-center justify-between text-[13px] font-bold text-[#6B7280] tabular-nums">
                     <span>
-                      Matched Pairs: {matchedIndices.length / 2} /{' '}
+                      Matched: {matchedIndices.length / 2} /{' '}
                       {activeSession.challenge.pairsRequired ?? 4}
                     </span>
                     <span>
@@ -691,10 +685,10 @@ export function CustomerGameArena({
                           key={idx}
                           type="button"
                           onClick={() => handleFlipMemoryCard(idx)}
-                          className={`flex h-20 items-center justify-center rounded-2xl border text-[28px] transition-all cursor-pointer ${
+                          className={`flex h-20 items-center justify-center rounded-2xl border text-[28px] transition-all active:scale-[0.96] cursor-pointer ${
                             isFaceUp
-                              ? 'border-[#244B40] bg-[#EEF3EC]'
-                              : 'border-[#DDE4DC] bg-[#244B40] text-[#FFFFFF]'
+                              ? 'border-[#1E1B4B] bg-[#D2DB76]/35'
+                              : 'border-[#1E1B4B] bg-[#1E1B4B] text-[#FFFFFF]'
                           }`}
                         >
                           {isFaceUp ? emoji : '🍽️'}
@@ -715,17 +709,17 @@ export function CustomerGameArena({
                       if (!currentRound) return null;
 
                       return (
-                        <div className="rounded-2xl border border-[#DDE4DC] bg-[#F7F7F2]/70 p-5 space-y-4">
+                        <div className="rounded-2xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-5 space-y-4">
                           <div className="flex items-center justify-between">
-                            <span className="rounded-full bg-[#244B40] px-3 py-0.5 text-[11px] font-semibold text-[#FFFFFF]">
+                            <span className="rounded-full bg-[#1E1B4B] px-3 py-0.5 text-[11px] font-bold text-[#FFFFFF]">
                               Round {currentRoundIndex + 1} of {rounds.length}
                             </span>
-                            <span className="text-[12px] font-medium text-[#626B65]">
-                              Same-Table Group Challenge
+                            <span className="text-[12px] font-semibold text-[#6B7280]">
+                              Pass-the-Phone Challenge
                             </span>
                           </div>
 
-                          <p className="text-[16px] font-bold text-[#252B29]">
+                          <p className="text-[15px] font-extrabold text-[#111827]">
                             {currentRound.prompt}
                           </p>
 
@@ -743,10 +737,10 @@ export function CustomerGameArena({
                                       [currentRoundIndex]: optIdx,
                                     }))
                                   }
-                                  className={`rounded-xl border px-4 py-3 text-left text-[14px] font-medium transition-colors cursor-pointer ${
+                                  className={`rounded-xl border px-4 py-3 text-left text-[14px] font-semibold transition-all active:scale-[0.98] cursor-pointer ${
                                     selected
-                                      ? 'border-[#244B40] bg-[#244B40] text-[#FFFFFF] font-semibold'
-                                      : 'border-[#DDE4DC] bg-[#FFFFFF] text-[#252B29] hover:border-[#244B40]'
+                                      ? 'border-[#1E1B4B] bg-[#1E1B4B] text-[#FFFFFF]'
+                                      : 'border-[#1E1B4B]/15 bg-[#FFFFFF] text-[#111827] hover:border-[#1E1B4B]'
                                   }`}
                                 >
                                   {opt}
@@ -769,7 +763,7 @@ export function CustomerGameArena({
                                   setCurrentRoundIndex((i) => i + 1)
                                 }
                               >
-                                Lock In &amp; Pass Phone to Next Player →
+                                Lock In &amp; Pass Phone →
                               </Button>
                             ) : (
                               <Button
@@ -784,8 +778,8 @@ export function CustomerGameArena({
                                 onClick={() => void handleSubmitGame()}
                               >
                                 {submittingGame
-                                  ? 'Verifying Table Score…'
-                                  : 'Finish Table Challenge & Claim Points'}
+                                  ? 'Verifying Score…'
+                                  : 'Finish Challenge & Claim Points'}
                               </Button>
                             )}
                           </div>
@@ -809,47 +803,43 @@ export function CustomerGameArena({
             return (
               <div
                 key={game.gameSlug}
-                className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-5 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                className="bistro-card p-5 flex items-center justify-between gap-4"
               >
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-[#EEF3EC] px-2.5 py-0.5 text-[11px] font-semibold text-[#244B40]">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[#F8F9FA] border border-[#1E1B4B]/10 px-2.5 py-0.5 text-[11px] font-bold text-[#1E1B4B]">
                       {game.category === 'same_table' ? (
                         <>
-                          <Users className="h-3 w-3" aria-hidden /> Same-Table Group
+                          <Users className="h-3 w-3" aria-hidden /> Table Group
                         </>
                       ) : (
                         <>
-                          <User className="h-3 w-3" aria-hidden /> Solo Game
+                          <User className="h-3 w-3" aria-hidden /> Solo
                         </>
                       )}
                     </span>
-                    <span className="inline-flex items-center gap-1 rounded-full border border-[#E4BD63] bg-[#FAF3DF] px-2.5 py-0.5 text-[11px] font-bold text-[#252B29]">
-                      <Sparkles className="h-3 w-3 text-[#244B40]" aria-hidden />
-                      +{game.pointsPerWin} pts per win
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[#D2DB76]/60 px-2.5 py-0.5 text-[11px] font-extrabold text-[#1E1B4B] tabular-nums">
+                      <Sparkles className="h-3 w-3" aria-hidden />+{game.pointsPerWin} pts
                     </span>
                   </div>
 
-                  <h3 className="text-[17px] font-bold text-[#252B29]">
+                  <h3 className="text-[16px] font-extrabold text-[#111827]">
                     {game.title}
                   </h3>
-                  <p className="text-[13px] text-[#626B65]">
+                  <p className="text-[12px] text-[#6B7280] line-clamp-2">
                     {meta?.description}
-                  </p>
-                  <p className="text-[11px] text-[#626B65]">
-                    Daily limit: {game.maxPointsPerDayPerCustomer} pts/day · Cooldown: {game.cooldownMinutes}m
                   </p>
                 </div>
 
-                <Button
+                <button
                   type="button"
-                  variant="primary"
                   disabled={isStarting}
                   onClick={() => void handleStartGame(game.gameSlug)}
+                  className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-full bg-[#1E1B4B] px-5 text-[13px] font-extrabold text-[#FFFFFF] shadow-sm hover:bg-[#2E2A6E] active:scale-[0.98] transition-all cursor-pointer"
                 >
-                  <Gamepad2 className="h-4 w-4" aria-hidden />
-                  {isStarting ? 'Starting…' : 'Play Now'}
-                </Button>
+                  <Gamepad2 className="h-4 w-4 text-[#D2DB76]" aria-hidden />
+                  {isStarting ? 'Starting…' : 'Play'}
+                </button>
               </div>
             );
           })}

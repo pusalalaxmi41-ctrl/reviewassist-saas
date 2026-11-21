@@ -2,19 +2,16 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   UtensilsCrossed,
-  MapPin,
-  Sparkles,
   Gamepad2,
-  Award,
-  MessageSquareHeart,
+  Gift,
+  Star,
   SearchX,
   Loader2,
-  HandPlatter,
-  Gift,
-  Wifi,
-  Inbox,
+  Sparkles,
+  MessageSquareHeart,
 } from 'lucide-react';
 import type {
+  DietaryTag,
   PublicRestaurantMenuPayload,
   RestaurantCustomerWalletState,
 } from '../types/restaurant';
@@ -25,9 +22,9 @@ import {
 } from '../utils/restaurantValidation';
 import { CustomerGameArena } from '../components/restaurant/CustomerGameArena';
 import {
+  CustomerFloatingServicePill,
   CustomerLoyaltyHeroCard,
   CustomerRewardsAndExtrasView,
-  CustomerTableServiceCallBar,
 } from '../components/restaurant/CustomerLoyaltyAndExtrasHub';
 
 const CUSTOMER_STORAGE_KEY = 'vitaran_diner_session_v1';
@@ -68,6 +65,63 @@ function saveStoredDinerIdentity(identity: StoredDinerIdentity): void {
   } catch {
     // ignore storage errors
   }
+}
+
+function getDishVisualPalette(
+  dishName: string,
+  dietaryTag: DietaryTag,
+): { bg: string; emoji: string; accent: string } {
+  const lower = dishName.toLowerCase();
+  if (
+    lower.includes('biryani') ||
+    lower.includes('rice') ||
+    lower.includes('pulao')
+  ) {
+    return {
+      bg: 'from-amber-100 via-orange-50 to-amber-50',
+      emoji: '🍛',
+      accent: '#D97706',
+    };
+  }
+  if (
+    lower.includes('cooler') ||
+    lower.includes('lime') ||
+    lower.includes('mojito') ||
+    lower.includes('juice') ||
+    lower.includes('drink') ||
+    lower.includes('coffee') ||
+    lower.includes('chai')
+  ) {
+    return {
+      bg: 'from-emerald-100 via-teal-50 to-lime-50',
+      emoji: '🍹',
+      accent: '#059669',
+    };
+  }
+  if (
+    lower.includes('paneer') ||
+    lower.includes('starter') ||
+    lower.includes('tikka') ||
+    lower.includes('kebab')
+  ) {
+    return {
+      bg: 'from-orange-100 via-amber-50 to-yellow-50',
+      emoji: '🥘',
+      accent: '#EA580C',
+    };
+  }
+  if (dietaryTag === 'non_veg') {
+    return {
+      bg: 'from-rose-100 via-orange-50 to-amber-50',
+      emoji: '🍗',
+      accent: '#DC2626',
+    };
+  }
+  return {
+    bg: 'from-[#D2DB76]/45 via-emerald-50 to-[#F8F9FA]',
+    emoji: '🥗',
+    accent: '#059669',
+  };
 }
 
 type HubView = 'menu' | 'games' | 'rewards' | 'extras';
@@ -154,13 +208,13 @@ export default function CustomerRestaurantMenuPage() {
       <div
         role="status"
         aria-live="polite"
-        className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-12 text-center shadow-2xs"
+        className="mx-auto max-w-md bistro-card p-12 text-center"
       >
         <Loader2
-          className="mx-auto h-7 w-7 animate-spin text-[#244B40]"
+          className="mx-auto h-7 w-7 animate-spin text-[#1E1B4B]"
           aria-hidden
         />
-        <p className="mt-3 text-[15px] font-medium text-[#626B65]">
+        <p className="mt-3 text-[15px] font-medium text-[#6B7280]">
           Loading table hub…
         </p>
       </div>
@@ -171,22 +225,22 @@ export default function CustomerRestaurantMenuPage() {
     return (
       <div
         role="alert"
-        className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-8 text-center shadow-2xs space-y-3"
+        className="mx-auto max-w-md bistro-card p-8 text-center space-y-3"
       >
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#EEF3EC] text-[#244B40]">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#1E1B4B] text-[#D2DB76]">
           <SearchX className="h-6 w-6" aria-hidden />
         </div>
-        <h1 className="text-[22px] font-semibold tracking-tight text-[#252B29]">
+        <h1 className="text-[22px] font-extrabold tracking-tight text-[#111827]">
           Digital menu unavailable
         </h1>
-        <p className="mx-auto max-w-sm text-[14px] text-[#626B65] leading-relaxed">
+        <p className="mx-auto max-w-sm text-[14px] text-[#6B7280] leading-relaxed">
           This restaurant&apos;s digital menu is not currently active. You can still share your dining experience on our review page.
         </p>
         {businessSlug && (
           <div className="pt-2">
             <Link
               to={`/r/${businessSlug}`}
-              className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#244B40] px-5 py-2.5 text-[14px] font-semibold text-[#FFFFFF] hover:bg-[#1C3B32]"
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#1E1B4B] px-5 py-2.5 text-[14px] font-semibold text-[#FFFFFF] hover:bg-[#2E2A6E]"
             >
               <MessageSquareHeart className="h-4 w-4" aria-hidden /> Leave a Review
             </Link>
@@ -198,10 +252,6 @@ export default function CustomerRestaurantMenuPage() {
 
   const { business, profile, table, categories, items, loyaltyRules, rewards } =
     payload;
-
-  const hasExtras =
-    Boolean(loyaltyRules?.wifiNetworkName) ||
-    (loyaltyRules?.suggestionBoxEnabled ?? true);
 
   const visibleItems = items.filter((item) => {
     if (
@@ -216,153 +266,44 @@ export default function CustomerRestaurantMenuPage() {
     return true;
   });
 
-  const categoriesToRender =
-    selectedCategoryId === 'all'
-      ? categories
-      : categories.filter((c) => c.id === selectedCategoryId);
-
   return (
-    <div className="space-y-4">
-      {/* 1. Restaurant Header Card & Waiter-Assisted Notice */}
-      <div className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-5 sm:p-6 shadow-2xs space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1 rounded-full bg-[#EEF3EC] px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-[#244B40]">
-                <UtensilsCrossed className="h-3 w-3" aria-hidden /> Table Hub &amp; Menu
-              </span>
-              <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[#626B65]">
-                <MapPin className="h-3.5 w-3.5 text-[#244B40]" aria-hidden />
-                {business.city}
-              </span>
-            </div>
-            <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight text-[#252B29]">
+    <div className="mx-auto w-full max-w-md pb-24 space-y-3.5 animate-fadeSlideUp">
+      {/* 1. TOP BRAND HEADER (Matches Mockup 2) */}
+      <header className="bistro-card px-4 py-3.5 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#1E1B4B] text-[#D2DB76] shadow-2xs">
+            <UtensilsCrossed className="h-5 w-5" aria-hidden />
+          </div>
+          <div className="min-w-0">
+            <h1 className="truncate text-[19px] font-extrabold tracking-tight text-[#111827]">
               {business.name}
             </h1>
-            {profile.tagline && (
-              <p className="text-[14px] text-[#626B65] leading-relaxed">
-                {profile.tagline}
-              </p>
-            )}
+            <p className="truncate text-[12px] font-medium text-[#6B7280]">
+              {profile.tagline || `${business.city} • Table Menu & Loyalty`}
+            </p>
           </div>
-
-          {/* Detected Table Badge */}
-          {table ? (
-            <div
-              data-testid="detected-table-badge"
-              className="rounded-2xl border border-[#244B40] bg-[#244B40] px-3.5 py-2 text-right text-[#FFFFFF] shadow-2xs"
-            >
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-[#E8EFEA]">
-                Your Table
-              </p>
-              <p className="text-[15px] font-bold leading-tight">
-                {table.tableNumber}
-              </p>
-              {table.tableLabel && (
-                <p className="text-[11px] text-[#E8EFEA]">{table.tableLabel}</p>
-              )}
-            </div>
-          ) : (
-            tableKey && (
-              <div className="rounded-2xl border border-[#E4BD63] bg-[#FAF3DF] px-3 py-1.5 text-[12px] font-medium text-[#252B29]">
-                Table: {tableKey}
-              </div>
-            )
-          )}
         </div>
 
-        {/* Waiter-Service Notice (Strictly No Self-Service Ordering) */}
-        <div className="flex items-center gap-3 rounded-2xl border border-[#A8BFA5] bg-[#EEF3EC]/70 px-4 py-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#244B40] text-[#FFFFFF]">
-            <HandPlatter className="h-4 w-4" aria-hidden />
-          </div>
-          <p className="text-[13px] font-medium text-[#252B29] leading-snug">
-            <strong className="font-semibold text-[#244B40]">
-              Ready to order?
-            </strong>{' '}
-            Please let your server know. Our staff will take your order right at your table.
-          </p>
-        </div>
-
-        {/* Sleek Table Service Bar ("Call Waiter" / "Ready for Bill") when viewing from a table QR */}
-        {table && (
-          <CustomerTableServiceCallBar
-            businessSlug={business.slug}
-            tableKey={table.tableKey}
-            tableNumber={table.tableNumber}
-            customerId={wallet?.customer.id ?? null}
-          />
-        )}
-
-        {/* Single-Tap Candour-Style Navigation Bar */}
-        <div className="flex gap-2 overflow-x-auto pt-1 pb-0.5">
-          <button
-            type="button"
-            onClick={() => setActiveView('menu')}
-            className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-2xl px-3.5 py-2 text-[13px] font-bold whitespace-nowrap transition-colors cursor-pointer ${
-              activeView === 'menu'
-                ? 'bg-[#244B40] text-[#FFFFFF]'
-                : 'border border-[#DDE4DC] bg-[#F7F7F2] text-[#252B29] hover:bg-[#EEF3EC]'
-            }`}
+        {/* Warm Champagne Gold Table Pill Badge */}
+        {table ? (
+          <div
+            data-testid="detected-table-badge"
+            className="shrink-0 rounded-full bg-[#D2DB76] px-3.5 py-1.5 text-center shadow-2xs"
           >
-            <UtensilsCrossed className="h-3.5 w-3.5" aria-hidden />
-            Menu ({items.length})
-          </button>
+            <span className="text-[12px] font-extrabold text-[#1E1B4B] whitespace-nowrap">
+              {table.tableNumber}
+            </span>
+          </div>
+        ) : (
+          tableKey && (
+            <div className="shrink-0 rounded-full bg-[#D2DB76] px-3.5 py-1.5 text-[12px] font-extrabold text-[#1E1B4B]">
+              {tableKey}
+            </div>
+          )
+        )}
+      </header>
 
-          {profile.loyaltyEnabled && (
-            <button
-              type="button"
-              onClick={() => setActiveView('rewards')}
-              className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-2xl px-3.5 py-2 text-[13px] font-bold whitespace-nowrap transition-colors cursor-pointer ${
-                activeView === 'rewards'
-                  ? 'bg-[#244B40] text-[#FFFFFF]'
-                  : 'border border-[#DDE4DC] bg-[#F7F7F2] text-[#252B29] hover:bg-[#EEF3EC]'
-              }`}
-            >
-              <Gift className="h-3.5 w-3.5" aria-hidden />
-              Rewards ({(rewards ?? []).length})
-            </button>
-          )}
-
-          {profile.gamesEnabled && (
-            <button
-              type="button"
-              onClick={() => setActiveView('games')}
-              className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-2xl px-3.5 py-2 text-[13px] font-bold whitespace-nowrap transition-colors cursor-pointer ${
-                activeView === 'games'
-                  ? 'bg-[#244B40] text-[#FFFFFF]'
-                  : 'border border-[#DDE4DC] bg-[#F7F7F2] text-[#252B29] hover:bg-[#EEF3EC]'
-              }`}
-            >
-              <Gamepad2 className="h-3.5 w-3.5" aria-hidden />
-              Play Games
-            </button>
-          )}
-
-          {hasExtras && (
-            <button
-              type="button"
-              onClick={() => setActiveView('extras')}
-              className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-2xl px-3.5 py-2 text-[13px] font-bold whitespace-nowrap transition-colors cursor-pointer ${
-                activeView === 'extras'
-                  ? 'bg-[#244B40] text-[#FFFFFF]'
-                  : 'border border-[#DDE4DC] bg-[#F7F7F2] text-[#252B29] hover:bg-[#EEF3EC]'
-              }`}
-            >
-              {loyaltyRules?.wifiNetworkName ? (
-                <Wifi className="h-3.5 w-3.5" aria-hidden />
-              ) : (
-                <Inbox className="h-3.5 w-3.5" aria-hidden />
-              )}
-              {loyaltyRules?.wifiNetworkName
-                ? 'Wi-Fi & Notes'
-                : 'Suggestion Box'}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* 2. Top Candour-Style Visual Star Card & Personal Loyalty QR Pass */}
+      {/* 2. COMPACT LOYALTY & QUICK-ACTION STRIP (Directly Above the Menu) */}
       <CustomerLoyaltyHeroCard
         businessId={business.id}
         businessSlug={business.slug}
@@ -376,7 +317,56 @@ export default function CustomerRestaurantMenuPage() {
         onOpenRewards={() => setActiveView('rewards')}
       />
 
-      {/* 3. ACTIVE HUB SECTION */}
+      {/* 3 Horizontal Action Pills (Matches Mockup 2) */}
+      <div className="grid grid-cols-3 gap-2">
+        {profile.gamesEnabled && (
+          <button
+            type="button"
+            onClick={() =>
+              setActiveView((v) => (v === 'games' ? 'menu' : 'games'))
+            }
+            className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-full px-3 text-[12px] font-extrabold transition-all duration-150 active:scale-[0.98] cursor-pointer ${
+              activeView === 'games'
+                ? 'bg-[#D2DB76] text-[#1E1B4B] ring-2 ring-[#1E1B4B]'
+                : 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs hover:bg-[#2E2A6E]'
+            }`}
+          >
+            <span>Play Games</span>
+            <Gamepad2 className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
+          </button>
+        )}
+
+        {profile.loyaltyEnabled && (
+          <button
+            type="button"
+            onClick={() =>
+              setActiveView((v) => (v === 'rewards' ? 'menu' : 'rewards'))
+            }
+            className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-full px-3 text-[12px] font-extrabold transition-all duration-150 active:scale-[0.98] cursor-pointer ${
+              activeView === 'rewards'
+                ? 'bg-[#D2DB76] text-[#1E1B4B] ring-2 ring-[#1E1B4B]'
+                : 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs hover:bg-[#2E2A6E]'
+            }`}
+          >
+            <span>Rewards</span>
+            <Gift className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
+          </button>
+        )}
+
+        <Link
+          to={`/r/${business.slug}`}
+          className="inline-flex h-10 items-center justify-center gap-1 rounded-full border border-[#1E1B4B]/20 bg-[#FFFFFF] px-3 text-[12px] font-extrabold text-[#111827] shadow-2xs transition-all duration-150 hover:border-[#1E1B4B] active:scale-[0.98]"
+        >
+          <span>Google Review</span>
+          <Star
+            className="h-3.5 w-3.5 text-[#D97706]"
+            fill="#D2DB76"
+            aria-hidden
+          />
+        </Link>
+      </div>
+
+      {/* 3. ACTIVE VIEW: MENU FIRST vs. SMOOTH SUB-VIEWS (GAMES / REWARDS / WI-FI) */}
       {activeView === 'games' && profile.gamesEnabled ? (
         <CustomerGameArena
           businessId={business.id}
@@ -385,6 +375,7 @@ export default function CustomerRestaurantMenuPage() {
           tableKey={table?.tableKey ?? tableKey ?? null}
           tableNumber={table?.tableNumber ?? null}
           availableGames={payload.games}
+          onWalletUpdated={(next) => setWallet(next)}
           onClose={() => setActiveView('menu')}
         />
       ) : activeView === 'rewards' && profile.loyaltyEnabled ? (
@@ -399,6 +390,7 @@ export default function CustomerRestaurantMenuPage() {
           onWalletUpdated={(next) => setWallet(next)}
           onEnsureCustomerWallet={ensureCustomerWallet}
           mode="rewards"
+          onBackToMenu={() => setActiveView('menu')}
         />
       ) : activeView === 'extras' ? (
         <CustomerRewardsAndExtrasView
@@ -412,272 +404,185 @@ export default function CustomerRestaurantMenuPage() {
           onWalletUpdated={(next) => setWallet(next)}
           onEnsureCustomerWallet={ensureCustomerWallet}
           mode="extras"
+          onBackToMenu={() => setActiveView('menu')}
         />
       ) : (
-        <>
-          {/* Category Filter Pills & Pure Veg Filter */}
-          <div className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-4 shadow-2xs space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[12px] font-semibold uppercase tracking-wider text-[#626B65]">
-                Browse Categories
-              </span>
-              <label className="inline-flex items-center gap-2 rounded-full border border-[#DDE4DC] bg-[#F7F7F2] px-3 py-1 text-[12px] font-semibold text-[#166534] cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={vegOnly}
-                  onChange={(e) => setVegOnly(e.target.checked)}
-                  className="h-3.5 w-3.5 accent-[#16A34A]"
-                />
-                Pure Veg Only
-              </label>
-            </div>
-
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              <button
-                type="button"
-                onClick={() => setSelectedCategoryId('all')}
-                className={`rounded-xl px-3.5 py-2 text-[13px] font-semibold whitespace-nowrap transition-colors cursor-pointer ${
-                  selectedCategoryId === 'all'
-                    ? 'bg-[#244B40] text-[#FFFFFF]'
-                    : 'border border-[#DDE4DC] bg-[#F7F7F2] text-[#252B29] hover:bg-[#EEF3EC]'
-                }`}
-              >
-                All Dishes ({items.length})
-              </button>
-              {categories.map((cat) => {
-                const active = selectedCategoryId === cat.id;
-                return (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => setSelectedCategoryId(cat.id)}
-                    className={`rounded-xl px-3.5 py-2 text-[13px] font-semibold whitespace-nowrap transition-colors cursor-pointer ${
-                      active
-                        ? 'bg-[#244B40] text-[#FFFFFF]'
-                        : 'border border-[#DDE4DC] bg-[#F7F7F2] text-[#252B29] hover:bg-[#EEF3EC]'
-                    }`}
-                  >
-                    {cat.name}
-                  </button>
-                );
-              })}
-            </div>
+        /* DIGITAL MENU FIRST (Matches Mockup 2) */
+        <section aria-label="Digital Menu" className="space-y-3">
+          {/* Section Header + Classy Waiter Note */}
+          <div className="flex items-baseline justify-between px-1 pt-1">
+            <h2 className="text-[19px] font-extrabold tracking-tight text-[#111827]">
+              Digital Menu
+            </h2>
+            <p className="text-[11px] font-semibold text-[#6B7280]">
+              Ready to order? Just let your server know.
+            </p>
           </div>
 
-          {/* Menu Categories & Dishes */}
-          {categories.length === 0 || visibleItems.length === 0 ? (
-            <div className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-8 text-center shadow-2xs space-y-2">
+          {/* Sticky Horizontal Category Tabs + Pure Veg Filter Pill */}
+          <div className="sticky top-2 z-20 flex items-center gap-1.5 overflow-x-auto rounded-2xl border border-[#1E1B4B]/10 bg-[#FFFFFF]/95 p-1.5 shadow-sm backdrop-blur-md">
+            <button
+              type="button"
+              onClick={() => setSelectedCategoryId('all')}
+              className={`rounded-full px-3.5 py-1.5 text-[12px] font-extrabold whitespace-nowrap transition-all active:scale-[0.98] cursor-pointer ${
+                selectedCategoryId === 'all'
+                  ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
+                  : 'text-[#6B7280] hover:text-[#111827]'
+              }`}
+            >
+              All
+            </button>
+
+            {categories.map((cat) => {
+              const active = selectedCategoryId === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setSelectedCategoryId(cat.id)}
+                  className={`rounded-full px-3.5 py-1.5 text-[12px] font-extrabold whitespace-nowrap transition-all active:scale-[0.98] cursor-pointer ${
+                    active
+                      ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
+                      : 'text-[#6B7280] hover:text-[#111827]'
+                  }`}
+                >
+                  {cat.name}
+                </button>
+              );
+            })}
+
+            <button
+              type="button"
+              aria-pressed={vegOnly}
+              onClick={() => setVegOnly((v) => !v)}
+              className={`ml-auto inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-extrabold whitespace-nowrap transition-all active:scale-[0.98] cursor-pointer ${
+                vegOnly
+                  ? 'border-[#059669] bg-emerald-50 text-[#059669]'
+                  : 'border-[#1E1B4B]/15 bg-[#F8F9FA] text-[#111827]'
+              }`}
+            >
+              <span className="h-2 w-2 rounded-full bg-[#059669]" />
+              Pure Veg
+            </button>
+          </div>
+
+          {/* 2-Column Mobile Grid of Appetizing Dish Cards (Strictly ZERO + Cart Buttons) */}
+          {visibleItems.length === 0 ? (
+            <div className="bistro-card p-8 text-center space-y-2">
               <UtensilsCrossed
-                className="mx-auto h-8 w-8 text-[#626B65]"
+                className="mx-auto h-7 w-7 text-[#6B7280]"
                 aria-hidden
               />
-              <h2 className="text-[17px] font-semibold text-[#252B29]">
+              <h3 className="text-[16px] font-bold text-[#111827]">
                 {vegOnly
-                  ? 'No Pure Veg dishes in this view'
+                  ? 'No Pure Veg dishes in this category'
                   : 'Menu items are being updated'}
-              </h2>
-              <p className="text-[13px] text-[#626B65]">
+              </h3>
+              <p className="text-[12px] text-[#6B7280]">
                 {vegOnly
-                  ? 'Uncheck "Pure Veg Only" or switch categories to browse more dishes.'
+                  ? 'Tap "Pure Veg" again or switch categories to view all dishes.'
                   : 'Please ask your server for today’s specials.'}
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {categoriesToRender.map((cat) => {
-                const catItems = visibleItems.filter(
-                  (i) => i.categoryId === cat.id,
-                );
-                if (catItems.length === 0) return null;
+            <div className="grid grid-cols-2 gap-3">
+              {visibleItems.map((dish) => {
+                const dMeta = DIETARY_TAG_METADATA[dish.dietaryTag];
+                const visual = getDishVisualPalette(dish.name, dish.dietaryTag);
 
                 return (
-                  <section
-                    key={cat.id}
-                    aria-label={cat.name}
-                    className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-5 shadow-2xs space-y-3.5"
+                  <article
+                    key={dish.id}
+                    className="bistro-card p-3 flex flex-col justify-between space-y-2.5"
                   >
-                    <div className="border-b border-[#DDE4DC] pb-2.5">
-                      <h2 className="text-[18px] font-bold text-[#252B29]">
-                        {cat.name}
-                      </h2>
-                      {cat.description && (
-                        <p className="text-[12px] text-[#626B65] mt-0.5">
-                          {cat.description}
+                    <div className="space-y-2.5">
+                      {/* Rounded Appetizing Dish Visual Header */}
+                      <div
+                        className={`relative flex h-28 w-full items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br ${visual.bg} border border-[#1E1B4B]/[0.06]`}
+                      >
+                        {dish.imageUrl ? (
+                          <img
+                            src={dish.imageUrl}
+                            alt={dish.name}
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="flex flex-col items-center justify-center">
+                            <span
+                              className="text-[36px] drop-shadow-xs select-none"
+                              aria-hidden
+                            >
+                              {visual.emoji}
+                            </span>
+                          </div>
+                        )}
+
+                        {dish.isFeatured && (
+                          <span className="absolute top-2 left-2 inline-flex items-center gap-0.5 rounded-full bg-[#1E1B4B]/90 px-2 py-0.5 text-[10px] font-bold text-[#D2DB76] backdrop-blur-xs">
+                            <Sparkles className="h-2.5 w-2.5" aria-hidden />
+                            Special
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Bold Dish Name */}
+                      <h3 className="text-[14px] font-extrabold text-[#111827] leading-snug line-clamp-1">
+                        {dish.name}
+                      </h3>
+
+                      {/* Formatted Price + Green/Red Veg/Non-Veg Pill Badge */}
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="text-[14px] font-extrabold text-[#111827] tabular-nums">
+                          {formatPriceFromPaise(
+                            dish.pricePaise,
+                            profile.currencyCode,
+                          )}
+                        </span>
+
+                        {dish.dietaryTag !== 'none' && (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider"
+                            style={{
+                              borderColor: dMeta.borderColor,
+                              backgroundColor: dMeta.bgColor,
+                              color: dMeta.textColor,
+                            }}
+                          >
+                            <span
+                              className="h-1.5 w-1.5 rounded-full"
+                              style={{ backgroundColor: dMeta.dotColor }}
+                            />
+                            {dMeta.shortLabel}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* 2-Line Description */}
+                      {dish.description && (
+                        <p className="text-[11.5px] text-[#6B7280] leading-relaxed line-clamp-2">
+                          {dish.description}
                         </p>
                       )}
                     </div>
-
-                    <div className="divide-y divide-[#DDE4DC]/80">
-                      {catItems.map((dish) => {
-                        const dMeta = DIETARY_TAG_METADATA[dish.dietaryTag];
-                        return (
-                          <div
-                            key={dish.id}
-                            className="py-3.5 first:pt-1 last:pb-1 flex items-start justify-between gap-4"
-                          >
-                            <div className="space-y-1 flex-1 min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                {dish.dietaryTag !== 'none' && (
-                                  <span
-                                    className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                                    style={{
-                                      borderColor: dMeta.borderColor,
-                                      backgroundColor: dMeta.bgColor,
-                                      color: dMeta.textColor,
-                                    }}
-                                  >
-                                    <span
-                                      className="h-2 w-2 rounded-full"
-                                      style={{ backgroundColor: dMeta.dotColor }}
-                                    />
-                                    {dMeta.shortLabel}
-                                  </span>
-                                )}
-                                {dish.isFeatured && (
-                                  <span className="inline-flex items-center gap-1 rounded-full border border-[#E4BD63] bg-[#FAF3DF] px-2 py-0.5 text-[10px] font-semibold text-[#252B29]">
-                                    <Sparkles
-                                      className="h-2.5 w-2.5 text-[#244B40]"
-                                      aria-hidden
-                                    />
-                                    Chef&apos;s Special
-                                  </span>
-                                )}
-                              </div>
-
-                              <h3 className="text-[16px] font-semibold text-[#252B29] leading-snug">
-                                {dish.name}
-                              </h3>
-
-                              {dish.description && (
-                                <p className="text-[13px] text-[#626B65] leading-relaxed">
-                                  {dish.description}
-                                </p>
-                              )}
-                            </div>
-
-                            <div className="shrink-0 text-right">
-                              <span className="inline-block rounded-xl bg-[#EEF3EC] px-3 py-1.5 text-[15px] font-bold text-[#244B40]">
-                                {formatPriceFromPaise(
-                                  dish.pricePaise,
-                                  profile.currencyCode,
-                                )}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </section>
+                  </article>
                 );
               })}
             </div>
           )}
-
-          {/* Single-Tap Candour-Style Action Cards */}
-          <div className="grid gap-3 sm:grid-cols-2">
-            {profile.gamesEnabled && (
-              <button
-                type="button"
-                onClick={() => setActiveView('games')}
-                className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-4 text-left shadow-2xs flex items-start gap-3.5 hover:border-[#244B40] hover:bg-[#EEF3EC]/30 transition-colors cursor-pointer"
-              >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#EEF3EC] text-[#244B40]">
-                  <Gamepad2 className="h-5 w-5" aria-hidden />
-                </div>
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-[15px] font-bold text-[#252B29]">
-                      Play Table Games →
-                    </h3>
-                    <span className="rounded-full bg-[#FAF3DF] border border-[#E4BD63] px-2 py-0.5 text-[10px] font-semibold text-[#252B29]">
-                      Earn Game Points
-                    </span>
-                  </div>
-                  <p className="text-[12px] text-[#626B65] leading-relaxed">
-                    Play Chef&apos;s Table Trivia, Flavor Memory Match, or Pass-the-Phone Table Challenge while your meal is prepared.
-                  </p>
-                </div>
-              </button>
-            )}
-
-            {profile.loyaltyEnabled && (
-              <button
-                type="button"
-                onClick={() => setActiveView('rewards')}
-                className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-4 text-left shadow-2xs flex items-start gap-3.5 hover:border-[#244B40] hover:bg-[#EEF3EC]/30 transition-colors cursor-pointer"
-              >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#FAF3DF] text-[#244B40] border border-[#E4BD63]">
-                  <Award className="h-5 w-5" aria-hidden />
-                </div>
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-[15px] font-bold text-[#252B29]">
-                      Rewards &amp; Claim Tickets →
-                    </h3>
-                    <span className="rounded-full bg-[#EEF3EC] px-2 py-0.5 text-[10px] font-semibold text-[#244B40]">
-                      Redeem Stars
-                    </span>
-                  </div>
-                  <p className="text-[12px] text-[#626B65] leading-relaxed">
-                    Browse our reward catalogue and redeem your Loyalty Stars for instant 6-character claim tickets.
-                  </p>
-                </div>
-              </button>
-            )}
-
-            {hasExtras && (
-              <button
-                type="button"
-                onClick={() => setActiveView('extras')}
-                className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-4 text-left shadow-2xs flex items-start gap-3.5 hover:border-[#244B40] hover:bg-[#EEF3EC]/30 transition-colors cursor-pointer sm:col-span-2"
-              >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#EEF3EC] text-[#244B40]">
-                  {loyaltyRules?.wifiNetworkName ? (
-                    <Wifi className="h-5 w-5" aria-hidden />
-                  ) : (
-                    <Inbox className="h-5 w-5" aria-hidden />
-                  )}
-                </div>
-                <div className="space-y-0.5">
-                  <h3 className="text-[15px] font-bold text-[#252B29]">
-                    {loyaltyRules?.wifiNetworkName
-                      ? `Guest Wi-Fi (${loyaltyRules.wifiNetworkName}) & Private Suggestion Box →`
-                      : 'Private Table Suggestion Box →'}
-                  </h3>
-                  <p className="text-[12px] text-[#626B65] leading-relaxed">
-                    {loyaltyRules?.wifiNetworkName
-                      ? 'Tap to copy the table Wi-Fi password or send a private hospitality note directly to the owner.'
-                      : 'Tap to send a private hospitality suggestion or dish request directly to the owner.'}
-                  </p>
-                </div>
-              </button>
-            )}
-          </div>
-        </>
+        </section>
       )}
 
-      {/* 4. Subtle Link to Leave a Google Review (/r/:businessSlug) */}
-      <div className="rounded-3xl border border-[#DDE4DC] bg-[#FFFFFF] p-4 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="flex items-center gap-3 text-center sm:text-left">
-          <div className="hidden sm:flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#EEF3EC] text-[#244B40]">
-            <MessageSquareHeart className="h-4 w-4" aria-hidden />
-          </div>
-          <div>
-            <p className="text-[14px] font-semibold text-[#252B29]">
-              Enjoyed dining at {business.name}?
-            </p>
-            <p className="text-[12px] text-[#626B65]">
-              Share your honest feedback in 30 seconds with our quick review assistant.
-            </p>
-          </div>
-        </div>
-        <Link
-          to={`/r/${business.slug}`}
-          className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl border border-[#244B40] bg-[#EEF3EC]/60 px-4 py-2 text-[13px] font-semibold text-[#244B40] hover:bg-[#244B40] hover:text-[#FFFFFF] transition-colors"
-        >
-          <MessageSquareHeart className="h-4 w-4" aria-hidden /> Share Experience
-        </Link>
-      </div>
+      {/* 4. FLOATING BOTTOM SERVICE PILL (Matches Mockup 2) */}
+      <CustomerFloatingServicePill
+        businessSlug={business.slug}
+        tableKey={table?.tableKey ?? tableKey ?? null}
+        tableNumber={table?.tableNumber ?? null}
+        customerId={wallet?.customer.id ?? null}
+        onOpenWifiAndExtras={() =>
+          setActiveView((v) => (v === 'extras' ? 'menu' : 'extras'))
+        }
+      />
     </div>
   );
 }

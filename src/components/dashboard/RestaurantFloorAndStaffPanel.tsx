@@ -2,21 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   BellRing,
   CheckCircle2,
-  Award,
   Ticket,
-  KeyRound,
   RefreshCw,
-  ExternalLink,
-  BarChart3,
-  QrCode,
-  Users,
-  Gamepad2,
-  Trophy,
-  Gift,
-  Receipt,
   AlertCircle,
   Camera,
   CameraOff,
+  Search,
 } from 'lucide-react';
 import type { Business } from '../../types/business';
 import type {
@@ -25,12 +16,7 @@ import type {
   RestaurantTable,
 } from '../../types/restaurant';
 import { businessRepository } from '../../services/storage';
-import {
-  hashStaffPin,
-  parseCustomerLoyaltyLookup,
-  validateStaffPinFormat,
-} from '../../utils/restaurantValidation';
-import { Button } from '../common/Button';
+import { parseCustomerLoyaltyLookup } from '../../utils/restaurantValidation';
 
 interface NativeDetectedBarcode {
   rawValue?: string;
@@ -56,14 +42,23 @@ interface Props {
   onError?: (err: string) => void;
 }
 
+function getShortTableCode(tableNumber: string, index: number): string {
+  const trimmed = tableNumber.trim();
+  const numMatch = trimmed.match(/(\d+)/);
+  if (numMatch) {
+    return `T${Number.parseInt(numMatch[1], 10)}`;
+  }
+  if (trimmed.length <= 4) {
+    return trimmed.toUpperCase();
+  }
+  return `T${index + 1}`;
+}
+
 export function RestaurantFloorAndStaffPanel({
   business,
-  profile,
   tables,
-  mode,
   staffPinHash,
-  staffLabel = mode === 'owner' ? 'Owner' : 'Staff PIN',
-  onProfileUpdated,
+  staffLabel = 'Floor Staff',
   onStatus,
   onError,
 }: Props) {
@@ -73,17 +68,12 @@ export function RestaurantFloorAndStaffPanel({
   const [localStatus, setLocalStatus] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
 
-  // Staff PIN & Visit Cooldown config (Owner mode)
-  const [newPin, setNewPin] = useState('');
-  const [minHoursCooldown, setMinHoursCooldown] = useState<number>(
-    profile?.minHoursBetweenVisitStars ?? 4,
-  );
-  const [savingSecurity, setSavingSecurity] = useState(false);
+  // Unified Search / Lookup Input (Phone, Email, Loyalty QR Token, or 6-Digit Claim Code)
+  const [unifiedLookup, setUnifiedLookup] = useState('');
+  const [selectedTableKey, setSelectedTableKey] = useState<string>('');
+  const [processingLookup, setProcessingLookup] = useState(false);
 
-  // Verify Paid Visit (+Stars) form & Live Camera QR Scanner
-  const [customerLookup, setCustomerLookup] = useState('');
-  const [visitTableKey, setVisitTableKey] = useState('');
-  const [awardingStars, setAwardingStars] = useState(false);
+  // Live Camera QR Scanner state
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerFallbackNotice, setScannerFallbackNotice] = useState<
     string | null
@@ -117,104 +107,6 @@ export function RestaurantFloorAndStaffPanel({
       stopCameraScanner();
     };
   }, [stopCameraScanner]);
-
-  async function handleToggleCameraScanner() {
-    if (scannerOpen) {
-      stopCameraScanner();
-      return;
-    }
-
-    setScannerFallbackNotice(null);
-    setScannedTokenBadge(null);
-
-    const DetectorCtor = (
-      typeof window !== 'undefined'
-        ? (
-            window as unknown as {
-              BarcodeDetector?: NativeBarcodeDetectorConstructor;
-            }
-          ).BarcodeDetector
-        : undefined
-    );
-
-    if (
-      !DetectorCtor ||
-      typeof navigator === 'undefined' ||
-      !navigator.mediaDevices?.getUserMedia
-    ) {
-      setScannerFallbackNotice(
-        'Live QR camera scanning (BarcodeDetector) is not supported on this browser. Please enter the diner’s phone/email or paste their Loyalty QR token below.',
-      );
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
-        audio: false,
-      });
-      mediaStreamRef.current = stream;
-      setScannerOpen(true);
-
-      const detector = new DetectorCtor({ formats: ['qr_code'] });
-
-      // Attach stream once video element mounts
-      window.setTimeout(() => {
-        if (videoRef.current && mediaStreamRef.current) {
-          videoRef.current.srcObject = mediaStreamRef.current;
-          void videoRef.current.play().catch(() => {
-            // ignore autoplay gesture warning
-          });
-        }
-      }, 60);
-
-      scanIntervalRef.current = window.setInterval(() => {
-        const videoEl = videoRef.current;
-        if (!videoEl || videoEl.readyState < 2) return;
-
-        void detector
-          .detect(videoEl)
-          .then((barcodes) => {
-            if (!barcodes || barcodes.length === 0) return;
-            const rawValue = (barcodes[0]?.rawValue ?? '').trim();
-            if (!rawValue) return;
-
-            const parsed = parseCustomerLoyaltyLookup(rawValue);
-            if (
-              parsed.mode === 'qr_token' &&
-              parsed.tokenBusinessSlug &&
-              parsed.tokenBusinessSlug !== business.slug.toLowerCase()
-            ) {
-              reportError(
-                `Scanned Loyalty QR belongs to another restaurant ("${parsed.tokenBusinessSlug}").`,
-              );
-              stopCameraScanner();
-              return;
-            }
-
-            setCustomerLookup(rawValue);
-            setScannedTokenBadge(
-              parsed.mode === 'qr_token'
-                ? `Loyalty QR Pass Scanned ✓ (Diner ID: ${parsed.value})`
-                : `QR Scanned ✓ (${parsed.value})`,
-            );
-            stopCameraScanner();
-          })
-          .catch(() => {
-            // ignore transient frame decode errors
-          });
-      }, 350);
-    } catch {
-      stopCameraScanner();
-      setScannerFallbackNotice(
-        'Camera permission was denied or no camera was found (HTTPS is required on mobile phones). You can enter the diner’s phone/email or Loyalty token manually below.',
-      );
-    }
-  }
-
-  // Verify Reward Claim Code form
-  const [claimCodeInput, setClaimCodeInput] = useState('');
-  const [fulfillingClaim, setFulfillingClaim] = useState(false);
 
   function reportStatus(msg: string) {
     setLocalError(null);
@@ -264,109 +156,174 @@ export function RestaurantFloorAndStaffPanel({
     void pollFloor();
     const timer = window.setInterval(() => {
       void pollFloor();
-    }, 10000);
+    }, 8000);
     return () => {
       mounted = false;
       window.clearInterval(timer);
     };
   }, [business.slug, staffPinHash]);
 
-  async function handleSaveStaffPinAndCooldown(e: React.FormEvent) {
-    e.preventDefault();
-    if (!profile) return;
+  async function handleToggleCameraScanner() {
+    if (scannerOpen) {
+      stopCameraScanner();
+      return;
+    }
 
-    setSavingSecurity(true);
+    setScannerFallbackNotice(null);
+    setScannedTokenBadge(null);
+
+    const DetectorCtor =
+      typeof window !== 'undefined'
+        ? (
+            window as unknown as {
+              BarcodeDetector?: NativeBarcodeDetectorConstructor;
+            }
+          ).BarcodeDetector
+        : undefined;
+
+    if (
+      !DetectorCtor ||
+      typeof navigator === 'undefined' ||
+      !navigator.mediaDevices?.getUserMedia
+    ) {
+      setScannerFallbackNotice(
+        'Live QR camera scanning (BarcodeDetector) is not available on this device. Enter the guest’s Phone, Email, or 6-Digit Claim Code below.',
+      );
+      return;
+    }
+
     try {
-      let nextHash: string | null | undefined = profile.staffPinHash ?? null;
-      if (newPin.trim()) {
-        const pinCheck = validateStaffPinFormat(newPin);
-        if (!pinCheck.ok) {
-          reportError(pinCheck.error);
-          setSavingSecurity(false);
-          return;
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
+      });
+      mediaStreamRef.current = stream;
+      setScannerOpen(true);
+
+      const detector = new DetectorCtor({ formats: ['qr_code'] });
+
+      window.setTimeout(() => {
+        if (videoRef.current && mediaStreamRef.current) {
+          videoRef.current.srcObject = mediaStreamRef.current;
+          void videoRef.current.play().catch(() => {
+            // ignore autoplay gesture warning
+          });
         }
-        nextHash = await hashStaffPin(business.slug, pinCheck.pin);
+      }, 60);
+
+      scanIntervalRef.current = window.setInterval(() => {
+        const videoEl = videoRef.current;
+        if (!videoEl || videoEl.readyState < 2) return;
+
+        void detector
+          .detect(videoEl)
+          .then((barcodes) => {
+            if (!barcodes || barcodes.length === 0) return;
+            const rawValue = (barcodes[0]?.rawValue ?? '').trim();
+            if (!rawValue) return;
+
+            const parsed = parseCustomerLoyaltyLookup(rawValue);
+            if (
+              parsed.mode === 'qr_token' &&
+              parsed.tokenBusinessSlug &&
+              parsed.tokenBusinessSlug !== business.slug.toLowerCase()
+            ) {
+              reportError(
+                `Scanned Loyalty QR belongs to another restaurant ("${parsed.tokenBusinessSlug}").`,
+              );
+              stopCameraScanner();
+              return;
+            }
+
+            setUnifiedLookup(rawValue);
+            setScannedTokenBadge(
+              parsed.mode === 'qr_token'
+                ? `Loyalty QR Pass Scanned ✓ (Diner ID: ${parsed.value})`
+                : `QR Scanned ✓ (${parsed.value})`,
+            );
+            stopCameraScanner();
+          })
+          .catch(() => {
+            // ignore transient frame decode errors
+          });
+      }, 350);
+    } catch {
+      stopCameraScanner();
+      setScannerFallbackNotice(
+        'Camera permission was denied or no camera was found. Enter the guest’s Phone, Email, or 6-Digit Claim Code below.',
+      );
+    }
+  }
+
+  async function handleUnifiedVerify(e: React.FormEvent) {
+    e.preventDefault();
+    const raw = unifiedLookup.trim();
+    if (!raw) return;
+
+    setProcessingLookup(true);
+    setLocalError(null);
+
+    try {
+      const upper = raw.toUpperCase();
+      const pendingClaims = floorData?.pendingRewardClaims ?? [];
+      const matchesPendingClaim = pendingClaims.some(
+        (c) => c.claimCode.toUpperCase() === upper,
+      );
+      const looksLikeSixCharClaimCode =
+        /^[A-Z0-9]{6}$/.test(upper) &&
+        !raw.includes('@') &&
+        !raw.startsWith('vitaran-loyalty://');
+
+      if (matchesPendingClaim || looksLikeSixCharClaimCode) {
+        try {
+          const fulfilled = await businessRepository.staffFulfillRewardClaim({
+            businessSlug: business.slug,
+            claimCode: upper,
+            staffLabel,
+            staffPinHash: staffPinHash ?? null,
+          });
+          setUnifiedLookup('');
+          setScannedTokenBadge(null);
+          await refreshFloorData();
+          reportStatus(
+            `Fulfilled reward "${fulfilled.rewardTitle || 'Reward'}" (Code: ${fulfilled.claimCode}) for ${fulfilled.customerName || 'Guest'}!`,
+          );
+          return;
+        } catch (claimErr) {
+          // If it wasn't a known claim code and not explicitly a pending claim, only throw if it didn't match a customer either
+          if (matchesPendingClaim) {
+            throw claimErr;
+          }
+        }
       }
 
-      const updated = await businessRepository.updateRestaurantProfile(
-        business.id,
-        {
-          isEnabled: profile.isEnabled,
-          currencyCode: profile.currencyCode,
-          tagline: profile.tagline,
-          gamesEnabled: profile.gamesEnabled,
-          loyaltyEnabled: profile.loyaltyEnabled,
-          staffPinHash: nextHash,
-          minHoursBetweenVisitStars: minHoursCooldown,
-        },
-      );
-      setNewPin('');
-      onProfileUpdated?.(updated);
-      reportStatus(
-        newPin.trim()
-          ? 'Updated Staff PIN (SHA-256 hashed) and visit cooldown rules.'
-          : 'Updated visit star cooldown rules.',
-      );
-    } catch (err) {
-      reportError((err as Error).message);
-    } finally {
-      setSavingSecurity(false);
-    }
-  }
-
-  async function handleUpdateTableCall(
-    callId: string,
-    nextStatus: 'acknowledged' | 'resolved',
-  ) {
-    try {
-      await businessRepository.updateRestaurantTableCallStatus({
-        businessSlug: business.slug,
-        callId,
-        status: nextStatus,
-        staffPinHash: staffPinHash ?? null,
-      });
-      await refreshFloorData();
-      reportStatus(
-        nextStatus === 'acknowledged'
-          ? 'Table alert acknowledged.'
-          : 'Table alert resolved.',
-      );
-    } catch (err) {
-      reportError((err as Error).message);
-    }
-  }
-
-  async function handleAwardVisitStars(e: React.FormEvent) {
-    e.preventDefault();
-    if (!customerLookup.trim()) return;
-    setAwardingStars(true);
-    try {
+      // Otherwise treat as Customer Loyalty QR token, phone, email, or customer ID to award visit stars
       const idemKey = `visit-${business.slug}-${crypto.randomUUID()}`;
       const res = await businessRepository.staffAwardVisitStars({
         businessSlug: business.slug,
-        customerLookup: customerLookup.trim(),
-        tableKey: visitTableKey || null,
+        customerLookup: raw,
+        tableKey: selectedTableKey || null,
         staffLabel,
         idempotencyKey: idemKey,
         staffPinHash: staffPinHash ?? null,
       });
-      setCustomerLookup('');
+      setUnifiedLookup('');
       setScannedTokenBadge(null);
       await refreshFloorData();
       reportStatus(
-        `Verified paid visit for ${res.customerName}! Awarded +${res.starsAwarded} Loyalty Star(s) (New balance: ${res.newLoyaltyStarsBalance} ★).`,
+        `Verified paid visit for ${res.customerName}! Awarded +${res.starsAwarded} ★ (New balance: ${res.newLoyaltyStarsBalance} ★).`,
       );
     } catch (err) {
       reportError((err as Error).message);
     } finally {
-      setAwardingStars(false);
+      setProcessingLookup(false);
     }
   }
 
-  async function handleFulfillClaimCode(codeToFulfill: string) {
+  async function handleFulfillClaimCodeDirect(codeToFulfill: string) {
     const clean = codeToFulfill.trim().toUpperCase();
     if (!clean) return;
-    setFulfillingClaim(true);
+    setProcessingLookup(true);
     try {
       const fulfilled = await businessRepository.staffFulfillRewardClaim({
         businessSlug: business.slug,
@@ -374,23 +331,37 @@ export function RestaurantFloorAndStaffPanel({
         staffLabel,
         staffPinHash: staffPinHash ?? null,
       });
-      setClaimCodeInput('');
       await refreshFloorData();
       reportStatus(
-        `Fulfilled reward "${fulfilled.rewardTitle || 'Reward'}" (Code: ${fulfilled.claimCode}) for ${fulfilled.customerName || 'Diner'}.`,
+        `Fulfilled "${fulfilled.rewardTitle || 'Reward'}" (${fulfilled.claimCode}) for ${fulfilled.customerName || 'Guest'}!`,
       );
     } catch (err) {
       reportError((err as Error).message);
     } finally {
-      setFulfillingClaim(false);
+      setProcessingLookup(false);
+    }
+  }
+
+  async function handleResolveTableCall(callId: string) {
+    try {
+      await businessRepository.updateRestaurantTableCallStatus({
+        businessSlug: business.slug,
+        callId,
+        status: 'resolved',
+        staffPinHash: staffPinHash ?? null,
+      });
+      await refreshFloorData();
+      reportStatus('Table call resolved ✓');
+    } catch (err) {
+      reportError((err as Error).message);
     }
   }
 
   if (loading && !floorData) {
     return (
-      <div className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-8 text-center">
-        <p className="text-[14px] text-[#626B65]">
-          Loading live floor &amp; verification console…
+      <div className="bistro-card p-10 text-center">
+        <p className="text-[14px] font-medium text-[#6B7280]">
+          Loading Waiter Floor View…
         </p>
       </div>
     );
@@ -398,23 +369,14 @@ export function RestaurantFloorAndStaffPanel({
 
   const activeCalls = floorData?.activeTableCalls ?? [];
   const pendingClaims = floorData?.pendingRewardClaims ?? [];
-  const analytics = floorData?.analytics ?? {
-    qrScans: 0,
-    checkedInDiners: 0,
-    gamesPlayed: 0,
-    gamePointsIssued: 0,
-    verifiedPaidVisits: 0,
-    loyaltyStarsIssued: 0,
-    rewardsClaimed: 0,
-    rewardsFulfilled: 0,
-  };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 animate-fadeSlideUp">
+      {/* Status & Error Toasts */}
       {localStatus && (
         <div
           role="status"
-          className="flex items-center gap-2 rounded-2xl border border-[#A8BFA5] bg-[#EEF3EC] px-4 py-3 text-[13px] font-semibold text-[#244B40]"
+          className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] font-bold text-[#059669]"
         >
           <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
           <span>{localStatus}</span>
@@ -423,296 +385,100 @@ export function RestaurantFloorAndStaffPanel({
       {localError && (
         <div
           role="alert"
-          className="flex items-center gap-2 rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-[13px] font-medium text-red-900"
+          className="flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] font-semibold text-red-900"
         >
           <AlertCircle className="h-4 w-4 shrink-0 text-red-700" aria-hidden />
           <span>{localError}</span>
         </div>
       )}
 
-      {/* 1. OWNER ANALYTICS FUNNEL (Explicitly Separating QR Scans vs. Verified Paid Visits) */}
-      {mode === 'owner' && (
-        <div className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-6 shadow-2xs space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h3 className="text-[18px] font-semibold text-[#252B29] flex items-center gap-2">
-                <BarChart3 className="h-5 w-5 text-[#244B40]" aria-hidden />
-                Restaurant Engagement &amp; Loyalty Funnel Analytics
-              </h3>
-              <p className="text-[13px] text-[#626B65] mt-0.5">
-                QR scans and menu views are tracked separately from staff-verified paid dining visits.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => void refreshFloorData()}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-[#DDE4DC] bg-[#F7F7F2] px-3 py-1.5 text-[12px] font-semibold text-[#252B29] hover:border-[#244B40] cursor-pointer"
-            >
-              <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Refresh
-            </button>
-          </div>
+      {/* 1. TOP PRIMARY ACTION ZONE (Matches Mockup 3) */}
+      <div className="space-y-3">
+        {/* Giant Full-Width Midnight Navy Button: SCAN CUSTOMER LOYALTY QR */}
+        <button
+          type="button"
+          onClick={() => void handleToggleCameraScanner()}
+          className={`flex min-h-14 w-full items-center justify-center gap-3 rounded-2xl px-5 py-4 text-[14px] font-extrabold uppercase tracking-wider shadow-md transition-all duration-150 active:scale-[0.98] cursor-pointer ${
+            scannerOpen
+              ? 'bg-red-700 text-[#FFFFFF]'
+              : 'bg-[#1E1B4B] text-[#FFFFFF] hover:bg-[#2E2A6E]'
+          }`}
+        >
+          {scannerOpen ? (
+            <>
+              <CameraOff className="h-5 w-5 text-[#D2DB76]" aria-hidden />
+              <span>CLOSE CAMERA SCANNER</span>
+            </>
+          ) : (
+            <>
+              <Camera className="h-5 w-5 text-[#D2DB76]" aria-hidden />
+              <span>SCAN CUSTOMER LOYALTY QR</span>
+            </>
+          )}
+        </button>
 
-          <div className="grid gap-3.5 sm:grid-cols-4">
-            <div className="rounded-2xl border border-[#DDE4DC] bg-[#F7F7F2]/60 p-4">
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#626B65]">
-                <QrCode className="h-3.5 w-3.5 text-[#244B40]" aria-hidden />
-                Public QR Scans
-              </p>
-              <p className="mt-1 text-[22px] font-bold text-[#252B29]">
-                {analytics.qrScans}
-              </p>
-              <p className="text-[11px] text-[#626B65]">Unverified scans</p>
-            </div>
-
-            <div className="rounded-2xl border border-[#DDE4DC] bg-[#F7F7F2]/60 p-4">
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#626B65]">
-                <Users className="h-3.5 w-3.5 text-[#244B40]" aria-hidden />
-                Checked-In Diners
-              </p>
-              <p className="mt-1 text-[22px] font-bold text-[#252B29]">
-                {analytics.checkedInDiners}
-              </p>
-              <p className="text-[11px] text-[#626B65]">Saved profiles</p>
-            </div>
-
-            <div className="rounded-2xl border border-[#DDE4DC] bg-[#F7F7F2]/60 p-4">
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#626B65]">
-                <Gamepad2 className="h-3.5 w-3.5 text-[#244B40]" aria-hidden />
-                Games &amp; Points
-              </p>
-              <p className="mt-1 text-[22px] font-bold text-[#252B29]">
-                {analytics.gamesPlayed}{' '}
-                <span className="text-[13px] font-semibold text-[#244B40]">
-                  ({analytics.gamePointsIssued} pts)
-                </span>
-              </p>
-              <p className="text-[11px] text-[#626B65]">Completed sessions</p>
-            </div>
-
-            <div className="rounded-2xl border border-[#A8BFA5] bg-[#EEF3EC]/70 p-4">
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#244B40]">
-                <Award className="h-3.5 w-3.5 text-[#244B40]" aria-hidden />
-                Verified Paid Visits
-              </p>
-              <p className="mt-1 text-[22px] font-bold text-[#244B40]">
-                {analytics.verifiedPaidVisits}{' '}
-                <span className="text-[13px] font-semibold">
-                  ({analytics.loyaltyStarsIssued} ★)
-                </span>
-              </p>
-              <p className="text-[11px] text-[#244B40]">
-                Rewards: {analytics.rewardsFulfilled}/{analytics.rewardsClaimed} fulfilled
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 2. RESTO DADDY-STYLE VISUAL TABLE FLOOR MAP & ACTIVE CALLS */}
-      <div className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-6 shadow-2xs space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="text-[18px] font-semibold text-[#252B29] flex items-center gap-2">
-              <BellRing className="h-5 w-5 text-[#244B40]" aria-hidden />
-              Visual Table Floor Map &amp; Live Table Calls ({activeCalls.length} Active)
-            </h3>
-            <p className="text-[13px] text-[#626B65] mt-0.5">
-              Color-coded floor view showing which tables have requested waiter assistance or their bill.
+        {/* Live Camera Viewfinder */}
+        {scannerOpen && (
+          <div className="overflow-hidden rounded-2xl border-2 border-[#1E1B4B] bg-[#111827] p-3 text-center space-y-2 animate-fadeSlideUp">
+            <video
+              ref={videoRef}
+              muted
+              playsInline
+              className="mx-auto h-56 w-full max-w-xs rounded-xl object-cover bg-black"
+            />
+            <p className="text-[12px] font-semibold text-[#D2DB76]">
+              Point camera at the guest&apos;s personal Loyalty QR Pass…
             </p>
           </div>
-          {mode === 'owner' && (
-            <a
-              href={`/r/${business.slug}/staff`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-[#244B40] bg-[#EEF3EC]/60 px-3.5 py-2 text-[13px] font-semibold text-[#244B40] hover:bg-[#EEF3EC]"
-            >
-              Open Staff Tablet View (/r/{business.slug}/staff){' '}
-              <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-            </a>
-          )}
-        </div>
+        )}
 
-        {/* Visual Floor Grid */}
-        {tables.length === 0 ? (
-          <p className="rounded-xl border border-[#DDE4DC] bg-[#F7F7F2] p-6 text-center text-[13px] text-[#626B65]">
-            No tables created yet. Add tables in the &ldquo;3. Tables &amp; QR Standees&rdquo; section to see your live floor map.
-          </p>
-        ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-            {tables.map((tbl) => {
-              const call = activeCalls.find((c) => c.tableId === tbl.id);
-              const isBillCall = call?.callType === 'ready_for_bill';
-              const isOpen = call?.status === 'open';
-
-              return (
-                <div
-                  key={tbl.id}
-                  className={`rounded-2xl border p-4 transition-all space-y-2.5 ${
-                    call
-                      ? isOpen
-                        ? 'border-amber-500 bg-[#FAF3DF] shadow-sm'
-                        : 'border-[#244B40] bg-[#EEF3EC]'
-                      : 'border-[#DDE4DC] bg-[#F7F7F2]/60'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-[16px] font-bold text-[#252B29]">
-                        {tbl.tableNumber}
-                      </p>
-                      {tbl.tableLabel && (
-                        <p className="text-[11px] text-[#626B65]">
-                          {tbl.tableLabel}
-                        </p>
-                      )}
-                    </div>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                        call
-                          ? isOpen
-                            ? 'bg-amber-600 text-[#FFFFFF]'
-                            : 'bg-[#244B40] text-[#FFFFFF]'
-                          : 'bg-[#EEF3EC] text-[#244B40]'
-                      }`}
-                    >
-                      {call
-                        ? isBillCall
-                          ? 'Bill Requested'
-                          : 'Calling Waiter'
-                        : 'Clear'}
-                    </span>
-                  </div>
-
-                  {call && (
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {call.status === 'open' && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void handleUpdateTableCall(call.id, 'acknowledged')
-                          }
-                          className="flex-1 rounded-xl border border-[#244B40] bg-[#FFFFFF] px-2.5 py-1.5 text-[11px] font-bold text-[#244B40] hover:bg-[#EEF3EC] cursor-pointer"
-                        >
-                          Acknowledge
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleUpdateTableCall(call.id, 'resolved')
-                        }
-                        className="flex-1 rounded-xl bg-[#244B40] px-2.5 py-1.5 text-[11px] font-bold text-[#FFFFFF] hover:bg-[#1C3B32] cursor-pointer"
-                      >
-                        Resolve ✓
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+        {scannerFallbackNotice && (
+          <div
+            role="status"
+            className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] font-semibold text-[#D97706]"
+          >
+            {scannerFallbackNotice}
           </div>
         )}
-      </div>
 
-      {/* 3. STAFF VERIFICATION CONSOLE: VERIFY PAID VISIT (+STARS) & FULFILL REWARD CLAIM */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* LEFT: Verify Paid Visit & Award Loyalty Stars */}
-        <form
-          onSubmit={(e) => void handleAwardVisitStars(e)}
-          className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-6 shadow-2xs space-y-4"
-        >
-          <div className="flex flex-wrap items-start justify-between gap-2.5">
-            <div>
-              <h3 className="text-[17px] font-semibold text-[#252B29] flex items-center gap-2">
-                <Award className="h-5 w-5 text-[#244B40]" aria-hidden />
-                Verify Paid Dining Visit (+Loyalty Stars)
-              </h3>
-              <p className="text-[12px] text-[#626B65] mt-0.5">
-                Scan the diner&apos;s Loyalty QR pass with your camera or enter their saved phone/email to verify a paid visit and award Loyalty Stars.
-              </p>
-            </div>
-
+        {scannedTokenBadge && (
+          <div
+            role="status"
+            className="flex items-center justify-between gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-[12px] font-bold text-[#059669]"
+          >
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+              {scannedTokenBadge}
+            </span>
             <button
               type="button"
-              onClick={() => void handleToggleCameraScanner()}
-              className={`inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl border px-3.5 py-2 text-[12px] font-bold transition-colors cursor-pointer ${
-                scannerOpen
-                  ? 'border-red-300 bg-red-50 text-red-900 hover:bg-red-100'
-                  : 'border-[#244B40] bg-[#EEF3EC] text-[#244B40] hover:bg-[#244B40] hover:text-[#FFFFFF]'
-              }`}
+              onClick={() => setScannedTokenBadge(null)}
+              className="text-[11px] underline cursor-pointer"
             >
-              {scannerOpen ? (
-                <>
-                  <CameraOff className="h-3.5 w-3.5" aria-hidden /> Close Camera
-                </>
-              ) : (
-                <>
-                  <Camera className="h-3.5 w-3.5" aria-hidden /> Scan Customer QR
-                </>
-              )}
+              Clear
             </button>
           </div>
+        )}
 
-          {/* Live Camera QR Viewfinder */}
-          {scannerOpen && (
-            <div className="overflow-hidden rounded-2xl border-2 border-[#244B40] bg-[#111827] p-3 text-center space-y-2">
-              <video
-                ref={videoRef}
-                muted
-                playsInline
-                className="mx-auto h-52 w-full max-w-xs rounded-xl object-cover bg-black"
-              />
-              <p className="text-[12px] font-medium text-[#FAF3DF]">
-                Point camera at the diner&apos;s personal Loyalty QR Pass…
-              </p>
-            </div>
-          )}
-
-          {scannerFallbackNotice && (
-            <div
-              role="status"
-              className="rounded-xl border border-[#E4BD63] bg-[#FAF3DF] px-3.5 py-2.5 text-[12px] font-medium text-[#252B29]"
-            >
-              {scannerFallbackNotice}
-            </div>
-          )}
-
-          {scannedTokenBadge && (
-            <div
-              role="status"
-              className="flex items-center justify-between gap-2 rounded-xl border border-[#A8BFA5] bg-[#EEF3EC] px-3.5 py-2 text-[12px] font-semibold text-[#244B40]"
-            >
-              <span className="flex items-center gap-1.5">
-                <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
-                {scannedTokenBadge}
-              </span>
-              <button
-                type="button"
-                onClick={() => setScannedTokenBadge(null)}
-                className="text-[11px] underline cursor-pointer"
-              >
-                Clear
-              </button>
-            </div>
-          )}
-
-          <div className="space-y-1.5">
-            <label
-              htmlFor="staffCustomerLookupInput"
-              className="block text-[13px] font-semibold text-[#252B29]"
-            >
-              Diner Loyalty QR Token, Phone/Email, or ID
-            </label>
+        {/* Single Unified Search & Verify Bar (Phone, Email, QR Token, or 6-Digit Claim Code) */}
+        <form
+          onSubmit={(e) => void handleUnifiedVerify(e)}
+          className="bistro-card p-2 flex items-center gap-2"
+        >
+          <div className="relative flex-1 flex items-center">
+            <Search
+              className="ml-3 h-4 w-4 shrink-0 text-[#6B7280]"
+              aria-hidden
+            />
             <input
-              id="staffCustomerLookupInput"
               type="text"
               required
-              placeholder="e.g. vitaran-loyalty://... or diner@example.com"
-              value={customerLookup}
+              aria-label="Enter Phone, Email, or 6-Digit Claim Code"
+              placeholder="Enter Phone / Claim Code"
+              value={unifiedLookup}
               onChange={(e) => {
                 const val = e.target.value;
-                setCustomerLookup(val);
+                setUnifiedLookup(val);
                 const parsed = parseCustomerLoyaltyLookup(val);
                 if (parsed.mode === 'qr_token') {
                   setScannedTokenBadge(
@@ -722,210 +488,164 @@ export function RestaurantFloorAndStaffPanel({
                   setScannedTokenBadge(null);
                 }
               }}
-              className="block min-h-11 w-full rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-2 text-[14px] text-[#252B29]"
+              className="h-11 w-full bg-transparent pl-2.5 pr-2 text-[14px] font-semibold text-[#111827] placeholder:text-[#6B7280] focus:outline-none"
             />
           </div>
 
-          <div className="space-y-1.5">
-            <label
-              htmlFor="staffVisitTableSelect"
-              className="block text-[13px] font-semibold text-[#252B29]"
-            >
-              Table (Optional)
-            </label>
-            <select
-              id="staffVisitTableSelect"
-              value={visitTableKey}
-              onChange={(e) => setVisitTableKey(e.target.value)}
-              className="block min-h-11 w-full rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-2 text-[14px] text-[#252B29]"
-            >
-              <option value="">General / Counter Checkout</option>
-              {tables.map((t) => (
-                <option key={t.id} value={t.tableKey}>
-                  {t.tableNumber}
-                  {t.tableLabel ? ` (${t.tableLabel})` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <Button
+          <button
             type="submit"
-            variant="primary"
-            className="w-full"
-            disabled={awardingStars || !customerLookup.trim()}
+            disabled={processingLookup || !unifiedLookup.trim()}
+            className="inline-flex h-11 shrink-0 items-center justify-center rounded-xl bg-[#1E1B4B] px-5 text-[13px] font-extrabold text-[#FFFFFF] hover:bg-[#2E2A6E] active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
           >
-            <Trophy className="h-4 w-4" aria-hidden />
-            {awardingStars
-              ? 'Verifying Visit…'
-              : 'Verify Paid Visit & Award Stars'}
-          </Button>
+            {processingLookup ? 'Verifying…' : 'Verify'}
+          </button>
         </form>
-
-        {/* RIGHT: Verify & Fulfill 6-Character Reward Claim Ticket */}
-        <div className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-6 shadow-2xs space-y-4">
-          <div>
-            <h3 className="text-[17px] font-semibold text-[#252B29] flex items-center gap-2">
-              <Ticket className="h-5 w-5 text-[#244B40]" aria-hidden />
-              Verify 6-Character Reward Claim Ticket
-            </h3>
-            <p className="text-[12px] text-[#626B65] mt-0.5">
-              Enter the 6-character Claim Code shown on the guest&apos;s phone to verify and fulfill their reward.
-            </p>
-          </div>
-
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void handleFulfillClaimCode(claimCodeInput);
-            }}
-            className="flex gap-2.5"
-          >
-            <input
-              type="text"
-              maxLength={6}
-              placeholder="6-CHAR CODE (e.g. K7M4P9)"
-              value={claimCodeInput}
-              onChange={(e) => setClaimCodeInput(e.target.value.toUpperCase())}
-              className="block min-h-11 flex-1 rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-2 font-mono text-[15px] font-bold uppercase tracking-widest text-[#252B29]"
-            />
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={fulfillingClaim || claimCodeInput.trim().length !== 6}
-            >
-              <Gift className="h-4 w-4" aria-hidden />
-              {fulfillingClaim ? 'Verifying…' : 'Mark Fulfilled'}
-            </Button>
-          </form>
-
-          {pendingClaims.length > 0 && (
-            <div className="space-y-2 border-t border-[#DDE4DC] pt-3">
-              <p className="text-[12px] font-semibold uppercase tracking-wider text-[#626B65]">
-                Pending Claim Tickets ({pendingClaims.length})
-              </p>
-              <div className="space-y-2 max-h-44 overflow-y-auto">
-                {pendingClaims.map((claim) => (
-                  <div
-                    key={claim.id}
-                    className="flex items-center justify-between gap-2 rounded-xl border border-[#E4BD63] bg-[#FAF3DF] px-3.5 py-2.5"
-                  >
-                    <div>
-                      <p className="text-[13px] font-bold text-[#252B29]">
-                        {claim.rewardTitle || 'Reward'} ·{' '}
-                        <span className="font-mono text-[#244B40]">
-                          {claim.claimCode}
-                        </span>
-                      </p>
-                      <p className="text-[11px] text-[#626B65]">
-                        Diner: {claim.customerName || 'Guest'} ({claim.starsSpent} ★)
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={fulfillingClaim}
-                      onClick={() => void handleFulfillClaimCode(claim.claimCode)}
-                      className="rounded-xl bg-[#244B40] px-3 py-1.5 text-[12px] font-bold text-[#FFFFFF] hover:bg-[#1C3B32] cursor-pointer"
-                    >
-                      Fulfill ✓
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
       </div>
 
-      {/* 4. OWNER STAFF PIN & VISIT COOLDOWN SETTINGS */}
-      {mode === 'owner' && (
-        <form
-          onSubmit={(e) => void handleSaveStaffPinAndCooldown(e)}
-          className="rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-6 shadow-2xs space-y-4"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h3 className="text-[17px] font-semibold text-[#252B29] flex items-center gap-2">
-                <KeyRound className="h-5 w-5 text-[#244B40]" aria-hidden />
-                Staff Verification PIN &amp; Visit Star Cooldown
-              </h3>
-              <p className="text-[13px] text-[#626B65] mt-0.5">
-                Set a 4–6 digit Staff PIN so waiters or cashiers can access{' '}
-                <code className="rounded bg-[#F7F7F2] px-1.5 py-0.5 font-mono text-[12px]">
-                  /r/{business.slug}/staff
-                </code>{' '}
-                without needing your owner account password. The PIN is hashed with SHA-256 before saving.
-              </p>
-            </div>
-            <span
-              className={`rounded-full px-3 py-1 text-[12px] font-semibold ${
-                profile?.staffPinHash
-                  ? 'bg-[#EEF3EC] text-[#244B40]'
-                  : 'bg-[#FAF3DF] border border-[#E4BD63] text-[#252B29]'
-              }`}
-            >
-              {profile?.staffPinHash ? 'Staff PIN Configured ✓' : 'No Staff PIN Set'}
-            </span>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label
-                htmlFor="staffPinInput"
-                className="block text-[13px] font-semibold text-[#252B29]"
+      {/* Pending 6-Character Reward Tickets Strip (1-Tap Fulfill) */}
+      {pendingClaims.length > 0 && (
+        <div className="bistro-card p-4 space-y-2.5">
+          <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#6B7280] flex items-center gap-1.5">
+            <Ticket className="h-3.5 w-3.5 text-[#1E1B4B]" aria-hidden />
+            Pending Reward Claim Tickets ({pendingClaims.length})
+          </p>
+          <div className="space-y-2">
+            {pendingClaims.map((claim) => (
+              <div
+                key={claim.id}
+                className="flex items-center justify-between gap-2 rounded-xl border border-[#D2DB76] bg-[#D2DB76]/25 px-3.5 py-2.5"
               >
-                {profile?.staffPinHash
-                  ? 'New 4–6 Digit Staff PIN (Leave blank to keep current PIN)'
-                  : 'Set 4–6 Digit Staff PIN (e.g. 2468)'}
-              </label>
-              <input
-                id="staffPinInput"
-                type="password"
-                inputMode="numeric"
-                maxLength={6}
-                placeholder="Enter 4 to 6 digits"
-                value={newPin}
-                onChange={(e) => setNewPin(e.target.value)}
-                className="block min-h-10 w-full rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-2 text-[14px] text-[#252B29]"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label
-                htmlFor="visitCooldownHoursInput"
-                className="block text-[13px] font-semibold text-[#252B29]"
-              >
-                Min Hours Between Visit Stars (Same Diner)
-              </label>
-              <input
-                id="visitCooldownHoursInput"
-                type="number"
-                min={0}
-                max={168}
-                value={minHoursCooldown}
-                onChange={(e) =>
-                  setMinHoursCooldown(
-                    Math.max(0, Number.parseInt(e.target.value || '0', 10)),
-                  )
-                }
-                className="block min-h-10 w-full rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-2 text-[14px] text-[#252B29]"
-              />
-              <p className="text-[11px] text-[#626B65]">
-                Prevents accidental double-awarding on the same meal (default 4 hours).
-              </p>
-            </div>
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-extrabold text-[#111827]">
+                    {claim.rewardTitle || 'Reward'} •{' '}
+                    <span className="font-mono text-[#1E1B4B]">
+                      {claim.claimCode}
+                    </span>
+                  </p>
+                  <p className="text-[11px] font-medium text-[#6B7280]">
+                    {claim.customerName || 'Guest'} ({claim.starsSpent} ★)
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={processingLookup}
+                  onClick={() =>
+                    void handleFulfillClaimCodeDirect(claim.claimCode)
+                  }
+                  className="shrink-0 rounded-xl bg-[#1E1B4B] px-3.5 py-1.5 text-[12px] font-extrabold text-[#FFFFFF] active:scale-[0.98] transition-all cursor-pointer"
+                >
+                  Fulfill ✓
+                </button>
+              </div>
+            ))}
           </div>
-
-          <div className="flex justify-end">
-            <Button type="submit" variant="primary" disabled={savingSecurity}>
-              <Receipt className="h-4 w-4" aria-hidden />
-              {savingSecurity
-                ? 'Saving…'
-                : 'Save Staff PIN & Visit Cooldown'}
-            </Button>
-          </div>
-        </form>
+        </div>
       )}
+
+      {/* 2. LIVE 2-COLUMN VISUAL TABLE GRID (Matches Mockup 3: T1, T2, T3, T4...) */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <h2 className="text-[13px] font-extrabold uppercase tracking-wider text-[#111827]">
+              TABLES
+            </h2>
+            {selectedTableKey && (
+              <span className="rounded-full bg-[#D2DB76]/60 px-2.5 py-0.5 text-[11px] font-extrabold text-[#1E1B4B]">
+                Selected: {selectedTableKey}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => void refreshFloorData()}
+            className="inline-flex items-center gap-1 text-[12px] font-bold text-[#6B7280] hover:text-[#111827] cursor-pointer"
+          >
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Refresh
+          </button>
+        </div>
+
+        {tables.length === 0 ? (
+          <div className="bistro-card p-8 text-center text-[13px] text-[#6B7280]">
+            No tables configured yet. Add tables in the Owner Workspace under &ldquo;Tables &amp; QRs&rdquo;.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3.5">
+            {tables.map((tbl, idx) => {
+              const call = activeCalls.find((c) => c.tableId === tbl.id);
+              const isBillCall = call?.callType === 'ready_for_bill';
+              const shortCode = getShortTableCode(tbl.tableNumber, idx);
+              const isSelected = selectedTableKey === tbl.tableKey;
+
+              if (call) {
+                // Active Alert Table Card — Warm Amber Illumination (Matches Mockup 3 T4 Card)
+                return (
+                  <button
+                    key={tbl.id}
+                    type="button"
+                    onClick={() => void handleResolveTableCall(call.id)}
+                    className="group relative flex aspect-square flex-col items-center justify-center gap-2.5 rounded-2xl border-2 border-[#D97706] bg-[#E5A93C] p-4 text-center text-[#111827] shadow-md transition-all duration-150 active:scale-[0.98] cursor-pointer"
+                  >
+                    <span className="absolute top-3 right-3 flex h-3 w-3">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#1E1B4B] opacity-75" />
+                      <span className="relative inline-flex h-3 w-3 rounded-full bg-[#1E1B4B]" />
+                    </span>
+
+                    <span className="text-[32px] leading-none font-extrabold tracking-tight text-[#111827] tabular-nums">
+                      {shortCode}
+                    </span>
+
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[#111827]/15 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-[#111827]">
+                      {isBillCall ? 'BILL REQUESTED' : 'WAITER CALLED'}
+                      <BellRing className="h-3 w-3" aria-hidden />
+                    </span>
+
+                    <span className="text-[11px] font-bold text-[#111827]/80 underline">
+                      Tap to Resolve ✓
+                    </span>
+                  </button>
+                );
+              }
+
+              // Standard Table Card (Matches Mockup 3 T1, T2, T3...)
+              return (
+                <button
+                  key={tbl.id}
+                  type="button"
+                  onClick={() =>
+                    setSelectedTableKey((prev) =>
+                      prev === tbl.tableKey ? '' : tbl.tableKey,
+                    )
+                  }
+                  className={`flex aspect-square flex-col items-center justify-center gap-2.5 rounded-2xl border bg-[#FFFFFF] p-4 text-center shadow-2xs transition-all duration-150 active:scale-[0.98] cursor-pointer ${
+                    isSelected
+                      ? 'border-2 border-[#1E1B4B] ring-2 ring-[#D2DB76]'
+                      : 'border-[#1E1B4B]/10 hover:border-[#1E1B4B]/40'
+                  }`}
+                >
+                  <span className="text-[32px] leading-none font-extrabold tracking-tight text-[#111827] tabular-nums">
+                    {shortCode}
+                  </span>
+
+                  <span
+                    className={`rounded-full px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider ${
+                      isSelected
+                        ? 'bg-[#D2DB76] text-[#1E1B4B]'
+                        : 'bg-emerald-50 text-[#059669] border border-emerald-200'
+                    }`}
+                  >
+                    {isSelected ? 'OCCUPIED' : 'AVAILABLE'}
+                  </span>
+
+                  <span className="text-[11px] font-medium text-[#6B7280] truncate max-w-full">
+                    {tbl.tableNumber}
+                    {tbl.tableLabel ? ` • ${tbl.tableLabel}` : ''}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

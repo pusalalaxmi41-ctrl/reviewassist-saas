@@ -11,11 +11,11 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variants: Record<Variant, string> = {
   primary:
-    'bg-[#244B40] text-[#FFFFFF] hover:bg-[#1C3B32] border border-[#244B40] disabled:bg-[#E8EBE7] disabled:text-[#747B76] disabled:border-[#DDE4DC]',
+    'bg-[#1E1B4B] text-[#FFFFFF] hover:bg-[#2E2A6E] border border-[#1E1B4B] shadow-sm disabled:bg-[#F3F4F6] disabled:text-[#9CA3AF] disabled:border-[#E5E7EB]',
   secondary:
-    'bg-[#FFFFFF] text-[#252B29] border border-[#87928A] hover:bg-[#F7F7F2] hover:border-[#244B40] disabled:bg-[#E8EBE7] disabled:text-[#747B76] disabled:border-[#DDE4DC]',
+    'bg-[#FFFFFF] text-[#111827] border border-[#1E1B4B]/20 hover:bg-[#F8F9FA] hover:border-[#1E1B4B] disabled:bg-[#F3F4F6] disabled:text-[#9CA3AF] disabled:border-[#E5E7EB]',
   ghost:
-    'bg-transparent text-[#252B29] hover:bg-[#EEF3EC] hover:text-[#244B40] disabled:bg-[#E8EBE7] disabled:text-[#747B76]',
+    'bg-transparent text-[#111827] hover:bg-[#1E1B4B]/[0.06] hover:text-[#1E1B4B] disabled:bg-[#F3F4F6] disabled:text-[#9CA3AF]',
 };
 
 export function Button({
@@ -29,7 +29,7 @@ export function Button({
   return (
     <button
       className={cn(
-        'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[14px] font-medium transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#244B40] focus-visible:ring-offset-2 disabled:cursor-not-allowed',
+        'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[14px] font-semibold transition-all duration-150 active:scale-[0.98] cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:active:scale-100',
         variants[variant],
         className,
       )}
