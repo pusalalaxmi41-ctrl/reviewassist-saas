@@ -12,8 +12,10 @@ import {
   ShieldAlert,
   Ban,
   CheckCircle2,
+  UtensilsCrossed,
 } from 'lucide-react';
 import type { Business, BusinessMetrics, AnalyticsEvent, CustomerDraftRecord } from '../types/business';
+import type { RestaurantProfile } from '../types/restaurant';
 import { businessRepository } from '../services/storage';
 import { categoryLabels } from '../services/business/mockBusinesses';
 import { AnalyticsView } from '../components/dashboard/AnalyticsView';
@@ -23,8 +25,9 @@ import { GoogleUrlSettings } from '../components/dashboard/GoogleUrlSettings';
 import { BusinessCategorySettings } from '../components/dashboard/BusinessCategorySettings';
 import { AIConfigurationSettings } from '../components/dashboard/AIConfigurationSettings';
 import { BusinessKnowledgeSettings } from '../components/dashboard/BusinessKnowledgeSettings';
+import { RestaurantManagerView } from '../components/dashboard/RestaurantManagerView';
 
-type Tab = 'analytics' | 'qr' | 'drafts' | 'settings';
+type Tab = 'analytics' | 'qr' | 'drafts' | 'restaurant' | 'settings';
 
 export default function BusinessDashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -41,6 +44,8 @@ export default function BusinessDashboard() {
   });
   const [events, setEvents] = useState<AnalyticsEvent[]>([]);
   const [drafts, setDrafts] = useState<CustomerDraftRecord[]>([]);
+  const [restaurantProfile, setRestaurantProfile] =
+    useState<RestaurantProfile | null>(null);
 
   // Load all registered businesses
   useEffect(() => {
@@ -68,14 +73,16 @@ export default function BusinessDashboard() {
     if (!currentBusiness) return;
 
     async function loadBusinessData() {
-      const [m, evts, drfts] = await Promise.all([
+      const [m, evts, drfts, restProf] = await Promise.all([
         businessRepository.getMetrics(currentBusiness.id),
         businessRepository.getEvents(currentBusiness.id),
         businessRepository.getDrafts(currentBusiness.id),
+        businessRepository.getRestaurantProfile(currentBusiness.id),
       ]);
       setMetrics(m);
       setEvents(evts);
       setDrafts(drfts);
+      setRestaurantProfile(restProf);
     }
 
     void loadBusinessData();
@@ -156,6 +163,12 @@ export default function BusinessDashboard() {
   const currentPill = statusPillConfig[currentStatus];
   const StatusIcon = currentPill.Icon;
 
+  const showRestaurantTab =
+    currentBusiness.category === 'restaurant' ||
+    currentBusiness.category === 'cafe' ||
+    currentBusiness.category === 'hotel' ||
+    Boolean(restaurantProfile?.isEnabled);
+
   const navItems: {
     id: Tab;
     label: string;
@@ -176,6 +189,16 @@ export default function BusinessDashboard() {
       Icon: MessageSquare,
       badge: drafts.length,
     },
+    ...(showRestaurantTab
+      ? [
+          {
+            id: 'restaurant' as const,
+            label: 'Restaurant Menu & Tables',
+            shortLabel: 'Restaurant',
+            Icon: UtensilsCrossed,
+          },
+        ]
+      : []),
     {
       id: 'qr',
       label: 'QR Code & WhatsApp',
@@ -412,6 +435,16 @@ export default function BusinessDashboard() {
                     item.id === updatedRecord.id ? updatedRecord : item,
                   ),
                 );
+              }}
+            />
+          )}
+          {activeTab === 'restaurant' && (
+            <RestaurantManagerView
+              key={`restaurant-mgmt-${currentBusiness.id}`}
+              business={currentBusiness}
+              isBusinessLive={isBusinessLive}
+              onProfileChanged={(updatedProf) => {
+                setRestaurantProfile(updatedProf);
               }}
             />
           )}

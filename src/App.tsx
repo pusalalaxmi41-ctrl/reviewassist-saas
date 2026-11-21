@@ -6,6 +6,8 @@ import { CustomerLayout } from './layouts/CustomerLayout';
 import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
 import CustomerReviewPage from './pages/CustomerReviewPage';
+import CustomerRestaurantMenuPage from './pages/CustomerRestaurantMenuPage';
+import RestaurantStaffVerificationPage from './pages/RestaurantStaffVerificationPage';
 import BusinessDashboard from './pages/BusinessDashboard';
 import BusinessSetupPage from './pages/BusinessSetupPage';
 import AdminPanelPage from './pages/admin/AdminPanelPage';
@@ -45,6 +47,18 @@ export default function App() {
           </Route>
           <Route element={<CustomerLayout />}>
             <Route path="/r/:businessSlug" element={<CustomerReviewPage />} />
+            <Route
+              path="/r/:businessSlug/menu"
+              element={<CustomerRestaurantMenuPage />}
+            />
+            <Route
+              path="/r/:businessSlug/table/:tableKey"
+              element={<CustomerRestaurantMenuPage />}
+            />
+            <Route
+              path="/r/:businessSlug/staff"
+              element={<RestaurantStaffVerificationPage />}
+            />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -152,15 +152,15 @@ export interface QRMatrixResult {
 }
 
 /**
- * Generates a real ISO/IEC 18004 QR code matrix for a specific business slug
+ * Generates a real ISO/IEC 18004 QR code matrix for any absolute URL
  * with Error Correction Level 'M' and a strict 4-module quiet zone.
  */
-export function generateBusinessQRMatrix(
-  businessSlug: string,
-  baseOrigin?: string,
-): QRMatrixResult {
-  const url = getCustomerReviewUrl(businessSlug, 'qr', baseOrigin);
-  const qr = QRCode.create(url, {
+export function generateUrlQRMatrix(targetUrl: string): QRMatrixResult {
+  const cleanUrl = targetUrl.trim();
+  if (!cleanUrl) {
+    throw new Error('Target URL is required to generate a QR matrix.');
+  }
+  const qr = QRCode.create(cleanUrl, {
     errorCorrectionLevel: 'M',
   });
   const moduleCount = qr.modules.size;
@@ -172,12 +172,24 @@ export function generateBusinessQRMatrix(
   }
 
   return {
-    url,
+    url: cleanUrl,
     moduleCount,
     quietZoneModules,
     totalModules: moduleCount + quietZoneModules * 2,
     modules,
   };
+}
+
+/**
+ * Generates a real ISO/IEC 18004 QR code matrix for a specific business slug
+ * with Error Correction Level 'M' and a strict 4-module quiet zone.
+ */
+export function generateBusinessQRMatrix(
+  businessSlug: string,
+  baseOrigin?: string,
+): QRMatrixResult {
+  const url = getCustomerReviewUrl(businessSlug, 'qr', baseOrigin);
+  return generateUrlQRMatrix(url);
 }
 
 function parseHexRgb(hex: string): [number, number, number] {
@@ -195,7 +207,7 @@ function parseHexRgb(hex: string): [number, number, number] {
 export function renderQrTemplateToRgbaBuffer(
   businessSlug: string,
   settings: Pick<QRDesignSettings, 'template' | 'accentColor'>,
-  options?: { width?: number; height?: number; baseOrigin?: string },
+  options?: { width?: number; height?: number; baseOrigin?: string; targetUrl?: string },
 ): {
   width: number;
   height: number;
@@ -206,7 +218,9 @@ export function renderQrTemplateToRgbaBuffer(
   const height = options?.height ?? 1132;
   const data = new Uint8ClampedArray(width * height * 4);
 
-  const matrix = generateBusinessQRMatrix(businessSlug, options?.baseOrigin);
+  const matrix = options?.targetUrl
+    ? generateUrlQRMatrix(options.targetUrl)
+    : generateBusinessQRMatrix(businessSlug, options?.baseOrigin);
 
   // 1. Background fill according to template
   const bgRgb: [number, number, number] =
@@ -453,7 +467,12 @@ export async function renderQrPosterToCanvas(
   canvas: HTMLCanvasElement,
   business: Business,
   settings: QRDesignSettings,
-  options?: { width?: number; height?: number },
+  options?: {
+    width?: number;
+    height?: number;
+    targetUrl?: string;
+    customSteps?: [string, string, string];
+  },
 ): Promise<string> {
   const W = 1200;
   const H = 1700;
@@ -471,7 +490,9 @@ export async function renderQrPosterToCanvas(
   ctx.save();
   ctx.scale(targetWidth / W, targetHeight / H);
 
-  const matrix = generateBusinessQRMatrix(business.slug);
+  const matrix = options?.targetUrl
+    ? generateUrlQRMatrix(options.targetUrl)
+    : generateBusinessQRMatrix(business.slug);
   const logoImg = settings.logoDataUrl
     ? await loadImageElement(settings.logoDataUrl)
     : null;
@@ -748,7 +769,7 @@ export async function renderQrPosterToCanvas(
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    const steps = [
+    const steps = options?.customSteps ?? [
       '1. Scan QR code with your phone camera',
       '2. Tap highlights or speak your honest experience',
       '3. Copy your review draft & post on Google',

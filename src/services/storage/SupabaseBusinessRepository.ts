@@ -25,6 +25,44 @@ import type {
   BusinessProductItem,
   BusinessServiceItem,
 } from '../../types/businessKnowledge';
+import type {
+  DietaryTag,
+  PublicRestaurantMenuPayload,
+  RestaurantCurrencyCode,
+  RestaurantCustomerCheckInInput,
+  RestaurantCustomerWalletState,
+  RestaurantFloorAndAnalyticsPayload,
+  RestaurantGameCategory,
+  RestaurantGameCompletionResponse,
+  RestaurantGameConfig,
+  RestaurantGameConfigInput,
+  RestaurantGameParticipationStats,
+  RestaurantGameSlug,
+  RestaurantGameStartResponse,
+  RestaurantGameSubmissionInput,
+  RestaurantLoyaltyRules,
+  RestaurantLoyaltyRulesInput,
+  RestaurantMenuCategory,
+  RestaurantMenuCategoryInput,
+  RestaurantMenuItem,
+  RestaurantMenuItemInput,
+  RestaurantPointToStarExchangeResponse,
+  RestaurantProfile,
+  RestaurantProfileInput,
+  RestaurantReward,
+  RestaurantRewardClaim,
+  RestaurantRewardClaimResponse,
+  RestaurantRewardInput,
+  RestaurantStaffAwardVisitResponse,
+  RestaurantSuggestion,
+  RestaurantSuggestionInput,
+  RestaurantTable,
+  RestaurantTableCall,
+  RestaurantTableCallStatus,
+  RestaurantTableCallType,
+  RestaurantTableInput,
+  RestaurantTriviaQuestion,
+} from '../../types/restaurant';
 import {
   normalizeBusinessAIConfig,
   validateBusinessAIConfigInput,
@@ -34,6 +72,21 @@ import {
   normalizeBusinessKnowledgeProfile,
   validateBusinessKnowledgeInput,
 } from '../../utils/businessKnowledgeValidation';
+import {
+  deriveTableKey,
+  getDefaultRestaurantGameConfigs,
+  normalizeRestaurantLoyaltyRules,
+  normalizeRestaurantProfile,
+  validateRestaurantCustomerCheckInInput,
+  validateRestaurantGameConfigInput,
+  validateRestaurantLoyaltyRulesInput,
+  validateRestaurantMenuCategoryInput,
+  validateRestaurantMenuItemInput,
+  validateRestaurantProfileInput,
+  validateRestaurantRewardInput,
+  validateRestaurantSuggestionInput,
+  validateRestaurantTableInput,
+} from '../../utils/restaurantValidation';
 import {
   filterActiveRetentionDrafts,
   validateResponseWorkflowUpdate,
@@ -1153,5 +1206,1769 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     }
 
     return localSaved;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 1: Restaurant Foundation, Tables & Digital Menu
+  // ---------------------------------------------------------------------------
+
+  async getRestaurantProfile(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantProfile> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_profiles')
+      .select('*')
+      .eq('business_id', cleanId)
+      .maybeSingle();
+
+    if (!error && data) {
+      const row = data as {
+        business_id: string;
+        is_enabled: boolean;
+        currency_code: RestaurantCurrencyCode;
+        tagline: string | null;
+        games_enabled: boolean;
+        loyalty_enabled: boolean;
+        staff_pin_hash?: string | null;
+        min_hours_between_visit_stars?: number;
+        updated_at: string;
+      };
+      return normalizeRestaurantProfile(
+        cleanId,
+        {
+          isEnabled: row.is_enabled,
+          currencyCode: row.currency_code,
+          tagline: row.tagline,
+          gamesEnabled: row.games_enabled,
+          loyaltyEnabled: row.loyalty_enabled,
+          staffPinHash: row.staff_pin_hash ?? null,
+          minHoursBetweenVisitStars: row.min_hours_between_visit_stars ?? 4,
+          updatedAt: row.updated_at,
+        },
+        'supabase',
+      );
+    }
+
+    return mockBusinessRepository.getRestaurantProfile(cleanId, options);
+  }
+
+  async updateRestaurantProfile(
+    businessId: string,
+    input: RestaurantProfileInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantProfile> {
+    const validation = validateRestaurantProfileInput(businessId, input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const now = new Date().toISOString();
+    const client = this.requireClient();
+
+    const upsertPayload: Record<string, unknown> = {
+      business_id: cleanId,
+      is_enabled: validation.value.isEnabled,
+      currency_code: validation.value.currencyCode,
+      tagline: validation.value.tagline,
+      games_enabled: validation.value.gamesEnabled,
+      loyalty_enabled: validation.value.loyaltyEnabled,
+      updated_at: now,
+    };
+    if (validation.value.staffPinHash !== undefined) {
+      upsertPayload.staff_pin_hash = validation.value.staffPinHash;
+    }
+    if (validation.value.minHoursBetweenVisitStars !== undefined) {
+      upsertPayload.min_hours_between_visit_stars =
+        validation.value.minHoursBetweenVisitStars;
+    }
+
+    const { data, error } = await client
+      .from('restaurant_profiles')
+      .upsert(upsertPayload, { onConflict: 'business_id' })
+      .select('*')
+      .single();
+
+    if (!error && data) {
+      const row = data as {
+        business_id: string;
+        is_enabled: boolean;
+        currency_code: RestaurantCurrencyCode;
+        tagline: string | null;
+        games_enabled: boolean;
+        loyalty_enabled: boolean;
+        staff_pin_hash?: string | null;
+        min_hours_between_visit_stars?: number;
+        updated_at: string;
+      };
+      return normalizeRestaurantProfile(
+        cleanId,
+        {
+          isEnabled: row.is_enabled,
+          currencyCode: row.currency_code,
+          tagline: row.tagline,
+          gamesEnabled: row.games_enabled,
+          loyaltyEnabled: row.loyalty_enabled,
+          staffPinHash: row.staff_pin_hash ?? null,
+          minHoursBetweenVisitStars: row.min_hours_between_visit_stars ?? 4,
+          updatedAt: row.updated_at,
+        },
+        'supabase',
+      );
+    }
+
+    return mockBusinessRepository.updateRestaurantProfile(
+      cleanId,
+      validation.value,
+      options,
+    );
+  }
+
+  async getRestaurantTables(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantTable[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_tables')
+      .select(
+        'id, business_id, table_number, table_label, table_key, is_active, created_at, updated_at',
+      )
+      .eq('business_id', cleanId)
+      .order('created_at', { ascending: true });
+
+    if (!error && data) {
+      return (
+        data as Array<{
+          id: string;
+          business_id: string;
+          table_number: string;
+          table_label: string | null;
+          table_key: string;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        }>
+      ).map((row) => ({
+        id: row.id,
+        businessId: row.business_id,
+        tableNumber: row.table_number,
+        tableLabel: row.table_label,
+        tableKey: row.table_key,
+        isActive: row.is_active,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }));
+    }
+
+    return mockBusinessRepository.getRestaurantTables(cleanId, options);
+  }
+
+  async createRestaurantTable(
+    businessId: string,
+    input: RestaurantTableInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantTable> {
+    const validation = validateRestaurantTableInput(businessId, input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_tables')
+      .insert({
+        business_id: cleanId,
+        table_number: validation.value.tableNumber,
+        table_label: validation.value.tableLabel,
+        table_key: validation.value.tableKey,
+        is_active: validation.value.isActive,
+      })
+      .select(
+        'id, business_id, table_number, table_label, table_key, is_active, created_at, updated_at',
+      )
+      .single();
+
+    if (error) {
+      if (error.code === '23505') {
+        throw new Error(
+          `Duplicate table key "${validation.value.tableKey}" already exists for this business.`,
+        );
+      }
+      return mockBusinessRepository.createRestaurantTable(
+        cleanId,
+        validation.value,
+        options,
+      );
+    }
+
+    const row = data as {
+      id: string;
+      business_id: string;
+      table_number: string;
+      table_label: string | null;
+      table_key: string;
+      is_active: boolean;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      id: row.id,
+      businessId: row.business_id,
+      tableNumber: row.table_number,
+      tableLabel: row.table_label,
+      tableKey: row.table_key,
+      isActive: row.is_active,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async updateRestaurantTable(
+    businessId: string,
+    tableId: string,
+    input: RestaurantTableInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantTable> {
+    const validation = validateRestaurantTableInput(businessId, input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_tables')
+      .update({
+        table_number: validation.value.tableNumber,
+        table_label: validation.value.tableLabel,
+        table_key: validation.value.tableKey,
+        is_active: validation.value.isActive,
+      })
+      .eq('id', tableId)
+      .eq('business_id', cleanId)
+      .select(
+        'id, business_id, table_number, table_label, table_key, is_active, created_at, updated_at',
+      )
+      .single();
+
+    if (error) {
+      if (error.code === '23505') {
+        throw new Error(
+          `Duplicate table key "${validation.value.tableKey}" already exists for this business.`,
+        );
+      }
+      return mockBusinessRepository.updateRestaurantTable(
+        cleanId,
+        tableId,
+        validation.value,
+        options,
+      );
+    }
+
+    const row = data as {
+      id: string;
+      business_id: string;
+      table_number: string;
+      table_label: string | null;
+      table_key: string;
+      is_active: boolean;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      id: row.id,
+      businessId: row.business_id,
+      tableNumber: row.table_number,
+      tableLabel: row.table_label,
+      tableKey: row.table_key,
+      isActive: row.is_active,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async deleteRestaurantTable(
+    businessId: string,
+    tableId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { error } = await client
+      .from('restaurant_tables')
+      .delete()
+      .eq('id', tableId)
+      .eq('business_id', cleanId);
+
+    if (error) {
+      await mockBusinessRepository.deleteRestaurantTable(
+        cleanId,
+        tableId,
+        options,
+      );
+    }
+  }
+
+  async getRestaurantMenuCategories(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantMenuCategory[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_menu_categories')
+      .select(
+        'id, business_id, name, description, display_order, is_active, created_at, updated_at',
+      )
+      .eq('business_id', cleanId)
+      .order('display_order', { ascending: true })
+      .order('created_at', { ascending: true });
+
+    if (!error && data) {
+      return (
+        data as Array<{
+          id: string;
+          business_id: string;
+          name: string;
+          description: string | null;
+          display_order: number;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        }>
+      ).map((row) => ({
+        id: row.id,
+        businessId: row.business_id,
+        name: row.name,
+        description: row.description,
+        displayOrder: row.display_order,
+        isActive: row.is_active,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }));
+    }
+
+    return mockBusinessRepository.getRestaurantMenuCategories(cleanId, options);
+  }
+
+  async createRestaurantMenuCategory(
+    businessId: string,
+    input: RestaurantMenuCategoryInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantMenuCategory> {
+    const validation = validateRestaurantMenuCategoryInput(businessId, input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_menu_categories')
+      .insert({
+        business_id: cleanId,
+        name: validation.value.name,
+        description: validation.value.description,
+        display_order: validation.value.displayOrder,
+        is_active: validation.value.isActive,
+      })
+      .select(
+        'id, business_id, name, description, display_order, is_active, created_at, updated_at',
+      )
+      .single();
+
+    if (error || !data) {
+      return mockBusinessRepository.createRestaurantMenuCategory(
+        cleanId,
+        validation.value,
+        options,
+      );
+    }
+
+    const row = data as {
+      id: string;
+      business_id: string;
+      name: string;
+      description: string | null;
+      display_order: number;
+      is_active: boolean;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      id: row.id,
+      businessId: row.business_id,
+      name: row.name,
+      description: row.description,
+      displayOrder: row.display_order,
+      isActive: row.is_active,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async updateRestaurantMenuCategory(
+    businessId: string,
+    categoryId: string,
+    input: RestaurantMenuCategoryInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantMenuCategory> {
+    const validation = validateRestaurantMenuCategoryInput(businessId, input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_menu_categories')
+      .update({
+        name: validation.value.name,
+        description: validation.value.description,
+        display_order: validation.value.displayOrder,
+        is_active: validation.value.isActive,
+      })
+      .eq('id', categoryId)
+      .eq('business_id', cleanId)
+      .select(
+        'id, business_id, name, description, display_order, is_active, created_at, updated_at',
+      )
+      .single();
+
+    if (error || !data) {
+      return mockBusinessRepository.updateRestaurantMenuCategory(
+        cleanId,
+        categoryId,
+        validation.value,
+        options,
+      );
+    }
+
+    const row = data as {
+      id: string;
+      business_id: string;
+      name: string;
+      description: string | null;
+      display_order: number;
+      is_active: boolean;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      id: row.id,
+      businessId: row.business_id,
+      name: row.name,
+      description: row.description,
+      displayOrder: row.display_order,
+      isActive: row.is_active,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async deleteRestaurantMenuCategory(
+    businessId: string,
+    categoryId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { error } = await client
+      .from('restaurant_menu_categories')
+      .delete()
+      .eq('id', categoryId)
+      .eq('business_id', cleanId);
+
+    if (error) {
+      await mockBusinessRepository.deleteRestaurantMenuCategory(
+        cleanId,
+        categoryId,
+        options,
+      );
+    }
+  }
+
+  async getRestaurantMenuItems(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantMenuItem[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_menu_items')
+      .select(
+        'id, business_id, category_id, name, description, price_paise, dietary_tag, is_available, is_featured, image_url, display_order, created_at, updated_at',
+      )
+      .eq('business_id', cleanId)
+      .order('display_order', { ascending: true })
+      .order('created_at', { ascending: true });
+
+    if (!error && data) {
+      return (
+        data as Array<{
+          id: string;
+          business_id: string;
+          category_id: string;
+          name: string;
+          description: string | null;
+          price_paise: number;
+          dietary_tag: DietaryTag;
+          is_available: boolean;
+          is_featured: boolean;
+          image_url: string | null;
+          display_order: number;
+          created_at: string;
+          updated_at: string;
+        }>
+      ).map((row) => ({
+        id: row.id,
+        businessId: row.business_id,
+        categoryId: row.category_id,
+        name: row.name,
+        description: row.description,
+        pricePaise: row.price_paise,
+        dietaryTag: row.dietary_tag,
+        isAvailable: row.is_available,
+        isFeatured: row.is_featured,
+        imageUrl: row.image_url,
+        displayOrder: row.display_order,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }));
+    }
+
+    return mockBusinessRepository.getRestaurantMenuItems(cleanId, options);
+  }
+
+  async createRestaurantMenuItem(
+    businessId: string,
+    input: RestaurantMenuItemInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantMenuItem> {
+    const validation = validateRestaurantMenuItemInput(businessId, input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_menu_items')
+      .insert({
+        business_id: cleanId,
+        category_id: validation.value.categoryId,
+        name: validation.value.name,
+        description: validation.value.description,
+        price_paise: validation.value.pricePaise,
+        dietary_tag: validation.value.dietaryTag,
+        is_available: validation.value.isAvailable,
+        is_featured: validation.value.isFeatured,
+        image_url: validation.value.imageUrl,
+        display_order: validation.value.displayOrder,
+      })
+      .select(
+        'id, business_id, category_id, name, description, price_paise, dietary_tag, is_available, is_featured, image_url, display_order, created_at, updated_at',
+      )
+      .single();
+
+    if (error || !data) {
+      return mockBusinessRepository.createRestaurantMenuItem(
+        cleanId,
+        validation.value,
+        options,
+      );
+    }
+
+    const row = data as {
+      id: string;
+      business_id: string;
+      category_id: string;
+      name: string;
+      description: string | null;
+      price_paise: number;
+      dietary_tag: DietaryTag;
+      is_available: boolean;
+      is_featured: boolean;
+      image_url: string | null;
+      display_order: number;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      id: row.id,
+      businessId: row.business_id,
+      categoryId: row.category_id,
+      name: row.name,
+      description: row.description,
+      pricePaise: row.price_paise,
+      dietaryTag: row.dietary_tag,
+      isAvailable: row.is_available,
+      isFeatured: row.is_featured,
+      imageUrl: row.image_url,
+      displayOrder: row.display_order,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async updateRestaurantMenuItem(
+    businessId: string,
+    itemId: string,
+    input: RestaurantMenuItemInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantMenuItem> {
+    const validation = validateRestaurantMenuItemInput(businessId, input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_menu_items')
+      .update({
+        category_id: validation.value.categoryId,
+        name: validation.value.name,
+        description: validation.value.description,
+        price_paise: validation.value.pricePaise,
+        dietary_tag: validation.value.dietaryTag,
+        is_available: validation.value.isAvailable,
+        is_featured: validation.value.isFeatured,
+        image_url: validation.value.imageUrl,
+        display_order: validation.value.displayOrder,
+      })
+      .eq('id', itemId)
+      .eq('business_id', cleanId)
+      .select(
+        'id, business_id, category_id, name, description, price_paise, dietary_tag, is_available, is_featured, image_url, display_order, created_at, updated_at',
+      )
+      .single();
+
+    if (error || !data) {
+      return mockBusinessRepository.updateRestaurantMenuItem(
+        cleanId,
+        itemId,
+        validation.value,
+        options,
+      );
+    }
+
+    const row = data as {
+      id: string;
+      business_id: string;
+      category_id: string;
+      name: string;
+      description: string | null;
+      price_paise: number;
+      dietary_tag: DietaryTag;
+      is_available: boolean;
+      is_featured: boolean;
+      image_url: string | null;
+      display_order: number;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      id: row.id,
+      businessId: row.business_id,
+      categoryId: row.category_id,
+      name: row.name,
+      description: row.description,
+      pricePaise: row.price_paise,
+      dietaryTag: row.dietary_tag,
+      isAvailable: row.is_available,
+      isFeatured: row.is_featured,
+      imageUrl: row.image_url,
+      displayOrder: row.display_order,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async deleteRestaurantMenuItem(
+    businessId: string,
+    itemId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { error } = await client
+      .from('restaurant_menu_items')
+      .delete()
+      .eq('id', itemId)
+      .eq('business_id', cleanId);
+
+    if (error) {
+      await mockBusinessRepository.deleteRestaurantMenuItem(
+        cleanId,
+        itemId,
+        options,
+      );
+    }
+  }
+
+  async getPublicRestaurantMenu(
+    businessSlug: string,
+    tableKey?: string | null,
+  ): Promise<PublicRestaurantMenuPayload | null> {
+    const cleanSlug = businessSlug.trim().toLowerCase();
+    if (!cleanSlug) return null;
+
+    const cleanTableKey =
+      tableKey && tableKey.trim() ? deriveTableKey(tableKey) : null;
+
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('get_public_restaurant_menu', {
+      p_slug: cleanSlug,
+      p_table_key: cleanTableKey,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      const payload = data as PublicRestaurantMenuPayload;
+      if (payload.business && payload.profile?.isEnabled) {
+        return payload;
+      }
+    }
+
+    return mockBusinessRepository.getPublicRestaurantMenu(
+      cleanSlug,
+      cleanTableKey,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 2: Customer Identity, Restaurant Games & Secure Game-Points Ledger
+  // ---------------------------------------------------------------------------
+
+  async getRestaurantGameConfigs(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantGameConfig[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_game_configs')
+      .select(
+        'id, business_id, game_slug, title, category, is_enabled, points_per_win, max_points_per_day_per_customer, cooldown_minutes, custom_questions, created_at, updated_at',
+      )
+      .eq('business_id', cleanId)
+      .order('created_at', { ascending: true });
+
+    if (!error && data) {
+      if (data.length === 0) {
+        return getDefaultRestaurantGameConfigs(cleanId);
+      }
+      return (
+        data as Array<{
+          id: string;
+          business_id: string;
+          game_slug: RestaurantGameSlug;
+          title: string;
+          category: RestaurantGameCategory;
+          is_enabled: boolean;
+          points_per_win: number;
+          max_points_per_day_per_customer: number;
+          cooldown_minutes: number;
+          custom_questions: RestaurantTriviaQuestion[] | null;
+          created_at: string;
+          updated_at: string;
+        }>
+      ).map((row) => ({
+        id: row.id,
+        businessId: row.business_id,
+        gameSlug: row.game_slug,
+        title: row.title,
+        category: row.category,
+        isEnabled: row.is_enabled,
+        pointsPerWin: row.points_per_win,
+        maxPointsPerDayPerCustomer: row.max_points_per_day_per_customer,
+        cooldownMinutes: row.cooldown_minutes,
+        customQuestions: row.custom_questions,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }));
+    }
+
+    return mockBusinessRepository.getRestaurantGameConfigs(cleanId, options);
+  }
+
+  async updateRestaurantGameConfig(
+    businessId: string,
+    input: RestaurantGameConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantGameConfig> {
+    const validation = validateRestaurantGameConfigInput(businessId, input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_game_configs')
+      .upsert(
+        {
+          business_id: cleanId,
+          game_slug: validation.value.gameSlug,
+          title: validation.value.title,
+          category: validation.value.category,
+          is_enabled: validation.value.isEnabled,
+          points_per_win: validation.value.pointsPerWin,
+          max_points_per_day_per_customer:
+            validation.value.maxPointsPerDayPerCustomer,
+          cooldown_minutes: validation.value.cooldownMinutes,
+          custom_questions: validation.value.customQuestions,
+        },
+        { onConflict: 'business_id,game_slug' },
+      )
+      .select(
+        'id, business_id, game_slug, title, category, is_enabled, points_per_win, max_points_per_day_per_customer, cooldown_minutes, custom_questions, created_at, updated_at',
+      )
+      .single();
+
+    if (!error && data) {
+      const row = data as {
+        id: string;
+        business_id: string;
+        game_slug: RestaurantGameSlug;
+        title: string;
+        category: RestaurantGameCategory;
+        is_enabled: boolean;
+        points_per_win: number;
+        max_points_per_day_per_customer: number;
+        cooldown_minutes: number;
+        custom_questions: RestaurantTriviaQuestion[] | null;
+        created_at: string;
+        updated_at: string;
+      };
+      return {
+        id: row.id,
+        businessId: row.business_id,
+        gameSlug: row.game_slug,
+        title: row.title,
+        category: row.category,
+        isEnabled: row.is_enabled,
+        pointsPerWin: row.points_per_win,
+        maxPointsPerDayPerCustomer: row.max_points_per_day_per_customer,
+        cooldownMinutes: row.cooldown_minutes,
+        customQuestions: row.custom_questions,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+    }
+
+    return mockBusinessRepository.updateRestaurantGameConfig(
+      cleanId,
+      validation.value,
+      options,
+    );
+  }
+
+  async getRestaurantGameStats(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantGameParticipationStats> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const [sessionsRes, txsRes] = await Promise.all([
+      client
+        .from('restaurant_game_sessions')
+        .select('id, status, completed_at')
+        .eq('business_id', cleanId)
+        .eq('status', 'completed'),
+      client
+        .from('restaurant_game_point_transactions')
+        .select('id, points_delta, created_at')
+        .eq('business_id', cleanId)
+        .eq('tx_type', 'game_win'),
+    ]);
+
+    if (!sessionsRes.error && !txsRes.error && sessionsRes.data && txsRes.data) {
+      const startOfToday = new Date();
+      startOfToday.setUTCHours(0, 0, 0, 0);
+      const todayMs = startOfToday.getTime();
+
+      const sessions = sessionsRes.data as Array<{
+        id: string;
+        completed_at: string | null;
+      }>;
+      const txs = txsRes.data as Array<{
+        id: string;
+        points_delta: number;
+        created_at: string;
+      }>;
+
+      const sessionsCompletedToday = sessions.filter(
+        (s) => s.completed_at && new Date(s.completed_at).getTime() >= todayMs,
+      ).length;
+      const gamePointsIssuedToday = txs
+        .filter((t) => new Date(t.created_at).getTime() >= todayMs)
+        .reduce((sum, t) => sum + Number(t.points_delta || 0), 0);
+      const totalGamePointsIssued = txs.reduce(
+        (sum, t) => sum + Number(t.points_delta || 0),
+        0,
+      );
+
+      return {
+        totalSessionsPlayed: sessions.length,
+        sessionsCompletedToday,
+        gamePointsIssuedToday,
+        totalGamePointsIssued,
+      };
+    }
+
+    return mockBusinessRepository.getRestaurantGameStats(cleanId, options);
+  }
+
+  async registerOrResumeRestaurantCustomer(
+    input: RestaurantCustomerCheckInInput,
+  ): Promise<RestaurantCustomerWalletState> {
+    const validation = validateRestaurantCustomerCheckInInput(input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
+    const client = this.requireClient();
+    const { data, error } = await client.rpc(
+      'register_or_resume_restaurant_customer',
+      {
+        p_display_name: validation.value.displayName,
+        p_phone_or_email: validation.value.phoneOrEmail,
+        p_guest_token_hash: validation.value.guestTokenHash,
+        p_business_slug: validation.value.businessSlug,
+      },
+    );
+
+    if (!error && data && typeof data === 'object') {
+      return data as RestaurantCustomerWalletState;
+    }
+
+    return mockBusinessRepository.registerOrResumeRestaurantCustomer(input);
+  }
+
+  async startRestaurantGameSession(params: {
+    businessSlug: string;
+    tableKey?: string | null;
+    customerId: string;
+    gameSlug: RestaurantGameSlug;
+  }): Promise<RestaurantGameStartResponse> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('start_restaurant_game_session', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_table_key: params.tableKey ? deriveTableKey(params.tableKey) : null,
+      p_customer_id: params.customerId,
+      p_game_slug: params.gameSlug,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as RestaurantGameStartResponse;
+    }
+
+    if (
+      error &&
+      (error.message.includes('Cooldown active') ||
+        error.message.includes('Daily game point limit') ||
+        error.message.includes('turned off') ||
+        error.message.includes('disabled'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.startRestaurantGameSession(params);
+  }
+
+  async completeRestaurantGameSession(params: {
+    sessionId: string;
+    customerId: string;
+    submission: RestaurantGameSubmissionInput;
+    idempotencyKey: string;
+  }): Promise<RestaurantGameCompletionResponse> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc(
+      'complete_restaurant_game_session',
+      {
+        p_session_id: params.sessionId,
+        p_customer_id: params.customerId,
+        p_submission: params.submission,
+        p_idempotency_key: params.idempotencyKey,
+      },
+    );
+
+    if (!error && data && typeof data === 'object') {
+      return data as RestaurantGameCompletionResponse;
+    }
+
+    return mockBusinessRepository.completeRestaurantGameSession(params);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 3: Loyalty Stars Ledger, Point-to-Star Exchange & Reward Catalogue
+  // ---------------------------------------------------------------------------
+
+  async getRestaurantLoyaltyRules(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantLoyaltyRules> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_loyalty_rules')
+      .select(
+        'business_id, stars_per_verified_visit, points_per_star_exchange, allow_point_exchange, max_stars_via_exchange_per_week, wifi_network_name, wifi_password, suggestion_box_enabled, updated_at',
+      )
+      .eq('business_id', cleanId)
+      .maybeSingle();
+
+    if (!error && data) {
+      const row = data as {
+        business_id: string;
+        stars_per_verified_visit: number;
+        points_per_star_exchange: number;
+        allow_point_exchange: boolean;
+        max_stars_via_exchange_per_week: number;
+        wifi_network_name: string | null;
+        wifi_password: string | null;
+        suggestion_box_enabled: boolean;
+        updated_at: string;
+      };
+      return normalizeRestaurantLoyaltyRules(cleanId, {
+        starsPerVerifiedVisit: row.stars_per_verified_visit,
+        pointsPerStarExchange: row.points_per_star_exchange,
+        allowPointExchange: row.allow_point_exchange,
+        maxStarsViaExchangePerWeek: row.max_stars_via_exchange_per_week,
+        wifiNetworkName: row.wifi_network_name,
+        wifiPassword: row.wifi_password,
+        suggestionBoxEnabled: row.suggestion_box_enabled,
+        updatedAt: row.updated_at,
+      });
+    }
+
+    return mockBusinessRepository.getRestaurantLoyaltyRules(cleanId, options);
+  }
+
+  async updateRestaurantLoyaltyRules(
+    businessId: string,
+    input: RestaurantLoyaltyRulesInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantLoyaltyRules> {
+    const validation = validateRestaurantLoyaltyRulesInput(businessId, input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_loyalty_rules')
+      .upsert(
+        {
+          business_id: cleanId,
+          stars_per_verified_visit: validation.value.starsPerVerifiedVisit,
+          points_per_star_exchange: validation.value.pointsPerStarExchange,
+          allow_point_exchange: validation.value.allowPointExchange,
+          max_stars_via_exchange_per_week:
+            validation.value.maxStarsViaExchangePerWeek,
+          wifi_network_name: validation.value.wifiNetworkName,
+          wifi_password: validation.value.wifiPassword,
+          suggestion_box_enabled: validation.value.suggestionBoxEnabled,
+        },
+        { onConflict: 'business_id' },
+      )
+      .select(
+        'business_id, stars_per_verified_visit, points_per_star_exchange, allow_point_exchange, max_stars_via_exchange_per_week, wifi_network_name, wifi_password, suggestion_box_enabled, updated_at',
+      )
+      .single();
+
+    if (!error && data) {
+      const row = data as {
+        business_id: string;
+        stars_per_verified_visit: number;
+        points_per_star_exchange: number;
+        allow_point_exchange: boolean;
+        max_stars_via_exchange_per_week: number;
+        wifi_network_name: string | null;
+        wifi_password: string | null;
+        suggestion_box_enabled: boolean;
+        updated_at: string;
+      };
+      return normalizeRestaurantLoyaltyRules(cleanId, {
+        starsPerVerifiedVisit: row.stars_per_verified_visit,
+        pointsPerStarExchange: row.points_per_star_exchange,
+        allowPointExchange: row.allow_point_exchange,
+        maxStarsViaExchangePerWeek: row.max_stars_via_exchange_per_week,
+        wifiNetworkName: row.wifi_network_name,
+        wifiPassword: row.wifi_password,
+        suggestionBoxEnabled: row.suggestion_box_enabled,
+        updatedAt: row.updated_at,
+      });
+    }
+
+    return mockBusinessRepository.updateRestaurantLoyaltyRules(
+      cleanId,
+      validation.value,
+      options,
+    );
+  }
+
+  async getRestaurantRewards(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantReward[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_rewards')
+      .select(
+        'id, business_id, title, description, stars_required, is_active, max_redemptions_total, redemptions_count, display_order, created_at, updated_at',
+      )
+      .eq('business_id', cleanId)
+      .order('display_order', { ascending: true })
+      .order('stars_required', { ascending: true });
+
+    if (!error && data) {
+      return (
+        data as Array<{
+          id: string;
+          business_id: string;
+          title: string;
+          description: string | null;
+          stars_required: number;
+          is_active: boolean;
+          max_redemptions_total: number | null;
+          redemptions_count: number;
+          display_order: number;
+          created_at: string;
+          updated_at: string;
+        }>
+      ).map((row) => ({
+        id: row.id,
+        businessId: row.business_id,
+        title: row.title,
+        description: row.description,
+        starsRequired: row.stars_required,
+        isActive: row.is_active,
+        maxRedemptionsTotal: row.max_redemptions_total,
+        redemptionsCount: row.redemptions_count,
+        displayOrder: row.display_order,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }));
+    }
+
+    return mockBusinessRepository.getRestaurantRewards(cleanId, options);
+  }
+
+  async createRestaurantReward(
+    businessId: string,
+    input: RestaurantRewardInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantReward> {
+    const validation = validateRestaurantRewardInput(businessId, input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_rewards')
+      .insert({
+        business_id: cleanId,
+        title: validation.value.title,
+        description: validation.value.description,
+        stars_required: validation.value.starsRequired,
+        is_active: validation.value.isActive,
+        max_redemptions_total: validation.value.maxRedemptionsTotal,
+        display_order: validation.value.displayOrder,
+      })
+      .select(
+        'id, business_id, title, description, stars_required, is_active, max_redemptions_total, redemptions_count, display_order, created_at, updated_at',
+      )
+      .single();
+
+    if (error || !data) {
+      return mockBusinessRepository.createRestaurantReward(
+        cleanId,
+        validation.value,
+        options,
+      );
+    }
+
+    const row = data as {
+      id: string;
+      business_id: string;
+      title: string;
+      description: string | null;
+      stars_required: number;
+      is_active: boolean;
+      max_redemptions_total: number | null;
+      redemptions_count: number;
+      display_order: number;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      id: row.id,
+      businessId: row.business_id,
+      title: row.title,
+      description: row.description,
+      starsRequired: row.stars_required,
+      isActive: row.is_active,
+      maxRedemptionsTotal: row.max_redemptions_total,
+      redemptionsCount: row.redemptions_count,
+      displayOrder: row.display_order,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async updateRestaurantReward(
+    businessId: string,
+    rewardId: string,
+    input: RestaurantRewardInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantReward> {
+    const validation = validateRestaurantRewardInput(businessId, input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_rewards')
+      .update({
+        title: validation.value.title,
+        description: validation.value.description,
+        stars_required: validation.value.starsRequired,
+        is_active: validation.value.isActive,
+        max_redemptions_total: validation.value.maxRedemptionsTotal,
+        display_order: validation.value.displayOrder,
+      })
+      .eq('id', rewardId)
+      .eq('business_id', cleanId)
+      .select(
+        'id, business_id, title, description, stars_required, is_active, max_redemptions_total, redemptions_count, display_order, created_at, updated_at',
+      )
+      .single();
+
+    if (error || !data) {
+      return mockBusinessRepository.updateRestaurantReward(
+        cleanId,
+        rewardId,
+        validation.value,
+        options,
+      );
+    }
+
+    const row = data as {
+      id: string;
+      business_id: string;
+      title: string;
+      description: string | null;
+      stars_required: number;
+      is_active: boolean;
+      max_redemptions_total: number | null;
+      redemptions_count: number;
+      display_order: number;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      id: row.id,
+      businessId: row.business_id,
+      title: row.title,
+      description: row.description,
+      starsRequired: row.stars_required,
+      isActive: row.is_active,
+      maxRedemptionsTotal: row.max_redemptions_total,
+      redemptionsCount: row.redemptions_count,
+      displayOrder: row.display_order,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async deleteRestaurantReward(
+    businessId: string,
+    rewardId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { error } = await client
+      .from('restaurant_rewards')
+      .delete()
+      .eq('id', rewardId)
+      .eq('business_id', cleanId);
+
+    if (error) {
+      await mockBusinessRepository.deleteRestaurantReward(
+        cleanId,
+        rewardId,
+        options,
+      );
+    }
+  }
+
+  async exchangeGamePointsForStar(params: {
+    businessSlug: string;
+    customerId: string;
+    idempotencyKey: string;
+  }): Promise<RestaurantPointToStarExchangeResponse> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('exchange_game_points_for_star', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_customer_id: params.customerId,
+      p_idempotency_key: params.idempotencyKey,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as RestaurantPointToStarExchangeResponse;
+    }
+
+    if (
+      error &&
+      (error.message.includes('Insufficient Game Points') ||
+        error.message.includes('Weekly Point-to-Star exchange limit') ||
+        error.message.includes('disabled'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.exchangeGamePointsForStar(params);
+  }
+
+  async claimRestaurantReward(params: {
+    businessSlug: string;
+    customerId: string;
+    rewardId: string;
+    idempotencyKey: string;
+  }): Promise<RestaurantRewardClaimResponse> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('claim_restaurant_reward', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_customer_id: params.customerId,
+      p_reward_id: params.rewardId,
+      p_idempotency_key: params.idempotencyKey,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as RestaurantRewardClaimResponse;
+    }
+
+    if (
+      error &&
+      (error.message.includes('Insufficient Loyalty Stars') ||
+        error.message.includes('maximum redemption limit') ||
+        error.message.includes('not available'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.claimRestaurantReward(params);
+  }
+
+  async submitRestaurantSuggestion(
+    input: RestaurantSuggestionInput,
+  ): Promise<RestaurantSuggestion> {
+    const validation = validateRestaurantSuggestionInput(input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('submit_restaurant_suggestion', {
+      p_slug: validation.value.businessSlug,
+      p_table_key: validation.value.tableKey,
+      p_customer_name: validation.value.customerName,
+      p_message: validation.value.message,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as RestaurantSuggestion;
+    }
+
+    return mockBusinessRepository.submitRestaurantSuggestion(input);
+  }
+
+  async getRestaurantSuggestions(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantSuggestion[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_suggestions')
+      .select(
+        'id, business_id, table_id, customer_name, message, is_read, created_at',
+      )
+      .eq('business_id', cleanId)
+      .order('created_at', { ascending: false });
+
+    if (!error && data) {
+      return (
+        data as Array<{
+          id: string;
+          business_id: string;
+          table_id: string | null;
+          customer_name: string | null;
+          message: string;
+          is_read: boolean;
+          created_at: string;
+        }>
+      ).map((row) => ({
+        id: row.id,
+        businessId: row.business_id,
+        tableId: row.table_id,
+        customerName: row.customer_name,
+        message: row.message,
+        isRead: row.is_read,
+        createdAt: row.created_at,
+      }));
+    }
+
+    return mockBusinessRepository.getRestaurantSuggestions(cleanId, options);
+  }
+
+  async markRestaurantSuggestionRead(
+    businessId: string,
+    suggestionId: string,
+    isRead = true,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantSuggestion> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_suggestions')
+      .update({ is_read: isRead })
+      .eq('id', suggestionId)
+      .eq('business_id', cleanId)
+      .select(
+        'id, business_id, table_id, customer_name, message, is_read, created_at',
+      )
+      .single();
+
+    if (!error && data) {
+      const row = data as {
+        id: string;
+        business_id: string;
+        table_id: string | null;
+        customer_name: string | null;
+        message: string;
+        is_read: boolean;
+        created_at: string;
+      };
+      return {
+        id: row.id,
+        businessId: row.business_id,
+        tableId: row.table_id,
+        customerName: row.customer_name,
+        message: row.message,
+        isRead: row.is_read,
+        createdAt: row.created_at,
+      };
+    }
+
+    return mockBusinessRepository.markRestaurantSuggestionRead(
+      cleanId,
+      suggestionId,
+      isRead,
+      options,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 4: Visual Table Floor Map, Staff Verification Mode & Owner Analytics
+  // ---------------------------------------------------------------------------
+
+  async createRestaurantTableCall(params: {
+    businessSlug: string;
+    tableKey: string;
+    customerId?: string | null;
+    callType: RestaurantTableCallType;
+  }): Promise<RestaurantTableCall> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('create_restaurant_table_call', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_table_key: deriveTableKey(params.tableKey),
+      p_customer_id: params.customerId ?? null,
+      p_call_type: params.callType,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as RestaurantTableCall;
+    }
+
+    return mockBusinessRepository.createRestaurantTableCall(params);
+  }
+
+  async verifyRestaurantStaffPin(params: {
+    businessSlug: string;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<{
+    verified: boolean;
+    businessId: string;
+    businessSlug: string;
+    businessName: string;
+  }> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('verify_staff_pin', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_staff_pin_hash: params.staffPinHash ?? null,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as {
+        verified: boolean;
+        businessId: string;
+        businessSlug: string;
+        businessName: string;
+      };
+    }
+
+    if (error && error.message.includes('Invalid Staff PIN')) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.verifyRestaurantStaffPin(params);
+  }
+
+  async updateRestaurantTableCallStatus(params: {
+    businessSlug: string;
+    callId: string;
+    status: RestaurantTableCallStatus;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<RestaurantTableCall> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc(
+      'update_restaurant_table_call_status',
+      {
+        p_slug: params.businessSlug.trim().toLowerCase(),
+        p_call_id: params.callId,
+        p_new_status: params.status,
+        p_staff_pin_hash: params.staffPinHash ?? null,
+      },
+    );
+
+    if (!error && data && typeof data === 'object') {
+      return data as RestaurantTableCall;
+    }
+
+    if (error && error.message.includes('Unauthorized')) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.updateRestaurantTableCallStatus(params);
+  }
+
+  async staffAwardVisitStars(params: {
+    businessSlug: string;
+    customerLookup: string;
+    tableKey?: string | null;
+    staffLabel?: string;
+    idempotencyKey: string;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<RestaurantStaffAwardVisitResponse> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('staff_award_visit_stars', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_customer_lookup: params.customerLookup,
+      p_table_key: params.tableKey ? deriveTableKey(params.tableKey) : null,
+      p_staff_label: params.staffLabel ?? 'Staff',
+      p_idempotency_key: params.idempotencyKey,
+      p_staff_pin_hash: params.staffPinHash ?? null,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as RestaurantStaffAwardVisitResponse;
+    }
+
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('Visit Star cooldown active') ||
+        error.message.includes('Diner account not found'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.staffAwardVisitStars(params);
+  }
+
+  async staffFulfillRewardClaim(params: {
+    businessSlug: string;
+    claimCode: string;
+    staffLabel?: string;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<RestaurantRewardClaim & { customerName?: string }> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('staff_fulfill_reward_claim', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_claim_code: params.claimCode.trim().toUpperCase(),
+      p_staff_label: params.staffLabel ?? 'Staff',
+      p_staff_pin_hash: params.staffPinHash ?? null,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as RestaurantRewardClaim & { customerName?: string };
+    }
+
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('already been fulfilled') ||
+        error.message.includes('not found'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.staffFulfillRewardClaim(params);
+  }
+
+  async getRestaurantFloorAndAnalytics(params: {
+    businessSlug: string;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<RestaurantFloorAndAnalyticsPayload> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc(
+      'get_restaurant_floor_and_analytics',
+      {
+        p_slug: params.businessSlug.trim().toLowerCase(),
+        p_staff_pin_hash: params.staffPinHash ?? null,
+      },
+    );
+
+    if (!error && data && typeof data === 'object') {
+      return data as RestaurantFloorAndAnalyticsPayload;
+    }
+
+    return mockBusinessRepository.getRestaurantFloorAndAnalytics(params);
   }
 }
