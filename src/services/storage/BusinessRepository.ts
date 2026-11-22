@@ -76,9 +76,12 @@ import type {
   GymConfig,
   GymConfigInput,
   GymDailyCheckInResult,
+  GymFitnessGoal,
   GymMember,
+  GymMemberProgressHistory,
   GymOwnerDashboardPayload,
   GymOwnerMemberAction,
+  GymWorkoutFocus,
   PublicGymPortalPayload,
   SubmitGymRegistrationInput,
 } from '../../types/gym';
@@ -712,17 +715,41 @@ export interface IBusinessRepository {
     phone: string;
   }): Promise<GymMember | null>;
 
-  /** Records a 1-tap daily gym check-in (idempotent 1/day, blocked if pending or expired). */
+  /** Records a 1-tap daily gym check-in with workout focus & note (1/day, updates focus if already checked in). */
   gymMemberDailyCheckIn(params: {
     businessSlug: string;
     phone: string;
+    workoutFocus?: GymWorkoutFocus;
+    memberNote?: string | null;
+    /** Optional explicit YYYY-MM-DD date override for deterministic multi-day tests. */
+    checkInDateOverride?: string | null;
   }): Promise<GymDailyCheckInResult>;
 
-  /** Owner dashboard view: pending payment approvals, <=3-day urgent renewals, expired & active members. */
+  /** Owner dashboard view: live today's attendance, monthly & projected revenue, inactive alerts, renewals & members. */
   getGymOwnerDashboard(
     businessId: string,
     options?: AIConfigAccessOptions,
+    monthKey?: string | null,
   ): Promise<GymOwnerDashboardPayload>;
+
+  /** Owner-only member progress history: full timestamped attendance timeline & workout split breakdown. */
+  getGymMemberProgressHistory(params: {
+    businessId: string;
+    memberId: string;
+    monthKey?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMemberProgressHistory>;
+
+  /** Owner/Trainer update for member trainer notes, fitness goal, and starting/target weights. */
+  ownerUpdateGymMemberProfile(params: {
+    businessId: string;
+    memberId: string;
+    trainerNotes?: string | null;
+    fitnessGoal?: GymFitnessGoal | null;
+    startingWeightKg?: number | null;
+    targetWeightKg?: number | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMember>;
 
   /** Owner action: approve payment & start plan, renew plan (+N days), reject, or suspend member. */
   ownerApproveOrRenewGymMember(params: {

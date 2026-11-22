@@ -2,9 +2,11 @@ import type { BusinessCategory } from '../types/business';
 import type {
   GymConfig,
   GymConfigInput,
+  GymFitnessGoal,
   GymMember,
   GymOwnerMemberAction,
   GymPlan,
+  GymWorkoutFocus,
   IndustryWorkspaceType,
   SubmitGymRegistrationInput,
 } from '../types/gym';
@@ -56,6 +58,121 @@ export const ALLOWED_GYM_OWNER_ACTIONS: readonly GymOwnerMemberAction[] = [
   'reject',
   'suspend',
 ];
+
+export const GYM_FITNESS_GOAL_OPTIONS: ReadonlyArray<{
+  value: GymFitnessGoal;
+  emoji: string;
+  label: string;
+  shortLabel: string;
+  badgeClass: string;
+}> = [
+  {
+    value: 'weight_loss',
+    emoji: '🔥',
+    label: 'Weight Loss',
+    shortLabel: 'Weight Loss',
+    badgeClass: 'bg-orange-100 text-orange-900 border-orange-200',
+  },
+  {
+    value: 'muscle_gain',
+    emoji: '💪',
+    label: 'Muscle Building',
+    shortLabel: 'Muscle Gain',
+    badgeClass: 'bg-indigo-100 text-indigo-950 border-indigo-200',
+  },
+  {
+    value: 'weight_gain',
+    emoji: '⚖️',
+    label: 'Weight Gain',
+    shortLabel: 'Weight Gain',
+    badgeClass: 'bg-emerald-100 text-emerald-900 border-emerald-200',
+  },
+  {
+    value: 'cardio_endurance',
+    emoji: '🏃',
+    label: 'Cardio & Stamina',
+    shortLabel: 'Cardio',
+    badgeClass: 'bg-sky-100 text-sky-900 border-sky-200',
+  },
+  {
+    value: 'general_fitness',
+    emoji: '✨',
+    label: 'General Fitness',
+    shortLabel: 'General Fit',
+    badgeClass: 'bg-slate-100 text-slate-800 border-slate-200',
+  },
+];
+
+export const GYM_WORKOUT_FOCUS_OPTIONS: ReadonlyArray<{
+  value: GymWorkoutFocus;
+  label: string;
+  dayLabel: string;
+  barColor: string;
+}> = [
+  { value: 'chest', label: 'Chest', dayLabel: 'Chest Day', barColor: 'bg-[#1E1B4B]' },
+  { value: 'back', label: 'Back', dayLabel: 'Back Day', barColor: 'bg-indigo-600' },
+  { value: 'legs', label: 'Legs', dayLabel: 'Leg Day', barColor: 'bg-emerald-600' },
+  { value: 'shoulders_arms', label: 'Shoulders & Arms', dayLabel: 'Shoulders & Arms', barColor: 'bg-amber-600' },
+  { value: 'cardio_hiit', label: 'Cardio / HIIT', dayLabel: 'Cardio / HIIT', barColor: 'bg-rose-600' },
+  { value: 'abs_core', label: 'Abs & Core', dayLabel: 'Abs & Core', barColor: 'bg-teal-600' },
+  { value: 'full_body', label: 'Full Body', dayLabel: 'Full Body', barColor: 'bg-slate-700' },
+];
+
+export function normalizeGymFitnessGoal(
+  raw?: string | null,
+): GymFitnessGoal {
+  const clean = typeof raw === 'string' ? stripControlChars(raw).toLowerCase() : '';
+  const match = GYM_FITNESS_GOAL_OPTIONS.find((g) => g.value === clean);
+  return match ? match.value : 'general_fitness';
+}
+
+export function normalizeGymWorkoutFocus(
+  raw?: string | null,
+): GymWorkoutFocus {
+  const clean = typeof raw === 'string' ? stripControlChars(raw).toLowerCase() : '';
+  const match = GYM_WORKOUT_FOCUS_OPTIONS.find((w) => w.value === clean);
+  return match ? match.value : 'full_body';
+}
+
+export function getFitnessGoalMeta(goal?: GymFitnessGoal | string | null) {
+  const norm = normalizeGymFitnessGoal(goal);
+  return (
+    GYM_FITNESS_GOAL_OPTIONS.find((g) => g.value === norm) ??
+    GYM_FITNESS_GOAL_OPTIONS[GYM_FITNESS_GOAL_OPTIONS.length - 1]
+  );
+}
+
+export function getWorkoutFocusMeta(focus?: GymWorkoutFocus | string | null) {
+  const norm = normalizeGymWorkoutFocus(focus);
+  return (
+    GYM_WORKOUT_FOCUS_OPTIONS.find((w) => w.value === norm) ??
+    GYM_WORKOUT_FOCUS_OPTIONS[GYM_WORKOUT_FOCUS_OPTIONS.length - 1]
+  );
+}
+
+export function validateGymWeightKg(
+  raw: unknown,
+): { ok: true; value: number | null } | { ok: false; error: string } {
+  if (raw === undefined || raw === null || raw === '') {
+    return { ok: true, value: null };
+  }
+  const num = typeof raw === 'number' ? raw : Number.parseFloat(String(raw));
+  if (!Number.isFinite(num) || num < 20 || num > 300) {
+    return { ok: false, error: 'Weight must be between 20 and 300 kg.' };
+  }
+  return { ok: true, value: Math.round(num * 10) / 10 };
+}
+
+export function formatCheckInTime12h(isoTimestamp: string | null | undefined): string {
+  if (!isoTimestamp) return '';
+  const dt = new Date(isoTimestamp);
+  if (Number.isNaN(dt.getTime())) return '';
+  return dt.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
 
 export function isGymCategory(category?: BusinessCategory | string | null): boolean {
   return category === 'gym';
@@ -346,6 +463,16 @@ export function validateGymRegistrationInput(
       ? stripControlChars(rec.planId).toLowerCase()
       : '1_month';
 
+  const fitnessGoal = normalizeGymFitnessGoal(rec.fitnessGoal);
+  const startWtCheck = validateGymWeightKg(rec.startingWeightKg);
+  if (!startWtCheck.ok) {
+    return { ok: false, error: `Starting weight: ${startWtCheck.error}` };
+  }
+  const targetWtCheck = validateGymWeightKg(rec.targetWeightKg);
+  if (!targetWtCheck.ok) {
+    return { ok: false, error: `Target weight: ${targetWtCheck.error}` };
+  }
+
   return {
     ok: true,
     value: {
@@ -353,6 +480,9 @@ export function validateGymRegistrationInput(
       fullName,
       phone,
       planId,
+      fitnessGoal,
+      startingWeightKg: startWtCheck.value,
+      targetWeightKg: targetWtCheck.value,
     },
   };
 }

@@ -17,12 +17,25 @@ import {
   MessageSquareHeart,
   Sparkles,
   RefreshCw,
+  Target,
+  Scale,
+  Activity,
 } from 'lucide-react';
-import type { GymMember, PublicGymPortalPayload } from '../types/gym';
+import type {
+  GymFitnessGoal,
+  GymMember,
+  GymWorkoutFocus,
+  PublicGymPortalPayload,
+} from '../types/gym';
 import { businessRepository } from '../services/storage';
 import {
   encodeGymMemberPassQr,
+  formatCheckInTime12h,
   formatIsoDatePretty,
+  getFitnessGoalMeta,
+  getWorkoutFocusMeta,
+  GYM_FITNESS_GOAL_OPTIONS,
+  GYM_WORKOUT_FOCUS_OPTIONS,
   normalizeGymPhone,
 } from '../utils/gymValidation';
 import { formatPriceFromPaise } from '../utils/restaurantValidation';
@@ -62,18 +75,25 @@ export default function CustomerGymPage() {
     businessSlug && loadStoredPhone(businessSlug) ? 'pass' : 'join',
   );
 
-  // Join form
+  // Tab 1: New Member Join Form (with Fitness Goal & Optional Weights)
   const [fullName, setFullName] = useState('');
   const [joinPhone, setJoinPhone] = useState('');
   const [selectedPlanId, setSelectedPlanId] = useState('1_month');
+  const [fitnessGoal, setFitnessGoal] =
+    useState<GymFitnessGoal>('muscle_gain');
+  const [startingWeightInput, setStartingWeightInput] = useState('');
+  const [targetWeightInput, setTargetWeightInput] = useState('');
   const [submittingJoin, setSubmittingJoin] = useState(false);
 
-  // Pass lookup & daily check-in
+  // Tab 2: Live Digital Pass, Daily QR Attendance & Workout Split Selector
   const [lookupPhone, setLookupPhone] = useState(() =>
     businessSlug ? loadStoredPhone(businessSlug) : '',
   );
   const [memberPass, setMemberPass] = useState<GymMember | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
+  const [selectedWorkoutFocus, setSelectedWorkoutFocus] =
+    useState<GymWorkoutFocus>('chest');
+  const [memberWorkoutNote, setMemberWorkoutNote] = useState('');
   const [checkingIn, setCheckingIn] = useState(false);
 
   // Feedback banners
@@ -98,6 +118,7 @@ export default function CustomerGymPage() {
         );
       }
 
+      // Smart Auto-Detect: saved phone -> load pass directly for 2-second daily check-in
       const savedPhone = loadStoredPhone(businessSlug);
       if (data && savedPhone) {
         try {
@@ -108,6 +129,10 @@ export default function CustomerGymPage() {
           if (found) {
             setMemberPass(found);
             setActiveTab('pass');
+            if (found.todayCheckIn?.workoutFocus) {
+              setSelectedWorkoutFocus(found.todayCheckIn.workoutFocus);
+              setMemberWorkoutNote(found.todayCheckIn.memberNote ?? '');
+            }
           }
         } catch {
           // ignore silent lookup failure
@@ -129,7 +154,7 @@ export default function CustomerGymPage() {
     };
   }, [loadPortal]);
 
-  // Render scannable Digital Gym Pass QR whenever an active/pending pass is shown
+  // Render scannable Digital Gym Pass QR whenever a pass is active/pending
   useEffect(() => {
     if (!businessSlug || !memberPass || !passQrCanvasRef.current) return;
     const qrText = encodeGymMemberPassQr(
@@ -138,10 +163,10 @@ export default function CustomerGymPage() {
       memberPass.phone,
     );
     void QRCode.toCanvas(passQrCanvasRef.current, qrText, {
-      width: 164,
+      width: 156,
       margin: 2,
       errorCorrectionLevel: 'M',
-      color: { dark: '#0F172A', light: '#FFFFFF' },
+      color: { dark: '#1E1B4B', light: '#FFFFFF' },
     });
   }, [businessSlug, memberPass]);
 
@@ -152,11 +177,21 @@ export default function CustomerGymPage() {
     setSuccessMsg(null);
     setSubmittingJoin(true);
     try {
+      const startWt = startingWeightInput.trim()
+        ? Number.parseFloat(startingWeightInput)
+        : null;
+      const targetWt = targetWeightInput.trim()
+        ? Number.parseFloat(targetWeightInput)
+        : null;
+
       const created = await businessRepository.submitGymMemberRegistration({
         businessSlug,
         fullName,
         phone: joinPhone,
         planId: selectedPlanId,
+        fitnessGoal,
+        startingWeightKg: startWt,
+        targetWeightKg: targetWt,
       });
       const norm = normalizeGymPhone(created.phone);
       saveStoredPhone(businessSlug, norm);
@@ -167,6 +202,8 @@ export default function CustomerGymPage() {
         'Registration sent! Pay Cash/UPI at the front desk to activate your pass immediately.',
       );
       setFullName('');
+      setStartingWeightInput('');
+      setTargetWeightInput('');
     } catch (err) {
       setErrorMsg((err as Error).message);
     } finally {
@@ -193,6 +230,10 @@ export default function CustomerGymPage() {
       } else {
         saveStoredPhone(businessSlug, found.phone);
         setMemberPass(found);
+        if (found.todayCheckIn?.workoutFocus) {
+          setSelectedWorkoutFocus(found.todayCheckIn.workoutFocus);
+          setMemberWorkoutNote(found.todayCheckIn.memberNote ?? '');
+        }
       }
     } catch (err) {
       setErrorMsg((err as Error).message);
@@ -201,8 +242,9 @@ export default function CustomerGymPage() {
     }
   }
 
-  async function handleDailyCheckIn() {
+  async function handleDailyCheckIn(focusOverride?: GymWorkoutFocus) {
     if (!businessSlug || !memberPass) return;
+    const focusToSave = focusOverride ?? selectedWorkoutFocus;
     setErrorMsg(null);
     setSuccessMsg(null);
     setCheckingIn(true);
@@ -210,21 +252,41 @@ export default function CustomerGymPage() {
       const res = await businessRepository.gymMemberDailyCheckIn({
         businessSlug,
         phone: memberPass.phone,
+        workoutFocus: focusToSave,
+        memberNote: memberWorkoutNote.trim() || null,
       });
-      setMemberPass((prev) =>
-        prev
-          ? {
-              ...prev,
-              checkedInToday: true,
-              totalCheckIns: res.totalCheckIns,
-              lastCheckInDate: res.checkedInDate,
-            }
-          : prev,
-      );
+      setSelectedWorkoutFocus(res.workoutFocus);
+
+      const refreshed = await businessRepository.lookupGymMemberPass({
+        businessSlug,
+        phone: memberPass.phone,
+      });
+      if (refreshed) {
+        setMemberPass(refreshed);
+      } else {
+        setMemberPass((prev) =>
+          prev
+            ? {
+                ...prev,
+                checkedInToday: true,
+                totalCheckIns: res.totalCheckIns,
+                daysAttendedThisMonth: res.daysAttendedThisMonth,
+                lastCheckInDate: res.checkedInDate,
+                lastCheckInAt: res.checkedInAt,
+                todayWorkoutFocus: res.workoutFocus,
+                todayCheckedInAt: res.checkedInAt,
+                todayCheckIn: res.todayLog,
+              }
+            : prev,
+        );
+      }
+
+      const focusMeta = getWorkoutFocusMeta(res.workoutFocus);
+      const timeStr = formatCheckInTime12h(res.checkedInAt);
       setSuccessMsg(
         res.alreadyCheckedInToday
-          ? 'Already checked in for today! Crush your workout 💪'
-          : `Daily Check-In confirmed! (${res.totalCheckIns} total visits · ${res.daysRemaining} days remaining)`,
+          ? `Updated today's workout focus to ${focusMeta.dayLabel}${timeStr ? ` (Checked in at ${timeStr})` : ''}! 💪`
+          : `Checked In Today${timeStr ? ` at ${timeStr}` : ''} • ${focusMeta.dayLabel}! (${res.daysAttendedThisMonth} days this month)`,
       );
     } catch (err) {
       setErrorMsg((err as Error).message);
@@ -240,7 +302,7 @@ export default function CustomerGymPage() {
         className="mx-auto max-w-md rounded-3xl border border-slate-200 bg-white p-12 text-center shadow-sm"
       >
         <Loader2
-          className="mx-auto h-7 w-7 animate-spin text-slate-900"
+          className="mx-auto h-7 w-7 animate-spin text-[#1E1B4B]"
           aria-hidden
         />
         <p className="mt-3 text-[15px] font-semibold text-slate-600">
@@ -256,7 +318,7 @@ export default function CustomerGymPage() {
         role="alert"
         className="mx-auto max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm space-y-4"
       >
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-lime-400">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#1E1B4B] text-[#D2DB76]">
           <SearchX className="h-6 w-6" aria-hidden />
         </div>
         <h1 className="text-[22px] font-black text-slate-900">
@@ -273,7 +335,7 @@ export default function CustomerGymPage() {
         <div className="flex flex-col gap-2 pt-2">
           <Link
             to="/gym/dashboard"
-            className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-900 px-4 text-[14px] font-extrabold text-lime-400 hover:bg-slate-800"
+            className="inline-flex h-11 items-center justify-center rounded-xl bg-[#1E1B4B] px-4 text-[14px] font-extrabold text-[#D2DB76] hover:bg-[#2E2A6E]"
           >
             Open GymOS Owner Studio
           </Link>
@@ -289,27 +351,39 @@ export default function CustomerGymPage() {
   }
 
   const { business, config } = portal;
+  const memberGoalMeta = memberPass
+    ? getFitnessGoalMeta(memberPass.fitnessGoal)
+    : null;
+  const todayFocusMeta = memberPass?.todayCheckIn
+    ? getWorkoutFocusMeta(memberPass.todayCheckIn.workoutFocus)
+    : memberPass?.todayWorkoutFocus
+      ? getWorkoutFocusMeta(memberPass.todayWorkoutFocus)
+      : null;
+  const todayCheckInTimeLabel = formatCheckInTime12h(
+    memberPass?.todayCheckIn?.checkedInAt ?? memberPass?.todayCheckedInAt,
+  );
+  const recentLogs = (memberPass?.recentAttendanceLogs ?? []).slice(0, 7);
 
   return (
     <div className="mx-auto w-full max-w-md pb-12 space-y-4 animate-fadeSlideUp">
-      {/* 1. ATHLETIC GYMOS HEADER (Deep Slate #0F172A + Volt Electric Lime #A3E635) */}
-      <header className="overflow-hidden rounded-3xl border border-slate-800 bg-[#0F172A] text-white shadow-lg">
-        <div className="h-1.5 w-full bg-gradient-to-r from-[#A3E635] via-[#BEF264] to-[#22C55E]" />
+      {/* 1. GYMOS ENTRANCE QR HEADER (Midnight Navy #1E1B4B + Champagne Gold #D2DB76 + Volt Accent) */}
+      <header className="overflow-hidden rounded-3xl border border-[#1E1B4B]/20 bg-[#1E1B4B] text-white shadow-lg">
+        <div className="h-1.5 w-full bg-gradient-to-r from-[#D2DB76] via-[#A3E635] to-[#D2DB76]" />
         <div className="p-5 space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#A3E635] text-[#0F172A] shadow-sm">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#D2DB76] text-[#1E1B4B] shadow-sm">
                 <Dumbbell className="h-6 w-6" aria-hidden />
               </span>
               <div className="min-w-0">
-                <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#A3E635]">
-                  GYMOS DIGITAL PASS
+                <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#D2DB76]">
+                  GYMOS ATTENDANCE &amp; PASS
                 </p>
                 <h1 className="truncate text-[21px] font-black tracking-tight text-white">
                   {business.name}
                 </h1>
-                <p className="truncate text-[12px] font-medium text-slate-400">
-                  {business.city} • Front-Desk Check-In &amp; Plans
+                <p className="truncate text-[12px] font-medium text-indigo-200/80">
+                  {business.city} • Daily QR Attendance &amp; Plans
                 </p>
               </div>
             </div>
@@ -318,14 +392,14 @@ export default function CustomerGymPage() {
               type="button"
               onClick={() => void loadPortal()}
               aria-label="Refresh gym pass"
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/5 text-[#A3E635] hover:bg-white/10 cursor-pointer"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/5 text-[#D2DB76] hover:bg-white/10 cursor-pointer"
             >
               <RefreshCw className="h-4 w-4" aria-hidden />
             </button>
           </div>
 
           {/* 2-Tab Mode Pill */}
-          <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-slate-900/90 p-1 border border-white/10">
+          <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-black/25 p-1 border border-white/10">
             <button
               type="button"
               onClick={() => {
@@ -334,8 +408,8 @@ export default function CustomerGymPage() {
               }}
               className={`h-10 rounded-xl text-[13px] font-extrabold transition-all cursor-pointer ${
                 activeTab === 'pass'
-                  ? 'bg-[#A3E635] text-[#0F172A] shadow-sm'
-                  : 'text-slate-300 hover:text-white'
+                  ? 'bg-[#D2DB76] text-[#1E1B4B] shadow-sm'
+                  : 'text-indigo-100/80 hover:text-white'
               }`}
             >
               My Digital Pass
@@ -348,8 +422,8 @@ export default function CustomerGymPage() {
               }}
               className={`h-10 rounded-xl text-[13px] font-extrabold transition-all cursor-pointer ${
                 activeTab === 'join'
-                  ? 'bg-[#A3E635] text-[#0F172A] shadow-sm'
-                  : 'text-slate-300 hover:text-white'
+                  ? 'bg-[#D2DB76] text-[#1E1B4B] shadow-sm'
+                  : 'text-indigo-100/80 hover:text-white'
               }`}
             >
               New Member Join
@@ -378,7 +452,7 @@ export default function CustomerGymPage() {
         </div>
       )}
 
-      {/* TAB 1: RETURNING MEMBER DIGITAL PASS + 1-TAP DAILY CHECK-IN */}
+      {/* TAB 2: LIVE DIGITAL PASS + DAILY QR ATTENDANCE & WORKOUT SPLIT LOGGING */}
       {activeTab === 'pass' && (
         <div className="space-y-4">
           <form
@@ -389,7 +463,7 @@ export default function CustomerGymPage() {
               htmlFor="gymPassPhone"
               className="block text-[11.5px] font-extrabold uppercase tracking-wider text-slate-500"
             >
-              Enter Registered Phone Number
+              Registered Mobile Number
             </label>
             <div className="flex gap-2">
               <div className="relative flex-1 flex items-center">
@@ -404,13 +478,13 @@ export default function CustomerGymPage() {
                   placeholder="e.g. 9876543210"
                   value={lookupPhone}
                   onChange={(e) => setLookupPhone(e.target.value)}
-                  className="h-11 w-full rounded-xl border border-slate-300 bg-slate-50 pl-10 pr-3 text-[14px] font-bold text-slate-900 focus:border-slate-900 focus:bg-white focus:outline-none"
+                  className="h-11 w-full rounded-xl border border-slate-300 bg-[#F8F9FA] pl-10 pr-3 text-[14px] font-bold text-slate-900 focus:border-[#1E1B4B] focus:bg-white focus:outline-none"
                 />
               </div>
               <button
                 type="submit"
                 disabled={lookingUp}
-                className="h-11 shrink-0 rounded-xl bg-[#0F172A] px-4 text-[13px] font-extrabold text-[#A3E635] hover:bg-slate-800 disabled:opacity-60 cursor-pointer"
+                className="h-11 shrink-0 rounded-xl bg-[#1E1B4B] px-4 text-[13px] font-extrabold text-[#D2DB76] hover:bg-[#2E2A6E] disabled:opacity-60 cursor-pointer"
               >
                 {lookingUp ? 'Finding…' : 'Show Pass'}
               </button>
@@ -427,16 +501,21 @@ export default function CustomerGymPage() {
                     ? 'border-red-400 bg-red-50/70 text-slate-900'
                     : memberPass.effectiveStatus === 'pending_approval'
                       ? 'border-amber-300 bg-amber-50/70 text-slate-900'
-                      : 'border-[#0F172A] bg-white text-slate-900'
+                      : 'border-[#1E1B4B] bg-white text-slate-900'
               }`}
             >
-              {/* Status Banner */}
+              {/* Status Banners */}
               {memberPass.effectiveStatus === 'pending_approval' && (
                 <div className="flex items-center gap-2.5 rounded-2xl bg-amber-100 border border-amber-300 px-4 py-3 text-[13px] font-bold text-amber-950">
-                  <Clock className="h-4.5 w-4.5 shrink-0 text-amber-700" aria-hidden />
+                  <Clock
+                    className="h-4.5 w-4.5 shrink-0 text-amber-700"
+                    aria-hidden
+                  />
                   <span>
                     Pending Payment Approval — Pay{' '}
-                    <strong>{formatPriceFromPaise(memberPass.feePaise, 'INR')}</strong>{' '}
+                    <strong>
+                      {formatPriceFromPaise(memberPass.feePaise, 'INR')}
+                    </strong>{' '}
                     (Cash/UPI) at the desk to activate!
                   </span>
                 </div>
@@ -447,7 +526,8 @@ export default function CustomerGymPage() {
                   <AlertTriangle className="h-4.5 w-4.5 shrink-0" aria-hidden />
                   <span>
                     Plan expires in {memberPass.daysRemaining}{' '}
-                    {memberPass.daysRemaining === 1 ? 'day' : 'days'}! Renew at the desk to avoid interruption.
+                    {memberPass.daysRemaining === 1 ? 'day' : 'days'}! Renew at
+                    the desk to keep your streak going.
                   </span>
                 </div>
               )}
@@ -460,7 +540,9 @@ export default function CustomerGymPage() {
                       aria-hidden
                     />
                     <span>
-                      Membership expired on {formatIsoDatePretty(memberPass.endDate)}. Renew at the front desk to restore check-in.
+                      Membership expired on{' '}
+                      {formatIsoDatePretty(memberPass.endDate)}. Renew at the
+                      front desk to unlock daily check-in.
                     </span>
                   </div>
                   <button
@@ -469,39 +551,67 @@ export default function CustomerGymPage() {
                       setFullName(memberPass.fullName);
                       setJoinPhone(memberPass.phone);
                       setSelectedPlanId(memberPass.planId);
+                      setFitnessGoal(
+                        memberPass.fitnessGoal ?? 'general_fitness',
+                      );
                       setActiveTab('join');
                       setErrorMsg(null);
                       setSuccessMsg(null);
                     }}
-                    className="inline-flex h-10 w-full items-center justify-center rounded-xl bg-[#A3E635] px-4 text-[13px] font-black text-[#0F172A] hover:bg-lime-300 cursor-pointer"
+                    className="inline-flex h-10 w-full items-center justify-center rounded-xl bg-[#D2DB76] px-4 text-[13px] font-black text-[#1E1B4B] hover:bg-lime-300 cursor-pointer"
                   >
                     Tap to Request Plan Renewal →
                   </button>
                 </div>
               )}
 
-              {/* Member Identity + Big Days Remaining Countdown */}
-              <div className="flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <span className="inline-flex rounded-full bg-slate-900 px-2.5 py-0.5 font-mono text-[11px] font-extrabold text-[#A3E635]">
-                    {memberPass.memberCode}
-                  </span>
-                  <h2 className="mt-1.5 truncate text-[22px] font-black text-slate-900">
+              {/* Member Identity + Goal Badge + Days Remaining Countdown */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="inline-flex rounded-full bg-[#1E1B4B] px-2.5 py-0.5 font-mono text-[11px] font-extrabold text-[#D2DB76]">
+                      {memberPass.memberCode}
+                    </span>
+                    {memberGoalMeta && (
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-extrabold ${memberGoalMeta.badgeClass}`}
+                      >
+                        <span>{memberGoalMeta.emoji}</span>
+                        <span>{memberGoalMeta.label}</span>
+                      </span>
+                    )}
+                  </div>
+                  <h2 className="truncate text-[22px] font-black text-slate-900">
                     {memberPass.fullName}
                   </h2>
-                  <p className="text-[13px] font-bold text-slate-600">
+                  <p className="text-[12.5px] font-bold text-slate-600">
                     {memberPass.planName} •{' '}
                     {formatPriceFromPaise(memberPass.feePaise, 'INR')}
                   </p>
+                  {(memberPass.startingWeightKg ||
+                    memberPass.targetWeightKg) && (
+                    <p className="text-[11.5px] font-bold text-[#1E1B4B] flex items-center gap-1">
+                      <Scale className="h-3.5 w-3.5" aria-hidden />
+                      <span>
+                        {memberPass.startingWeightKg
+                          ? `${memberPass.startingWeightKg} kg`
+                          : '—'}{' '}
+                        → Target:{' '}
+                        {memberPass.targetWeightKg
+                          ? `${memberPass.targetWeightKg} kg`
+                          : '—'}
+                      </span>
+                    </p>
+                  )}
                 </div>
 
                 {(memberPass.effectiveStatus === 'active' ||
                   memberPass.effectiveStatus === 'expiring_soon') && (
                   <div
-                    className={`rounded-2xl p-3.5 text-center min-w-[110px] shadow-sm ${
+                    className={`rounded-2xl p-3.5 text-center min-w-[104px] shadow-sm ${
                       memberPass.effectiveStatus === 'expiring_soon'
                         ? 'bg-red-600 text-white'
-                        : 'bg-[#0F172A] text-white'
+                        : 'bg-[#1E1B4B] text-white'
                     }`}
                   >
                     <p
@@ -509,7 +619,7 @@ export default function CustomerGymPage() {
                       className={`text-[30px] leading-none font-black tabular-nums ${
                         memberPass.effectiveStatus === 'expiring_soon'
                           ? 'text-white'
-                          : 'text-[#A3E635]'
+                          : 'text-[#D2DB76]'
                       }`}
                     >
                       {memberPass.daysRemaining}
@@ -521,53 +631,173 @@ export default function CustomerGymPage() {
                 )}
               </div>
 
-              {/* Plan Dates & Check-In Stats */}
+              {/* Monthly Attendance & Plan Expiry Strip */}
               {memberPass.endDate && (
                 <div className="grid grid-cols-2 gap-2.5 text-[12px]">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                  <div className="rounded-xl border border-slate-200 bg-[#F8F9FA] px-3 py-2.5">
+                    <p className="font-bold uppercase tracking-wider text-slate-400 text-[10px] flex items-center gap-1">
+                      <Flame className="h-3 w-3 text-orange-500" aria-hidden />
+                      This Month
+                    </p>
+                    <p
+                      data-testid="gym-month-attendance"
+                      className="mt-0.5 font-extrabold text-slate-900 tabular-nums"
+                    >
+                      {memberPass.daysAttendedThisMonth ?? 0} Days Attended
+                    </p>
+                    <p className="text-[10.5px] font-semibold text-slate-500">
+                      {memberPass.totalCheckIns} total visits
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-[#F8F9FA] px-3 py-2.5">
                     <p className="font-bold uppercase tracking-wider text-slate-400 text-[10px] flex items-center gap-1">
                       <Calendar className="h-3 w-3" aria-hidden /> Valid Until
                     </p>
                     <p className="mt-0.5 font-extrabold text-slate-900">
                       {formatIsoDatePretty(memberPass.endDate)}
                     </p>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                    <p className="font-bold uppercase tracking-wider text-slate-400 text-[10px] flex items-center gap-1">
-                      <Flame className="h-3 w-3 text-orange-500" aria-hidden /> Check-Ins
-                    </p>
-                    <p className="mt-0.5 font-extrabold text-slate-900 tabular-nums">
-                      {memberPass.totalCheckIns} Workouts
+                    <p className="text-[10.5px] font-semibold text-slate-500">
+                      {memberPass.durationDays}d plan
                     </p>
                   </div>
                 </div>
               )}
 
-              {/* 1-Tap Daily Check-In Button (Active / Expiring Soon) */}
+              {/* TODAY'S ATTENDANCE & WORKOUT SPLIT SELECTOR (Active / Expiring Soon) */}
               {(memberPass.effectiveStatus === 'active' ||
                 memberPass.effectiveStatus === 'expiring_soon') && (
-                <button
-                  type="button"
-                  disabled={checkingIn || memberPass.checkedInToday}
-                  onClick={() => void handleDailyCheckIn()}
-                  className={`flex min-h-13 w-full items-center justify-center gap-2 rounded-2xl px-5 py-3 text-[15px] font-black shadow-md transition-all cursor-pointer ${
-                    memberPass.checkedInToday
-                      ? 'bg-emerald-600 text-white cursor-default'
-                      : 'bg-[#0F172A] text-[#A3E635] hover:bg-slate-800 active:scale-[0.98]'
-                  }`}
-                >
-                  <CheckCircle2 className="h-5 w-5" aria-hidden />
-                  {memberPass.checkedInToday
-                    ? 'Checked In Today! 🔥'
-                    : checkingIn
-                      ? 'Checking In…'
-                      : 'Daily Check-In ✓'}
-                </button>
+                <div className="rounded-2xl border border-[#1E1B4B]/15 bg-[#F8F9FA] p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11.5px] font-extrabold uppercase tracking-wider text-[#1E1B4B] flex items-center gap-1.5">
+                      <Activity className="h-3.5 w-3.5" aria-hidden />
+                      What Are You Training Today?
+                    </p>
+                    {memberPass.checkedInToday && todayCheckInTimeLabel && (
+                      <span className="text-[11px] font-bold text-emerald-700">
+                        {todayCheckInTimeLabel}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Interactive Workout Split Chips */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {GYM_WORKOUT_FOCUS_OPTIONS.map((opt) => {
+                      const active = selectedWorkoutFocus === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setSelectedWorkoutFocus(opt.value)}
+                          className={`rounded-xl px-3 py-1.5 text-[12px] font-extrabold transition-all cursor-pointer ${
+                            active
+                              ? 'bg-[#1E1B4B] text-[#D2DB76] shadow-xs'
+                              : 'border border-slate-200 bg-white text-slate-700 hover:border-[#1E1B4B]'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Optional 1-line workout note */}
+                  <input
+                    type="text"
+                    maxLength={140}
+                    placeholder="Optional note (e.g. Bench PR, 5km run)…"
+                    value={memberWorkoutNote}
+                    onChange={(e) => setMemberWorkoutNote(e.target.value)}
+                    className="h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-[12.5px] font-medium text-slate-800 focus:border-[#1E1B4B] focus:outline-none"
+                  />
+
+                  {/* Checked-in Emerald Banner vs Primary Midnight Navy Action Button */}
+                  {memberPass.checkedInToday ? (
+                    <div className="space-y-2">
+                      <div
+                        data-testid="gym-checked-in-badge"
+                        className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-center text-[13.5px] font-black text-white shadow-sm"
+                      >
+                        <CheckCircle2 className="h-4.5 w-4.5 shrink-0" aria-hidden />
+                        <span>
+                          ✓ Checked In Today
+                          {todayCheckInTimeLabel
+                            ? ` at ${todayCheckInTimeLabel}`
+                            : ''}
+                          {todayFocusMeta
+                            ? ` • ${todayFocusMeta.dayLabel}`
+                            : ''}
+                        </span>
+                      </div>
+                      {selectedWorkoutFocus !==
+                        (memberPass.todayCheckIn?.workoutFocus ??
+                          memberPass.todayWorkoutFocus) && (
+                        <button
+                          type="button"
+                          disabled={checkingIn}
+                          onClick={() => void handleDailyCheckIn()}
+                          className="flex h-10 w-full items-center justify-center rounded-xl border border-[#1E1B4B] bg-white px-4 text-[12.5px] font-extrabold text-[#1E1B4B] hover:bg-[#1E1B4B] hover:text-[#D2DB76] transition-colors cursor-pointer"
+                        >
+                          {checkingIn
+                            ? 'Updating Workout…'
+                            : `Switch Today's Focus to ${getWorkoutFocusMeta(selectedWorkoutFocus).dayLabel}`}
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={checkingIn}
+                      onClick={() => void handleDailyCheckIn()}
+                      className="flex min-h-13 w-full items-center justify-center gap-2 rounded-2xl bg-[#1E1B4B] px-5 py-3 text-[15px] font-black text-[#D2DB76] shadow-md hover:bg-[#2E2A6E] active:scale-[0.98] disabled:opacity-60 transition-all cursor-pointer"
+                    >
+                      <CheckCircle2 className="h-5 w-5" aria-hidden />
+                      {checkingIn
+                        ? 'Recording Attendance…'
+                        : "Mark Today's Attendance ✓"}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Recent 7-Day Attendance Strip */}
+              {recentLogs.length > 0 && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-3.5 space-y-2">
+                  <p className="text-[10.5px] font-extrabold uppercase tracking-wider text-slate-500">
+                    Recent Attendance Streak ({recentLogs.length})
+                  </p>
+                  <div className="space-y-1.5">
+                    {recentLogs.map((log) => {
+                      const fm = getWorkoutFocusMeta(log.workoutFocus);
+                      const timeText = formatCheckInTime12h(log.checkedInAt);
+                      return (
+                        <div
+                          key={log.id}
+                          className="flex items-center justify-between gap-2 rounded-xl bg-[#F8F9FA] px-3 py-2 text-[12px]"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                            <span className="font-bold text-slate-800 truncate">
+                              {formatIsoDatePretty(log.checkInDate)}
+                            </span>
+                            {timeText && (
+                              <span className="text-[11px] font-semibold text-slate-500 tabular-nums">
+                                {timeText}
+                              </span>
+                            )}
+                          </div>
+                          <span className="shrink-0 rounded-full bg-[#1E1B4B]/8 px-2.5 py-0.5 text-[11px] font-extrabold text-[#1E1B4B]">
+                            {fm.dayLabel}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
 
               {/* Personal Gym Member QR Pass */}
               <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center space-y-2">
-                <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-900 px-3 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-[#A3E635]">
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-[#1E1B4B] px-3 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-[#D2DB76]">
                   <QrCode className="h-3 w-3" aria-hidden />
                   Digital Gym Member Pass
                 </div>
@@ -587,7 +817,7 @@ export default function CustomerGymPage() {
         </div>
       )}
 
-      {/* TAB 2: 10-SECOND NEW MEMBER SIGNUP CARD */}
+      {/* TAB 1: NEW MEMBER REGISTRATION + FITNESS TARGETS */}
       {activeTab === 'join' && (
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xs space-y-5">
           {!config.isRegistrationOpen ? (
@@ -610,11 +840,12 @@ export default function CustomerGymPage() {
                   Start Your Gym Membership
                 </h2>
                 <p className="mt-0.5 text-[13px] text-slate-500">
-                  10-second signup — pick your plan, then pay Cash or UPI at the desk to activate your Digital Pass.
+                  10-second signup — set your fitness goal, pick a plan, then
+                  pay Cash or UPI at the desk to unlock daily QR attendance.
                 </p>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-3.5">
                 <div className="space-y-1">
                   <label
                     htmlFor="gymJoinName"
@@ -632,10 +863,10 @@ export default function CustomerGymPage() {
                       type="text"
                       required
                       maxLength={80}
-                      placeholder="e.g. Rahul Sharma"
+                      placeholder="e.g. Madhan Kumar"
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
-                      className="h-11 w-full rounded-xl border border-slate-300 bg-slate-50 pl-10 pr-3.5 text-[14px] font-semibold text-slate-900 focus:border-slate-900 focus:bg-white focus:outline-none"
+                      className="h-11 w-full rounded-xl border border-slate-300 bg-[#F8F9FA] pl-10 pr-3.5 text-[14px] font-semibold text-slate-900 focus:border-[#1E1B4B] focus:bg-white focus:outline-none"
                     />
                   </div>
                 </div>
@@ -660,11 +891,82 @@ export default function CustomerGymPage() {
                       placeholder="e.g. 98765 43210"
                       value={joinPhone}
                       onChange={(e) => setJoinPhone(e.target.value)}
-                      className="h-11 w-full rounded-xl border border-slate-300 bg-slate-50 pl-10 pr-3.5 text-[14px] font-semibold text-slate-900 focus:border-slate-900 focus:bg-white focus:outline-none"
+                      className="h-11 w-full rounded-xl border border-slate-300 bg-[#F8F9FA] pl-10 pr-3.5 text-[14px] font-semibold text-slate-900 focus:border-[#1E1B4B] focus:bg-white focus:outline-none"
                     />
                   </div>
                 </div>
 
+                {/* Fitness Target Pills */}
+                <div className="space-y-1.5">
+                  <span className="flex items-center gap-1 text-[11.5px] font-extrabold uppercase tracking-wider text-slate-500">
+                    <Target className="h-3.5 w-3.5 text-[#1E1B4B]" aria-hidden />
+                    Your Primary Fitness Goal
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {GYM_FITNESS_GOAL_OPTIONS.map((goalOpt) => {
+                      const active = fitnessGoal === goalOpt.value;
+                      return (
+                        <button
+                          key={goalOpt.value}
+                          type="button"
+                          onClick={() => setFitnessGoal(goalOpt.value)}
+                          className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[12.5px] font-extrabold transition-all cursor-pointer ${
+                            active
+                              ? 'border-[#1E1B4B] bg-[#1E1B4B] text-[#D2DB76] shadow-xs'
+                              : 'border-slate-200 bg-[#F8F9FA] text-slate-800 hover:border-[#1E1B4B]'
+                          }`}
+                        >
+                          <span>{goalOpt.emoji}</span>
+                          <span>{goalOpt.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Optional Current & Target Weight (kg) */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1">
+                    <label
+                      htmlFor="gymStartWeight"
+                      className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-500"
+                    >
+                      Current Weight (kg)
+                    </label>
+                    <input
+                      id="gymStartWeight"
+                      type="number"
+                      step="0.5"
+                      min={20}
+                      max={300}
+                      placeholder="Optional (e.g. 72)"
+                      value={startingWeightInput}
+                      onChange={(e) => setStartingWeightInput(e.target.value)}
+                      className="h-10 w-full rounded-xl border border-slate-300 bg-[#F8F9FA] px-3 text-[13.5px] font-semibold text-slate-900 focus:border-[#1E1B4B] focus:bg-white focus:outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label
+                      htmlFor="gymTargetWeight"
+                      className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-500"
+                    >
+                      Target Weight (kg)
+                    </label>
+                    <input
+                      id="gymTargetWeight"
+                      type="number"
+                      step="0.5"
+                      min={20}
+                      max={300}
+                      placeholder="Optional (e.g. 66)"
+                      value={targetWeightInput}
+                      onChange={(e) => setTargetWeightInput(e.target.value)}
+                      className="h-10 w-full rounded-xl border border-slate-300 bg-[#F8F9FA] px-3 text-[13.5px] font-semibold text-slate-900 focus:border-[#1E1B4B] focus:bg-white focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Membership Plan Selector */}
                 <div className="space-y-1.5">
                   <span className="block text-[11.5px] font-extrabold uppercase tracking-wider text-slate-500">
                     Choose Membership Plan
@@ -679,8 +981,8 @@ export default function CustomerGymPage() {
                           onClick={() => setSelectedPlanId(plan.id)}
                           className={`flex items-center justify-between gap-3 rounded-2xl border p-3.5 text-left transition-all active:scale-[0.98] cursor-pointer ${
                             active
-                              ? 'border-2 border-[#0F172A] bg-[#0F172A] text-white shadow-sm'
-                              : 'border-slate-200 bg-slate-50 text-slate-900 hover:border-slate-400'
+                              ? 'border-2 border-[#1E1B4B] bg-[#1E1B4B] text-white shadow-sm'
+                              : 'border-slate-200 bg-[#F8F9FA] text-slate-900 hover:border-[#1E1B4B]'
                           }`}
                         >
                           <div className="min-w-0">
@@ -692,8 +994,8 @@ export default function CustomerGymPage() {
                                 <span
                                   className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${
                                     active
-                                      ? 'bg-[#A3E635] text-[#0F172A]'
-                                      : 'bg-lime-100 text-slate-900'
+                                      ? 'bg-[#D2DB76] text-[#1E1B4B]'
+                                      : 'bg-indigo-100 text-[#1E1B4B]'
                                   }`}
                                 >
                                   {plan.badge}
@@ -702,7 +1004,7 @@ export default function CustomerGymPage() {
                             </div>
                             <p
                               className={`text-[11.5px] font-semibold ${
-                                active ? 'text-slate-300' : 'text-slate-500'
+                                active ? 'text-indigo-200' : 'text-slate-500'
                               }`}
                             >
                               {plan.durationDays} days full gym access
@@ -711,7 +1013,7 @@ export default function CustomerGymPage() {
                           <span
                             className={`shrink-0 rounded-full px-3 py-1 text-[13px] font-black tabular-nums ${
                               active
-                                ? 'bg-[#A3E635] text-[#0F172A]'
+                                ? 'bg-[#D2DB76] text-[#1E1B4B]'
                                 : 'bg-white border border-slate-200 text-slate-900'
                             }`}
                           >
@@ -727,7 +1029,7 @@ export default function CustomerGymPage() {
               <button
                 type="submit"
                 disabled={submittingJoin}
-                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#0F172A] px-5 py-3 text-[15px] font-black text-[#A3E635] shadow-md hover:bg-slate-800 active:scale-[0.98] disabled:opacity-60 transition-all cursor-pointer"
+                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#1E1B4B] px-5 py-3 text-[15px] font-black text-[#D2DB76] shadow-md hover:bg-[#2E2A6E] active:scale-[0.98] disabled:opacity-60 transition-all cursor-pointer"
               >
                 <Sparkles className="h-4 w-4" aria-hidden />
                 {submittingJoin
@@ -742,7 +1044,7 @@ export default function CustomerGymPage() {
       {/* GOOGLE REVIEW FOOTER */}
       <Link
         to={`/r/${business.slug}`}
-        className="flex items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white px-5 py-4 text-slate-900 shadow-2xs hover:border-slate-400 transition-colors"
+        className="flex items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white px-5 py-4 text-slate-900 shadow-2xs hover:border-[#1E1B4B] transition-colors"
       >
         <div className="flex items-center gap-3">
           <MessageSquareHeart

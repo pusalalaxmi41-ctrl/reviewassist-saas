@@ -109,13 +109,20 @@ import {
   validateJoinBarberQueueInput,
 } from '../../utils/barberQueueValidation';
 import type {
+  GymAttendanceLog,
   GymConfig,
   GymConfigInput,
   GymDailyCheckInResult,
   GymEffectiveMemberStatus,
+  GymFitnessGoal,
+  GymInactiveAlertMember,
   GymMember,
+  GymMemberProgressHistory,
   GymOwnerDashboardPayload,
   GymOwnerMemberAction,
+  GymPaymentLog,
+  GymTodayAttendanceEntry,
+  GymWorkoutFocus,
   PublicGymPortalPayload,
   SubmitGymRegistrationInput,
 } from '../../types/gym';
@@ -124,10 +131,13 @@ import {
   diffDaysBetweenIsoDates,
   getTodayIsoDateKey,
   normalizeGymConfig,
+  normalizeGymFitnessGoal,
   normalizeGymPhone,
+  normalizeGymWorkoutFocus,
   validateGymConfigInput,
   validateGymOwnerAction,
   validateGymRegistrationInput,
+  validateGymWeightKg,
 } from '../../utils/gymValidation';
 import { MENU_PRESET_PACKS } from '../../config/menuPresets';
 import {
@@ -190,6 +200,7 @@ const STORAGE_KEYS = {
   GYM_CONFIGS: 'reviewassist_mock_gym_configs_v1',
   GYM_MEMBERS: 'reviewassist_mock_gym_members_v1',
   GYM_CHECK_INS: 'reviewassist_mock_gym_check_ins_v1',
+  GYM_PAYMENT_LOGS: 'reviewassist_mock_gym_payment_logs_v1',
 };
 
 // Initial seed businesses for development & preview
@@ -4905,13 +4916,124 @@ export class MockLocalStorageRepository implements IBusinessRepository {
   }
 
   // ---------------------------------------------------------------------------
-  // Module 5: GymOS — Membership, Payment Approvals & 3-Day Renewal Radar
+  // Module 5 & 5B: GymOS — Membership, Daily QR Attendance, Fitness Targets,
+  // Workout Tracking, 3-Day Renewal Radar & Monthly Revenue Forecasting
   // ---------------------------------------------------------------------------
+
+  private getOrSeedMockGymCheckIns(): GymAttendanceLog[] {
+    const existing = this.read<GymAttendanceLog[]>(
+      STORAGE_KEYS.GYM_CHECK_INS,
+      [],
+    );
+    if (existing.length > 0) return existing;
+
+    const today = getTodayIsoDateKey();
+    const todayMorning = new Date();
+    todayMorning.setHours(7, 15, 0, 0);
+    const yesterday = addDaysToIsoDate(today, -1);
+    const twoDaysAgo = addDaysToIsoDate(today, -2);
+
+    const seeded: GymAttendanceLog[] = [
+      {
+        id: 'gymci-demo-1',
+        businessId: 'biz-iron-pulse-4',
+        memberId: 'gymm-demo-3',
+        checkInDate: today,
+        checkedInAt: todayMorning.toISOString(),
+        workoutFocus: 'chest',
+        memberNote: 'Bench press & incline dumbbells',
+      },
+      {
+        id: 'gymci-demo-2',
+        businessId: 'biz-iron-pulse-4',
+        memberId: 'gymm-demo-3',
+        checkInDate: yesterday,
+        checkedInAt: `${yesterday}T07:10:00.000Z`,
+        workoutFocus: 'back',
+        memberNote: null,
+      },
+      {
+        id: 'gymci-demo-3',
+        businessId: 'biz-iron-pulse-4',
+        memberId: 'gymm-demo-3',
+        checkInDate: twoDaysAgo,
+        checkedInAt: `${twoDaysAgo}T07:25:00.000Z`,
+        workoutFocus: 'legs',
+        memberNote: null,
+      },
+      {
+        id: 'gymci-demo-4',
+        businessId: 'biz-iron-pulse-4',
+        memberId: 'gymm-demo-2',
+        checkInDate: yesterday,
+        checkedInAt: `${yesterday}T08:00:00.000Z`,
+        workoutFocus: 'cardio_hiit',
+        memberNote: '30m HIIT treadmill',
+      },
+    ];
+    this.write(STORAGE_KEYS.GYM_CHECK_INS, seeded);
+    return seeded;
+  }
+
+  private getOrSeedMockGymPaymentLogs(): GymPaymentLog[] {
+    const existing = this.read<GymPaymentLog[]>(
+      STORAGE_KEYS.GYM_PAYMENT_LOGS,
+      [],
+    );
+    if (existing.length > 0) return existing;
+
+    const today = getTodayIsoDateKey();
+    const seeded: GymPaymentLog[] = [
+      {
+        id: 'gympay-demo-1',
+        businessId: 'biz-iron-pulse-4',
+        memberId: 'gymm-demo-2',
+        paymentType: 'approval',
+        planId: '1_month',
+        planName: '1 Month Plan',
+        durationDays: 30,
+        amountPaise: 150000,
+        paidDate: addDaysToIsoDate(today, -28),
+        recordedByLabel: 'Owner',
+        createdAt: `${addDaysToIsoDate(today, -28)}T09:00:00.000Z`,
+      },
+      {
+        id: 'gympay-demo-2',
+        businessId: 'biz-iron-pulse-4',
+        memberId: 'gymm-demo-3',
+        paymentType: 'approval',
+        planId: '3_months',
+        planName: '3 Months Plan',
+        durationDays: 90,
+        amountPaise: 400000,
+        paidDate: addDaysToIsoDate(today, -66),
+        recordedByLabel: 'Owner',
+        createdAt: `${addDaysToIsoDate(today, -66)}T09:00:00.000Z`,
+      },
+      {
+        id: 'gympay-demo-3',
+        businessId: 'biz-iron-pulse-4',
+        memberId: 'gymm-demo-4',
+        paymentType: 'approval',
+        planId: '1_month',
+        planName: '1 Month Plan',
+        durationDays: 30,
+        amountPaise: 150000,
+        paidDate: addDaysToIsoDate(today, -33),
+        recordedByLabel: 'Owner',
+        createdAt: `${addDaysToIsoDate(today, -33)}T09:00:00.000Z`,
+      },
+    ];
+    this.write(STORAGE_KEYS.GYM_PAYMENT_LOGS, seeded);
+    return seeded;
+  }
 
   private hydrateGymMember(
     raw: GymMember,
     renewalAlertDays: number,
     todayIso: string,
+    monthKey?: string,
+    allLogs?: GymAttendanceLog[],
   ): GymMember {
     let effectiveStatus: GymEffectiveMemberStatus = raw.status;
     let daysRemaining = 0;
@@ -4930,11 +5052,34 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       }
     }
 
+    const targetMonth = monthKey ?? todayIso.slice(0, 7);
+    const logs = (allLogs ?? this.getOrSeedMockGymCheckIns())
+      .filter((l) => l.businessId === raw.businessId && l.memberId === raw.id)
+      .sort((a, b) =>
+        b.checkInDate !== a.checkInDate
+          ? b.checkInDate.localeCompare(a.checkInDate)
+          : b.checkedInAt.localeCompare(a.checkedInAt),
+      );
+    const todayLog = logs.find((l) => l.checkInDate === todayIso) ?? null;
+    const daysAttendedThisMonth = logs.filter(
+      (l) => l.checkInDate.slice(0, 7) === targetMonth,
+    ).length;
+
     return {
       ...raw,
+      fitnessGoal: normalizeGymFitnessGoal(raw.fitnessGoal),
+      startingWeightKg: raw.startingWeightKg ?? null,
+      targetWeightKg: raw.targetWeightKg ?? null,
+      trainerNotes: raw.trainerNotes ?? null,
       effectiveStatus,
       daysRemaining,
-      checkedInToday: raw.lastCheckInDate === todayIso,
+      daysAttendedThisMonth,
+      lastCheckInAt: todayLog?.checkedInAt ?? raw.lastCheckInAt ?? null,
+      checkedInToday: Boolean(todayLog) || raw.lastCheckInDate === todayIso,
+      todayWorkoutFocus: todayLog?.workoutFocus ?? null,
+      todayCheckedInAt: todayLog?.checkedInAt ?? null,
+      todayCheckIn: todayLog,
+      recentAttendanceLogs: logs.slice(0, 14),
     };
   }
 
@@ -4944,6 +5089,9 @@ export class MockLocalStorageRepository implements IBusinessRepository {
 
     const today = getTodayIsoDateKey();
     const now = new Date().toISOString();
+    const todayMorning = new Date();
+    todayMorning.setHours(7, 15, 0, 0);
+
     const seeded: GymMember[] = [
       {
         id: 'gymm-demo-1',
@@ -4955,6 +5103,10 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         planName: '1 Month Plan',
         durationDays: 30,
         feePaise: 150000,
+        fitnessGoal: 'muscle_gain',
+        startingWeightKg: 68,
+        targetWeightKg: 75,
+        trainerNotes: null,
         status: 'pending_approval',
         effectiveStatus: 'pending_approval',
         daysRemaining: 0,
@@ -4962,6 +5114,7 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         endDate: null,
         totalCheckIns: 0,
         lastCheckInDate: null,
+        lastCheckInAt: null,
         checkedInToday: false,
         approvedByLabel: null,
         createdAt: now,
@@ -4977,6 +5130,10 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         planName: '1 Month Plan',
         durationDays: 30,
         feePaise: 150000,
+        fitnessGoal: 'weight_loss',
+        startingWeightKg: 66,
+        targetWeightKg: 58,
+        trainerNotes: 'Focus on HIIT + progressive strength 4x/week.',
         status: 'active',
         effectiveStatus: 'expiring_soon',
         daysRemaining: 2,
@@ -4984,6 +5141,7 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         endDate: addDaysToIsoDate(today, 2),
         totalCheckIns: 19,
         lastCheckInDate: addDaysToIsoDate(today, -1),
+        lastCheckInAt: `${addDaysToIsoDate(today, -1)}T08:00:00.000Z`,
         checkedInToday: false,
         approvedByLabel: 'Owner',
         createdAt: now,
@@ -4999,6 +5157,10 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         planName: '3 Months Plan',
         durationDays: 90,
         feePaise: 400000,
+        fitnessGoal: 'muscle_gain',
+        startingWeightKg: 74,
+        targetWeightKg: 80,
+        trainerNotes: 'Push/Pull/Legs split — hitting steady progressive overload.',
         status: 'active',
         effectiveStatus: 'active',
         daysRemaining: 24,
@@ -5006,6 +5168,7 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         endDate: addDaysToIsoDate(today, 24),
         totalCheckIns: 42,
         lastCheckInDate: today,
+        lastCheckInAt: todayMorning.toISOString(),
         checkedInToday: true,
         approvedByLabel: 'Owner',
         createdAt: now,
@@ -5021,6 +5184,10 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         planName: '1 Month Plan',
         durationDays: 30,
         feePaise: 150000,
+        fitnessGoal: 'cardio_endurance',
+        startingWeightKg: 79,
+        targetWeightKg: 72,
+        trainerNotes: null,
         status: 'active',
         effectiveStatus: 'expired',
         daysRemaining: 0,
@@ -5028,6 +5195,7 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         endDate: addDaysToIsoDate(today, -3),
         totalCheckIns: 21,
         lastCheckInDate: addDaysToIsoDate(today, -5),
+        lastCheckInAt: `${addDaysToIsoDate(today, -5)}T06:45:00.000Z`,
         checkedInToday: false,
         approvedByLabel: 'Owner',
         createdAt: now,
@@ -5036,6 +5204,8 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     ];
 
     this.write(STORAGE_KEYS.GYM_MEMBERS, seeded);
+    this.getOrSeedMockGymCheckIns();
+    this.getOrSeedMockGymPaymentLogs();
     return seeded;
   }
 
@@ -5114,9 +5284,18 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     );
     const config = normalizeGymConfig(business.id, cfgStore[business.id]);
     const today = getTodayIsoDateKey();
+    const allLogs = this.getOrSeedMockGymCheckIns();
     const members = this.getOrSeedMockGymMembers()
       .filter((m) => m.businessId === business.id)
-      .map((m) => this.hydrateGymMember(m, config.renewalAlertDays, today));
+      .map((m) =>
+        this.hydrateGymMember(
+          m,
+          config.renewalAlertDays,
+          today,
+          today.slice(0, 7),
+          allLogs,
+        ),
+      );
 
     const activeMembersCount = members.filter(
       (m) =>
@@ -5175,16 +5354,23 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     const today = getTodayIsoDateKey();
     const now = new Date().toISOString();
     const allMembers = this.getOrSeedMockGymMembers();
+    const allLogs = this.getOrSeedMockGymCheckIns();
     const idx = allMembers.findIndex(
       (m) =>
         m.businessId === business.id && m.phone === validation.value.phone,
     );
+
+    const fitnessGoal = normalizeGymFitnessGoal(validation.value.fitnessGoal);
+    const startingWeightKg = validation.value.startingWeightKg ?? null;
+    const targetWeightKg = validation.value.targetWeightKg ?? null;
 
     if (idx !== -1) {
       const existing = this.hydrateGymMember(
         allMembers[idx],
         config.renewalAlertDays,
         today,
+        today.slice(0, 7),
+        allLogs,
       );
       if (
         existing.effectiveStatus === 'active' ||
@@ -5202,6 +5388,9 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         planName: matchedPlan.name,
         durationDays: matchedPlan.durationDays,
         feePaise: matchedPlan.pricePaise,
+        fitnessGoal,
+        startingWeightKg: startingWeightKg ?? existing.startingWeightKg ?? null,
+        targetWeightKg: targetWeightKg ?? existing.targetWeightKg ?? null,
         status: 'pending_approval',
         effectiveStatus: 'pending_approval',
         daysRemaining: 0,
@@ -5231,14 +5420,24 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       planName: matchedPlan.name,
       durationDays: matchedPlan.durationDays,
       feePaise: matchedPlan.pricePaise,
+      fitnessGoal,
+      startingWeightKg,
+      targetWeightKg,
+      trainerNotes: null,
       status: 'pending_approval',
       effectiveStatus: 'pending_approval',
       daysRemaining: 0,
       startDate: null,
       endDate: null,
       totalCheckIns: 0,
+      daysAttendedThisMonth: 0,
       lastCheckInDate: null,
+      lastCheckInAt: null,
       checkedInToday: false,
+      todayWorkoutFocus: null,
+      todayCheckedInAt: null,
+      todayCheckIn: null,
+      recentAttendanceLogs: [],
       approvedByLabel: null,
       createdAt: now,
       updatedAt: now,
@@ -5273,18 +5472,28 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     );
     const config = normalizeGymConfig(business.id, cfgStore[business.id]);
     const today = getTodayIsoDateKey();
+    const allLogs = this.getOrSeedMockGymCheckIns();
 
     const found = this.getOrSeedMockGymMembers().find(
       (m) => m.businessId === business.id && m.phone === normPhone,
     );
     if (!found) return null;
 
-    return this.hydrateGymMember(found, config.renewalAlertDays, today);
+    return this.hydrateGymMember(
+      found,
+      config.renewalAlertDays,
+      today,
+      today.slice(0, 7),
+      allLogs,
+    );
   }
 
   async gymMemberDailyCheckIn(params: {
     businessSlug: string;
     phone: string;
+    workoutFocus?: GymWorkoutFocus;
+    memberNote?: string | null;
+    checkInDateOverride?: string | null;
   }): Promise<GymDailyCheckInResult> {
     const normPhone = normalizeGymPhone(params.phone);
     if (normPhone.length < 8) {
@@ -5306,8 +5515,19 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     );
     const config = normalizeGymConfig(business.id, cfgStore[business.id]);
     const today = getTodayIsoDateKey();
+    const targetDate =
+      params.checkInDateOverride &&
+      /^\d{4}-\d{2}-\d{2}$/.test(params.checkInDateOverride.trim())
+        ? params.checkInDateOverride.trim()
+        : today;
+    const focus = normalizeGymWorkoutFocus(params.workoutFocus);
+    const cleanNote =
+      typeof params.memberNote === 'string' && params.memberNote.trim()
+        ? params.memberNote.trim().slice(0, 280)
+        : null;
 
     const members = this.getOrSeedMockGymMembers();
+    const allLogs = this.getOrSeedMockGymCheckIns();
     const idx = members.findIndex(
       (m) => m.businessId === business.id && m.phone === normPhone,
     );
@@ -5319,6 +5539,8 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       members[idx],
       config.renewalAlertDays,
       today,
+      today.slice(0, 7),
+      allLogs,
     );
     if (hydrated.effectiveStatus === 'pending_approval') {
       throw new Error(
@@ -5334,42 +5556,91 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       );
     }
 
-    if (hydrated.checkedInToday) {
-      return {
-        memberId: hydrated.id,
-        memberCode: hydrated.memberCode,
-        fullName: hydrated.fullName,
-        alreadyCheckedInToday: true,
-        totalCheckIns: hydrated.totalCheckIns,
-        daysRemaining: hydrated.daysRemaining,
-        checkedInDate: today,
+    const existingLogIdx = allLogs.findIndex(
+      (l) =>
+        l.businessId === business.id &&
+        l.memberId === hydrated.id &&
+        l.checkInDate === targetDate,
+    );
+    const nowIso = new Date().toISOString();
+
+    let todayLog: GymAttendanceLog;
+    let alreadyCheckedInToday = false;
+    let totalCheckIns = members[idx].totalCheckIns;
+
+    if (existingLogIdx !== -1) {
+      alreadyCheckedInToday = true;
+      todayLog = {
+        ...allLogs[existingLogIdx],
+        workoutFocus: focus,
+        memberNote: cleanNote ?? allLogs[existingLogIdx].memberNote ?? null,
       };
+      allLogs[existingLogIdx] = todayLog;
+      this.write(STORAGE_KEYS.GYM_CHECK_INS, allLogs);
+    } else {
+      todayLog = {
+        id: `gymci-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        businessId: business.id,
+        memberId: hydrated.id,
+        checkInDate: targetDate,
+        checkedInAt:
+          targetDate === today ? nowIso : `${targetDate}T07:30:00.000Z`,
+        workoutFocus: focus,
+        memberNote: cleanNote,
+      };
+      allLogs.push(todayLog);
+      this.write(STORAGE_KEYS.GYM_CHECK_INS, allLogs);
+
+      totalCheckIns = members[idx].totalCheckIns + 1;
+      const latestDate =
+        !members[idx].lastCheckInDate ||
+        targetDate >= members[idx].lastCheckInDate
+          ? targetDate
+          : members[idx].lastCheckInDate;
+      const updatedMember: GymMember = {
+        ...members[idx],
+        totalCheckIns,
+        lastCheckInDate: latestDate,
+        lastCheckInAt:
+          latestDate === targetDate
+            ? todayLog.checkedInAt
+            : (members[idx].lastCheckInAt ?? todayLog.checkedInAt),
+        checkedInToday:
+          targetDate === today ? true : hydrated.checkedInToday,
+        updatedAt: nowIso,
+      };
+      members[idx] = updatedMember;
+      this.write(STORAGE_KEYS.GYM_MEMBERS, members);
     }
 
-    const updated: GymMember = {
-      ...members[idx],
-      totalCheckIns: members[idx].totalCheckIns + 1,
-      lastCheckInDate: today,
-      checkedInToday: true,
-      updatedAt: new Date().toISOString(),
-    };
-    members[idx] = updated;
-    this.write(STORAGE_KEYS.GYM_MEMBERS, members);
+    const currMonth = today.slice(0, 7);
+    const daysAttendedThisMonth = allLogs.filter(
+      (l) =>
+        l.businessId === business.id &&
+        l.memberId === hydrated.id &&
+        l.checkInDate.slice(0, 7) === currMonth,
+    ).length;
 
     return {
-      memberId: updated.id,
-      memberCode: updated.memberCode,
-      fullName: updated.fullName,
-      alreadyCheckedInToday: false,
-      totalCheckIns: updated.totalCheckIns,
+      memberId: hydrated.id,
+      memberCode: hydrated.memberCode,
+      fullName: hydrated.fullName,
+      alreadyCheckedInToday,
+      totalCheckIns,
+      daysAttendedThisMonth,
       daysRemaining: hydrated.daysRemaining,
-      checkedInDate: today,
+      checkedInDate: todayLog.checkInDate,
+      checkedInAt: todayLog.checkedInAt,
+      workoutFocus: todayLog.workoutFocus,
+      memberNote: todayLog.memberNote ?? null,
+      todayLog,
     };
   }
 
   async getGymOwnerDashboard(
     businessId: string,
     options?: AIConfigAccessOptions,
+    monthKey?: string | null,
   ): Promise<GymOwnerDashboardPayload> {
     const idErr = validateBusinessId(businessId);
     if (idErr) throw new Error(idErr);
@@ -5386,10 +5657,29 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     );
     const config = normalizeGymConfig(cleanId, cfgStore[cleanId]);
     const today = getTodayIsoDateKey();
+    const targetMonth =
+      monthKey && /^\d{4}-(0[1-9]|1[0-2])$/.test(monthKey.trim())
+        ? monthKey.trim()
+        : today.slice(0, 7);
+
+    const allLogs = this.getOrSeedMockGymCheckIns().filter(
+      (l) => l.businessId === cleanId,
+    );
+    const allPayments = this.getOrSeedMockGymPaymentLogs().filter(
+      (p) => p.businessId === cleanId,
+    );
 
     const members = this.getOrSeedMockGymMembers()
       .filter((m) => m.businessId === cleanId)
-      .map((m) => this.hydrateGymMember(m, config.renewalAlertDays, today))
+      .map((m) =>
+        this.hydrateGymMember(
+          m,
+          config.renewalAlertDays,
+          today,
+          targetMonth,
+          allLogs,
+        ),
+      )
       .sort((a, b) => {
         const rank = (s: GymEffectiveMemberStatus) =>
           s === 'pending_approval'
@@ -5405,13 +5695,221 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         return b.createdAt.localeCompare(a.createdAt);
       });
 
-    const checkedInTodayCount = members.filter((m) => m.checkedInToday).length;
+    const memberById = new Map(members.map((m) => [m.id, m]));
+    const todaysAttendance: GymTodayAttendanceEntry[] = [];
+    for (const l of allLogs
+      .filter((log) => log.checkInDate === today)
+      .sort((a, b) => b.checkedInAt.localeCompare(a.checkedInAt))) {
+      const m = memberById.get(l.memberId);
+      if (!m) continue;
+      todaysAttendance.push({
+        id: l.id,
+        memberId: m.id,
+        memberCode: m.memberCode,
+        fullName: m.fullName,
+        phone: m.phone,
+        fitnessGoal: normalizeGymFitnessGoal(m.fitnessGoal),
+        checkInDate: l.checkInDate,
+        checkedInAt: l.checkedInAt,
+        workoutFocus: l.workoutFocus,
+        memberNote: l.memberNote ?? null,
+        daysAttendedThisMonth: m.daysAttendedThisMonth ?? 1,
+        totalCheckIns: m.totalCheckIns,
+      });
+    }
+
+    const checkedInTodayCount = todaysAttendance.length;
+
+    const monthlyRevenuePaise = allPayments
+      .filter((p) => p.paidDate.slice(0, 7) === targetMonth)
+      .reduce((sum, p) => sum + p.amountPaise, 0);
+
+    const projectedNextMonthRevenuePaise = members
+      .filter(
+        (m) =>
+          (m.effectiveStatus === 'active' ||
+            m.effectiveStatus === 'expiring_soon') &&
+          m.endDate !== null &&
+          diffDaysBetweenIsoDates(m.endDate, today) >= 0 &&
+          diffDaysBetweenIsoDates(m.endDate, today) <= 30,
+      )
+      .reduce((sum, m) => sum + m.feePaise, 0);
+
+    const inactiveAlertMembers: GymInactiveAlertMember[] = members
+      .filter(
+        (m) =>
+          m.effectiveStatus === 'active' ||
+          m.effectiveStatus === 'expiring_soon',
+      )
+      .map((m) => {
+        const refDate = m.lastCheckInDate ?? m.startDate ?? today;
+        const daysSince = diffDaysBetweenIsoDates(today, refDate);
+        return {
+          memberId: m.id,
+          memberCode: m.memberCode,
+          fullName: m.fullName,
+          phone: m.phone,
+          fitnessGoal: normalizeGymFitnessGoal(m.fitnessGoal),
+          daysSinceLastCheckIn: daysSince,
+          lastCheckInDate: m.lastCheckInDate,
+          daysRemaining: m.daysRemaining,
+        };
+      })
+      .filter((x) => x.daysSinceLastCheckIn >= 5)
+      .sort((a, b) => b.daysSinceLastCheckIn - a.daysSinceLastCheckIn);
 
     return {
       config,
+      monthKey: targetMonth,
       members,
       checkedInTodayCount,
+      todaysAttendance,
+      monthlyRevenuePaise,
+      projectedNextMonthRevenuePaise,
+      inactiveAlertMembers,
     };
+  }
+
+  async getGymMemberProgressHistory(params: {
+    businessId: string;
+    memberId: string;
+    monthKey?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMemberProgressHistory> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, params.options);
+
+    const cfgStore = this.read<Record<string, GymConfig>>(
+      STORAGE_KEYS.GYM_CONFIGS,
+      {},
+    );
+    const config = normalizeGymConfig(cleanId, cfgStore[cleanId]);
+    const today = getTodayIsoDateKey();
+    const targetMonth =
+      params.monthKey && /^\d{4}-(0[1-9]|1[0-2])$/.test(params.monthKey.trim())
+        ? params.monthKey.trim()
+        : today.slice(0, 7);
+
+    const rawMember = this.getOrSeedMockGymMembers().find(
+      (m) => m.businessId === cleanId && m.id === params.memberId,
+    );
+    if (!rawMember) {
+      throw new Error('Gym member not found for this business.');
+    }
+
+    const allLogs = this.getOrSeedMockGymCheckIns();
+    const member = this.hydrateGymMember(
+      rawMember,
+      config.renewalAlertDays,
+      today,
+      targetMonth,
+      allLogs,
+    );
+
+    const memberLogs = allLogs
+      .filter((l) => l.businessId === cleanId && l.memberId === rawMember.id)
+      .sort((a, b) =>
+        b.checkInDate !== a.checkInDate
+          ? b.checkInDate.localeCompare(a.checkInDate)
+          : b.checkedInAt.localeCompare(a.checkedInAt),
+      )
+      .slice(0, 90);
+
+    const workoutSplitCounts: Partial<Record<GymWorkoutFocus, number>> = {};
+    for (const log of memberLogs) {
+      workoutSplitCounts[log.workoutFocus] =
+        (workoutSplitCounts[log.workoutFocus] ?? 0) + 1;
+    }
+
+    const daysAttendedThisMonth = memberLogs.filter(
+      (l) => l.checkInDate.slice(0, 7) === targetMonth,
+    ).length;
+
+    return {
+      member,
+      monthKey: targetMonth,
+      daysAttendedThisMonth,
+      attendanceLogs: memberLogs,
+      workoutSplitCounts,
+    };
+  }
+
+  async ownerUpdateGymMemberProfile(params: {
+    businessId: string;
+    memberId: string;
+    trainerNotes?: string | null;
+    fitnessGoal?: GymFitnessGoal | null;
+    startingWeightKg?: number | null;
+    targetWeightKg?: number | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMember> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, params.options);
+
+    const startWt = validateGymWeightKg(params.startingWeightKg);
+    if (!startWt.ok) throw new Error(`Starting weight: ${startWt.error}`);
+    const targetWt = validateGymWeightKg(params.targetWeightKg);
+    if (!targetWt.ok) throw new Error(`Target weight: ${targetWt.error}`);
+
+    const members = this.getOrSeedMockGymMembers();
+    const idx = members.findIndex(
+      (m) => m.businessId === cleanId && m.id === params.memberId,
+    );
+    if (idx === -1) {
+      throw new Error('Gym member not found for this business.');
+    }
+
+    const existing = members[idx];
+    const cleanNotes =
+      params.trainerNotes === undefined
+        ? existing.trainerNotes ?? null
+        : params.trainerNotes === null || params.trainerNotes.trim() === ''
+          ? null
+          : params.trainerNotes.trim().slice(0, 1000);
+
+    const updated: GymMember = {
+      ...existing,
+      fitnessGoal: params.fitnessGoal
+        ? normalizeGymFitnessGoal(params.fitnessGoal)
+        : normalizeGymFitnessGoal(existing.fitnessGoal),
+      trainerNotes: cleanNotes,
+      startingWeightKg:
+        params.startingWeightKg !== undefined
+          ? startWt.value
+          : (existing.startingWeightKg ?? null),
+      targetWeightKg:
+        params.targetWeightKg !== undefined
+          ? targetWt.value
+          : (existing.targetWeightKg ?? null),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const cfgStore = this.read<Record<string, GymConfig>>(
+      STORAGE_KEYS.GYM_CONFIGS,
+      {},
+    );
+    const config = normalizeGymConfig(cleanId, cfgStore[cleanId]);
+    const today = getTodayIsoDateKey();
+    const hydrated = this.hydrateGymMember(
+      updated,
+      config.renewalAlertDays,
+      today,
+    );
+    members[idx] = hydrated;
+    this.write(STORAGE_KEYS.GYM_MEMBERS, members);
+    return hydrated;
   }
 
   async ownerApproveOrRenewGymMember(params: {
@@ -5488,6 +5986,21 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         endDate: addDaysToIsoDate(today, durationDays),
         approvedByLabel: label,
       };
+      const payments = this.getOrSeedMockGymPaymentLogs();
+      payments.push({
+        id: `gympay-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        businessId: cleanId,
+        memberId: existing.id,
+        paymentType: 'approval',
+        planId,
+        planName,
+        durationDays,
+        amountPaise: feePaise,
+        paidDate: today,
+        recordedByLabel: label,
+        createdAt: now,
+      });
+      this.write(STORAGE_KEYS.GYM_PAYMENT_LOGS, payments);
     } else if (actionCheck.value === 'renew') {
       const baseDate =
         existing.endDate && existing.endDate > today ? existing.endDate : today;
@@ -5502,6 +6015,21 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         endDate: addDaysToIsoDate(baseDate, durationDays),
         approvedByLabel: label,
       };
+      const payments = this.getOrSeedMockGymPaymentLogs();
+      payments.push({
+        id: `gympay-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        businessId: cleanId,
+        memberId: existing.id,
+        paymentType: 'renewal',
+        planId,
+        planName,
+        durationDays,
+        amountPaise: feePaise,
+        paidDate: today,
+        recordedByLabel: label,
+        createdAt: now,
+      });
+      this.write(STORAGE_KEYS.GYM_PAYMENT_LOGS, payments);
     } else if (actionCheck.value === 'reject') {
       updated = { ...updated, status: 'rejected' };
     } else if (actionCheck.value === 'suspend') {

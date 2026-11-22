@@ -101,19 +101,25 @@ import type {
   GymConfig,
   GymConfigInput,
   GymDailyCheckInResult,
+  GymFitnessGoal,
   GymMember,
+  GymMemberProgressHistory,
   GymOwnerDashboardPayload,
   GymOwnerMemberAction,
   GymPlan,
+  GymWorkoutFocus,
   PublicGymPortalPayload,
   SubmitGymRegistrationInput,
 } from '../../types/gym';
 import {
   normalizeGymConfig,
+  normalizeGymFitnessGoal,
   normalizeGymPhone,
+  normalizeGymWorkoutFocus,
   validateGymConfigInput,
   validateGymOwnerAction,
   validateGymRegistrationInput,
+  validateGymWeightKg,
 } from '../../utils/gymValidation';
 import { MENU_PRESET_PACKS } from '../../config/menuPresets';
 import {
@@ -4285,6 +4291,9 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       p_full_name: validation.value.fullName,
       p_phone: validation.value.phone,
       p_plan_id: validation.value.planId,
+      p_fitness_goal: validation.value.fitnessGoal ?? 'general_fitness',
+      p_starting_weight_kg: validation.value.startingWeightKg ?? null,
+      p_target_weight_kg: validation.value.targetWeightKg ?? null,
     });
 
     if (!error && data && typeof data === 'object') {
@@ -4295,7 +4304,8 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       error &&
       (error.message.includes('paused') ||
         error.message.includes('already exists') ||
-        error.message.includes('valid'))
+        error.message.includes('valid') ||
+        error.message.includes('between 20 and 300'))
     ) {
       throw new Error(error.message);
     }
@@ -4344,6 +4354,9 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
   async gymMemberDailyCheckIn(params: {
     businessSlug: string;
     phone: string;
+    workoutFocus?: GymWorkoutFocus;
+    memberNote?: string | null;
+    checkInDateOverride?: string | null;
   }): Promise<GymDailyCheckInResult> {
     const normPhone = normalizeGymPhone(params.phone);
     if (normPhone.length < 8) {
@@ -4351,10 +4364,17 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     }
 
     const cleanSlug = params.businessSlug.trim().toLowerCase();
+    const focus = normalizeGymWorkoutFocus(params.workoutFocus);
+    const cleanNote =
+      typeof params.memberNote === 'string' && params.memberNote.trim()
+        ? params.memberNote.trim().slice(0, 280)
+        : null;
     const client = this.requireClient();
     const { data, error } = await client.rpc('gym_member_daily_check_in', {
       p_slug: cleanSlug,
       p_phone: normPhone,
+      p_workout_focus: focus,
+      p_member_note: cleanNote,
     });
 
     if (!error && data && typeof data === 'object') {
@@ -4377,6 +4397,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
   async getGymOwnerDashboard(
     businessId: string,
     options?: AIConfigAccessOptions,
+    monthKey?: string | null,
   ): Promise<GymOwnerDashboardPayload> {
     const idErr = validateBusinessId(businessId);
     if (idErr) throw new Error(idErr);
@@ -4386,13 +4407,116 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
 
     const { data, error } = await client.rpc('get_gym_owner_dashboard', {
       p_business_id: cleanId,
+      p_month_key: monthKey ?? null,
     });
 
     if (!error && data && typeof data === 'object') {
-      return data as GymOwnerDashboardPayload;
+      const payload = data as Partial<GymOwnerDashboardPayload>;
+      return {
+        config: payload.config ?? normalizeGymConfig(cleanId, null),
+        monthKey: payload.monthKey ?? new Date().toISOString().slice(0, 7),
+        members: payload.members ?? [],
+        checkedInTodayCount: payload.checkedInTodayCount ?? 0,
+        todaysAttendance: payload.todaysAttendance ?? [],
+        monthlyRevenuePaise: Number(payload.monthlyRevenuePaise ?? 0),
+        projectedNextMonthRevenuePaise: Number(
+          payload.projectedNextMonthRevenuePaise ?? 0,
+        ),
+        inactiveAlertMembers: payload.inactiveAlertMembers ?? [],
+      };
     }
 
-    return mockBusinessRepository.getGymOwnerDashboard(cleanId, options);
+    return mockBusinessRepository.getGymOwnerDashboard(
+      cleanId,
+      options,
+      monthKey,
+    );
+  }
+
+  async getGymMemberProgressHistory(params: {
+    businessId: string;
+    memberId: string;
+    monthKey?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMemberProgressHistory> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc(
+      'get_gym_member_progress_history',
+      {
+        p_business_id: cleanId,
+        p_member_id: params.memberId,
+        p_month_key: params.monthKey ?? null,
+      },
+    );
+
+    if (!error && data && typeof data === 'object') {
+      return data as GymMemberProgressHistory;
+    }
+
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('not found'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.getGymMemberProgressHistory(params);
+  }
+
+  async ownerUpdateGymMemberProfile(params: {
+    businessId: string;
+    memberId: string;
+    trainerNotes?: string | null;
+    fitnessGoal?: GymFitnessGoal | null;
+    startingWeightKg?: number | null;
+    targetWeightKg?: number | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMember> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const startWt = validateGymWeightKg(params.startingWeightKg);
+    if (!startWt.ok) throw new Error(`Starting weight: ${startWt.error}`);
+    const targetWt = validateGymWeightKg(params.targetWeightKg);
+    if (!targetWt.ok) throw new Error(`Target weight: ${targetWt.error}`);
+
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc(
+      'owner_update_gym_member_profile',
+      {
+        p_business_id: cleanId,
+        p_member_id: params.memberId,
+        p_trainer_notes:
+          params.trainerNotes === undefined ? null : params.trainerNotes,
+        p_fitness_goal: params.fitnessGoal
+          ? normalizeGymFitnessGoal(params.fitnessGoal)
+          : null,
+        p_starting_weight_kg: startWt.value,
+        p_target_weight_kg: targetWt.value,
+      },
+    );
+
+    if (!error && data && typeof data === 'object') {
+      return data as GymMember;
+    }
+
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('not found'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.ownerUpdateGymMemberProfile(params);
   }
 
   async ownerApproveOrRenewGymMember(params: {

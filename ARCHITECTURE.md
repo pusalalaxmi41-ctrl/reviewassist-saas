@@ -10,7 +10,7 @@
 1. **AI Google Reviews & Reputation Suite** (5-step guest review flow, AI business reply drafting with Business Knowledge & Local SEO context, sentiment tagging, non-gating compliance, printable QR posters & WhatsApp links).
 2. **Restaurant & Cafe Operating Suite (BistroOS)** (`/dashboard` — 5 cultural digital menu templates + 1-tap preset menus, table-specific QR standees, optional phone-to-chef table ordering, server-validated table mini-games with anti-cheat ledger, dual-currency Game Points vs. Loyalty Stars wallet, personal Loyalty QR passes, 6-char reward claim tickets, individual Staff & Waiter Roster with personal PINs, Cafe/Restaurant Monthly Stock & Expenses tracker, and a Mobile Waiter Floor App).
 3. **Barber & Salon Live Queue Suite (BarberOS — Module 4 + 4B Upgrade)** (Dedicated Obsidian & Brass studio at `/barber/dashboard` + automatic smart routing from `/dashboard`, cleaner 3-Zone Live Chair & Timer layout, zero-hardware **Hybrid Walk-In (`W-01`) + Online/Phone Appointment (`B-01`) Queue** at `/r/:slug/queue` with Fair Slot-Weaving merge, 15-min double-booking guard, automatic Daily `#1` Token Reset, Personal Customer Token QR Pass, 1-tap `+5 / +10 / +15 / +20 / +30 Min` broadcast delays, Customer Token QR Check-In, standalone Barber Staff Mobile Floor Mode at `/r/:slug/barber-staff`, Daily & Monthly Haircut & Service Revenue Ledger, Shop Entrance QR Standees, and automatic idempotent +1 Loyalty Star crediting upon haircut completion).
-4. **Gym Membership & 3-Day Expiry Suite (GymOS — Module 5)** (Dedicated Slate & Volt studio at `/gym/dashboard` + automatic smart routing from `/dashboard`, Front-Desk Member QR Portal at `/r/:slug/gym` for 10-second signups + live Digital Gym Pass with Days Remaining & 1-tap Daily Check-In, Owner Payment Approvals, automatic 3-Day Renewal Radar with 1-tap `+30d Renew` & WhatsApp reminders, and Expired Member check-in lockout).
+4. **Gym Membership, Daily QR Attendance & 3-Day Expiry Suite (GymOS — Module 5 + 5B Upgrade)** (Dedicated studio at `/gym/dashboard` + automatic smart routing from `/dashboard`, single Entrance QR Portal at `/r/:slug/gym` with smart `localStorage` auto-detect for 2-second daily attendance check-ins, **Fitness Target Pills** & optional weight goals, interactive **Workout Split Selector** (`Chest`, `Back`, `Legs`, `Shoulders & Arms`, `Cardio / HIIT`, `Abs & Core`, `Full Body`) with timestamped daily attendance logs & recent 7-day streak strip, Owner Payment Approvals, automatic 3-Day Renewal Radar + Inactive ≥5-day follow-up radar, **Member Progress & Workout Split Modal** with editable Trainer Notes, **This Month Collected Revenue (₹)** + **Next-30-Day Projected Renewal Revenue (₹)** forecasting, and Expired Member check-in lockout).
 5. **Multi-Industry Platform Admin Console** (`/admin`) with dedicated separate approval queues (`🍽️ Restaurants & Cafes`, `✂️ Barbers & Salons`, `🏋️ Gyms & Fitness`, and `All Businesses`), bold Industry Module Badges, and 1-click approval & account lifecycle controls.
 
 ```mermaid
@@ -32,7 +32,7 @@ flowchart TB
 
     subgraph Backend["Supabase Cloud Backend (jwgofsrubthumuymhzva)"]
         Auth["Supabase Auth (JWT + auth.uid)"]
-        DB["PostgreSQL 15+ (Migrations 001–017)\nFORCE RLS + SECURITY DEFINER RPCs"]
+        DB["PostgreSQL 15+ (Migrations 001–018)\nFORCE RLS + SECURITY DEFINER RPCs"]
         Edge["Supabase Edge Functions (Deno)\nAI Drafts, Public Lookup, Event Tracking, Account Deletion"]
     end
 
@@ -105,9 +105,9 @@ Every feature MUST work identically in **both** modes via `src/services/storage/
 
 ---
 
-## 4. Complete Database Schema & Migrations (`001` – `017`)
+## 4. Complete Database Schema & Migrations (`001` – `018`)
 
-Migrations `001` – `015` are live on Supabase Cloud (`jwgofsrubthumuymhzva`), with Migration `017` upgrading Module 4 (BarberOS Hybrid Walk-In + Appointments, Daily `#1` Token Reset & Service Revenue Ledger):
+Migrations `001` – `017` are live on Supabase Cloud (`jwgofsrubthumuymhzva`), with Migration `018` upgrading Module 5 (GymOS Daily QR Attendance, Fitness Targets, Workout Split Tracking, Trainer Notes & Monthly Revenue Forecasting):
 
 | Migration | Scope & Tables / Columns Added |
 | :--- | :--- |
@@ -125,6 +125,7 @@ Migrations `001` – `015` are live on Supabase Cloud (`jwgofsrubthumuymhzva`), 
 | `014` | Module 4 (Barber & Salon Live Queue): `'barber'` category & staff role, `barber_queue_configs`, `barber_queue_tickets`, plus 5 hardened RPCs (`get_public_barber_queue_status`, `join_barber_queue`, `barber_extend_queue_timer`, `barber_advance_queue_ticket`, `leave_barber_queue_ticket`) |
 | `015` | Module 5 (GymOS Membership & 3-Day Expiry Tracker): `'gym'` category constraint update, `gym_configs`, `gym_members`, `gym_check_ins`, plus 6 hardened RPCs (`get_public_gym_portal`, `submit_gym_member_registration`, `lookup_gym_member_pass`, `gym_member_daily_check_in`, `get_gym_owner_dashboard`, `owner_approve_or_renew_gym_member`) |
 | `017` | Module 4B (BarberOS Hybrid Queue & Revenue Ledger): `booking_type` (`walk_in`/`appointment`), `display_code` (`W-01`/`B-01`), `scheduled_time`, `scheduled_at`, `price_paise` on `barber_queue_tickets`; Fair Slot-Weaving merge + `bookedSlotsToday` in `get_public_barber_queue_status`; 6-arg `join_barber_queue` with daily `#1` reset & 15-min collision guard; `get_barber_revenue_and_service_summary(p_business_id, p_month_key)` |
+| `018` | Module 5B (GymOS Attendance, Goals & Revenue Forecast): `fitness_goal`, `starting_weight_kg`, `target_weight_kg`, `trainer_notes`, `last_check_in_at` on `gym_members`; `workout_focus` & `member_note` on `gym_check_ins`; new `gym_payment_logs` table (FORCE RLS + backfill); upgraded 7-arg `submit_gym_member_registration`, 4-arg `gym_member_daily_check_in`, 2-arg `get_gym_owner_dashboard` (`todaysAttendance`, `monthlyRevenuePaise`, `projectedNextMonthRevenuePaise`, `inactiveAlertMembers`); new `get_gym_member_progress_history` & `owner_update_gym_member_profile` RPCs |
 
 ### Core Entity Relationships (Restaurant & Cafe Suite)
 
@@ -239,7 +240,7 @@ Run these commands from `C:\work\review-saas` after every change:
 npm run lint
 npm run build
 
-# 2. All 13 automated Deno verification suites (383 checks total)
+# 2. All 14 automated Deno verification suites (404 checks total)
 npm run test:qr              # 45 checks — QR URLs, scan tracking, poster rendering
 npm run test:ai-config       # 34 checks — AI tone/length/language config & tenant isolation
 npm run test:knowledge       # 28 checks — Business Knowledge, SEO, prompt-injection defense
@@ -253,6 +254,7 @@ npm run test:staff-roster    # 30 checks — Upgrade II: Individual staff PINs, 
 npm run test:barber          # 39 checks — Module 4: Barber/Salon live queue, broadcast delays, BAR-01 PIN, auto +1 Star idempotency & tenant isolation
 npm run test:gym             # 27 checks — Module 5 & Multi-Industry Router: Industry locking, Barber Token QR, GymOS signup, payment approval, 3-day expiry radar, daily check-in idempotency & tenant isolation
 npm run test:barber-hybrid   # 30 checks — Module 4B: Daily #1 token reset, W-XX/B-XX hybrid slot-weaving merge, double-booking guard, broadcast delay sync, daily & monthly service revenue ledger & tenant isolation
+npm run test:gym-attendance  # 21 checks — Module 5B: Fitness targets & weights, daily QR attendance timestamps, workout split tracking, same-day duplicate prevention, member progress history, trainer notes, monthly + projected 30d revenue & tenant isolation
 
 # 3. Git push (both remotes) & Production Vercel Deploy
 git push origin main
