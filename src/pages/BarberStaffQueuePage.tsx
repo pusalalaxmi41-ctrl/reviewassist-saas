@@ -28,6 +28,8 @@ export default function BarberStaffQueuePage() {
   const { businessSlug } = useParams<{ businessSlug: string }>();
 
   const [business, setBusiness] = useState<Business | null>(null);
+  const [pendingOwnedBusiness, setPendingOwnedBusiness] =
+    useState<Business | null>(null);
   const [staffDirectory, setStaffDirectory] = useState<
     PublicStaffLoginOption[]
   >([]);
@@ -53,7 +55,51 @@ export default function BarberStaffQueuePage() {
         return;
       }
       setLoading(true);
-      const biz = await businessRepository.getBusinessBySlug(businessSlug);
+      setPendingOwnedBusiness(null);
+
+      // 1. Prefer direct PostgreSQL RPC (no Edge lookup rate-limit)
+      let biz: Business | null = null;
+      try {
+        const queuePayload =
+          await businessRepository.getPublicBarberQueueStatus(businessSlug);
+        if (queuePayload?.business) {
+          biz = {
+            id: queuePayload.business.id,
+            slug: queuePayload.business.slug,
+            name: queuePayload.business.name,
+            category: queuePayload.business.category,
+            city: queuePayload.business.city,
+            googleReviewUrl: queuePayload.business.googleReviewUrl,
+            googleReviewUrlIsPlaceholder: false,
+            status: 'active',
+            accountState: 'active',
+            createdAt: queuePayload.config.createdAt ?? new Date().toISOString(),
+          };
+        }
+      } catch {
+        // fall through to getBusinessBySlug
+      }
+
+      // 2. Secondary lookup via getBusinessBySlug
+      if (!biz) {
+        biz = await businessRepository.getBusinessBySlug(businessSlug);
+      }
+
+      // 3. If still null, check if signed-in owner owns a pending/inactive shop with this slug
+      if (!biz) {
+        try {
+          const owned = await businessRepository.getBusinesses();
+          const match = owned.find(
+            (b) => b.slug.toLowerCase() === businessSlug.trim().toLowerCase(),
+          );
+          if (match) {
+            setPendingOwnedBusiness(match);
+          }
+        } catch {
+          // unauthenticated visitor — ignore
+        }
+      }
+
       setBusiness(biz);
       if (biz) {
         try {
@@ -146,17 +192,69 @@ export default function BarberStaffQueuePage() {
     return (
       <div
         role="alert"
-        className="mx-auto max-w-md bistro-card p-8 text-center space-y-3"
+        className="mx-auto max-w-md bistro-card p-8 text-center space-y-4"
       >
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#1E1B4B] text-[#D2DB76]">
           <SearchX className="h-6 w-6" aria-hidden />
         </div>
-        <h1 className="text-[22px] font-extrabold text-[#111827]">
-          Shop not found
-        </h1>
-        <p className="text-[14px] text-[#6B7280]">
-          Please check the shop URL and try again.
-        </p>
+        {pendingOwnedBusiness ? (
+          <>
+            <h1 className="text-[22px] font-extrabold text-[#111827]">
+              {pendingOwnedBusiness.name} is awaiting activation
+            </h1>
+            <p className="text-[14px] text-[#6B7280] leading-relaxed">
+              This shop currently has status{' '}
+              <strong className="text-[#111827]">
+                {pendingOwnedBusiness.status ?? 'pending'}
+              </strong>
+              . Approve it in the Admin Panel to unlock the public Live Queue
+              &amp; Barber Chair App, or manage it directly in your Owner
+              Dashboard.
+            </p>
+            <div className="flex flex-col gap-2 pt-2">
+              <Link
+                to={`/dashboard?slug=${pendingOwnedBusiness.slug}&tab=queue`}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-[#1E1B4B] px-4 text-[14px] font-bold text-[#FFFFFF] hover:bg-[#2E2A6E]"
+              >
+                Open Live Queue in Owner Dashboard
+              </Link>
+              <Link
+                to="/admin"
+                className="inline-flex h-10 items-center justify-center rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-4 text-[13px] font-bold text-[#1E1B4B] hover:bg-[#F8F9FA]"
+              >
+                Approve Shop in Admin Panel
+              </Link>
+            </div>
+          </>
+        ) : (
+          <>
+            <h1 className="text-[22px] font-extrabold text-[#111827]">
+              Shop not found
+            </h1>
+            <p className="text-[14px] text-[#6B7280] leading-relaxed">
+              No active shop matched slug{' '}
+              <span className="font-mono font-semibold text-[#1E1B4B]">
+                {businessSlug || '(empty)'}
+              </span>
+              . Open your Owner Dashboard to copy your shop&apos;s exact Live
+              Queue &amp; Barber Chair link.
+            </p>
+            <div className="flex flex-col gap-2 pt-2">
+              <Link
+                to="/dashboard"
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-[#1E1B4B] px-4 text-[14px] font-bold text-[#FFFFFF] hover:bg-[#2E2A6E]"
+              >
+                Open Owner Dashboard
+              </Link>
+              <Link
+                to="/r/crown-cuts-barber/queue"
+                className="inline-flex h-10 items-center justify-center rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-4 text-[13px] font-bold text-[#1E1B4B] hover:bg-[#F8F9FA]"
+              >
+                Preview Demo Barber Live Queue
+              </Link>
+            </div>
+          </>
+        )}
       </div>
     );
   }

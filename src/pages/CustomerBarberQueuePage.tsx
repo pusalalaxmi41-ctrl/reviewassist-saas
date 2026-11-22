@@ -265,7 +265,7 @@ export default function CustomerBarberQueuePage() {
     return (
       <div
         role="alert"
-        className="mx-auto max-w-md bistro-card p-8 text-center space-y-3"
+        className="mx-auto max-w-md bistro-card p-8 text-center space-y-4"
       >
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#1E1B4B] text-[#D2DB76]">
           <SearchX className="h-6 w-6" aria-hidden />
@@ -273,9 +273,28 @@ export default function CustomerBarberQueuePage() {
         <h1 className="text-[22px] font-extrabold text-[#111827]">
           Live queue unavailable
         </h1>
-        <p className="text-[14px] text-[#6B7280]">
-          This shop&apos;s live queue page is not currently active.
+        <p className="text-[14px] text-[#6B7280] leading-relaxed">
+          No active shop matched{' '}
+          <span className="font-mono font-semibold text-[#1E1B4B]">
+            /r/{businessSlug || '(empty)'}/queue
+          </span>
+          . If you just registered this shop, approve it in Admin Panel or open
+          your Owner Dashboard to get your live link.
         </p>
+        <div className="flex flex-col gap-2 pt-2">
+          <Link
+            to="/dashboard"
+            className="inline-flex h-11 items-center justify-center rounded-xl bg-[#1E1B4B] px-4 text-[14px] font-bold text-[#FFFFFF] hover:bg-[#2E2A6E]"
+          >
+            Open Owner Dashboard
+          </Link>
+          <Link
+            to="/r/crown-cuts-barber/queue"
+            className="inline-flex h-10 items-center justify-center rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-4 text-[13px] font-bold text-[#1E1B4B] hover:bg-[#F8F9FA]"
+          >
+            Try Demo Barber Live Queue
+          </Link>
+        </div>
       </div>
     );
   }

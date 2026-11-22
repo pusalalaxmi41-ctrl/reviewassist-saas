@@ -428,6 +428,38 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     );
 
     if (error || !data?.business) {
+      // Fallback 1: Direct PostgreSQL RPC lookup (bypasses Edge Function 30/hr lookup limit)
+      if (/^[a-z0-9-]{3,80}$/.test(cleanSlug)) {
+        try {
+          const { data: queuePayload, error: queueErr } = await client.rpc(
+            'get_public_barber_queue_status',
+            { p_slug: cleanSlug },
+          );
+          if (
+            !queueErr &&
+            queuePayload &&
+            typeof queuePayload === 'object' &&
+            'business' in (queuePayload as Record<string, unknown>)
+          ) {
+            const b = (queuePayload as PublicBarberQueueStatusPayload).business;
+            return this.rememberBusiness({
+              id: b.id,
+              slug: b.slug,
+              name: b.name,
+              category: b.category,
+              city: b.city,
+              googleReviewUrl: b.googleReviewUrl,
+              googleReviewUrlIsPlaceholder: false,
+              status: 'active',
+              accountState: 'active',
+              createdAt: new Date().toISOString(),
+            });
+          }
+        } catch {
+          // ignore and fall through to demo fallback
+        }
+      }
+
       const demoFallback = await mockBusinessRepository.getBusinessBySlug(cleanSlug);
       if (demoFallback) {
         return this.rememberBusiness(demoFallback);
@@ -3910,7 +3942,16 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     });
 
     if (!error) {
-      return (data as PublicBarberQueueStatusPayload | null) ?? null;
+      if (data) {
+        return data as PublicBarberQueueStatusPayload;
+      }
+      // Allow built-in demo slug (e.g. crown-cuts-barber) to work cleanly in preview mode
+      const demoFallback =
+        await mockBusinessRepository.getPublicBarberQueueStatus(cleanSlug);
+      if (demoFallback) {
+        return demoFallback;
+      }
+      return null;
     }
 
     return mockBusinessRepository.getPublicBarberQueueStatus(cleanSlug);
@@ -3938,11 +3979,18 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
 
     if (
       error &&
-      (error.message.includes('paused') ||
-        error.message.includes('full') ||
-        error.message.includes('not active'))
+      (error.message.includes('paused') || error.message.includes('full'))
     ) {
       throw new Error(error.message);
+    }
+
+    if (error && error.message.includes('not active')) {
+      const isDemo = await mockBusinessRepository.getBusinessBySlug(
+        validation.value.businessSlug,
+      );
+      if (!isDemo) {
+        throw new Error(error.message);
+      }
     }
 
     return mockBusinessRepository.joinBarberQueue(input);
@@ -3971,7 +4019,12 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     }
 
     if (error && error.message.includes('not found')) {
-      throw new Error(error.message);
+      const isDemo = await mockBusinessRepository.getBusinessBySlug(
+        params.businessSlug.trim().toLowerCase(),
+      );
+      if (!isDemo) {
+        throw new Error(error.message);
+      }
     }
 
     return mockBusinessRepository.leaveBarberQueueTicket(params);
