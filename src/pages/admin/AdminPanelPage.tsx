@@ -151,6 +151,9 @@ export default function AdminPanelPage() {
   const [clientSearch, setClientSearch] = useState('');
   const [clientStatusTab, setClientStatusTab] =
     useState<ClientFilterTab>('all');
+  const [clientIndustryFilter, setClientIndustryFilter] = useState<
+    'all' | 'restaurant' | 'barber' | 'gym'
+  >('all');
 
   // Accounts filters
   const [accountSearch, setAccountSearch] = useState('');
@@ -268,8 +271,18 @@ export default function AdminPanelPage() {
     if (activeNav === 'restaurants') return restaurantClients;
     if (activeNav === 'barbers') return barberClients;
     if (activeNav === 'gyms') return gymClients;
+    if (clientIndustryFilter === 'restaurant') return restaurantClients;
+    if (clientIndustryFilter === 'barber') return barberClients;
+    if (clientIndustryFilter === 'gym') return gymClients;
     return clients;
-  }, [activeNav, clients, restaurantClients, barberClients, gymClients]);
+  }, [
+    activeNav,
+    clientIndustryFilter,
+    clients,
+    restaurantClients,
+    barberClients,
+    gymClients,
+  ]);
 
   // Filtered Clients for the active directory view
   const filteredClients = useMemo(() => {
@@ -1014,8 +1027,58 @@ export default function AdminPanelPage() {
             activeNav === 'barbers' ||
             activeNav === 'gyms') && (
             <div className="rounded-lg border border-slate-200 bg-white shadow-2xs">
-              {/* Industry Banner when viewing a dedicated vertical */}
-              {activeNav !== 'clients' && (
+              {/* Industry Filter Bar when viewing All Businesses */}
+              {activeNav === 'clients' ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/80 px-5 py-3">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mr-1">
+                      Industry:
+                    </span>
+                    {(
+                      [
+                        { id: 'all', label: 'All Industries', count: clients.length },
+                        {
+                          id: 'restaurant',
+                          label: '🍽️ Restaurant / Cafe',
+                          count: restaurantClients.length,
+                        },
+                        {
+                          id: 'barber',
+                          label: '✂️ Barber / Salon',
+                          count: barberClients.length,
+                        },
+                        {
+                          id: 'gym',
+                          label: '🏋️ Gym & Fitness',
+                          count: gymClients.length,
+                        },
+                      ] as const
+                    ).map((ind) => (
+                      <button
+                        key={ind.id}
+                        type="button"
+                        onClick={() => setClientIndustryFilter(ind.id)}
+                        className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11.5px] font-bold transition-colors cursor-pointer ${
+                          clientIndustryFilter === ind.id
+                            ? 'border-indigo-600 bg-indigo-600 text-white'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span>{ind.label}</span>
+                        <span
+                          className={`rounded-full px-1.5 text-[10px] ${
+                            clientIndustryFilter === ind.id
+                              ? 'bg-white/20 text-white'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {ind.count}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/80 px-5 py-3">
                   <div>
                     <p className="text-xs font-bold text-slate-900">

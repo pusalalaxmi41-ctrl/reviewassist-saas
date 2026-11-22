@@ -453,11 +453,30 @@ export default function CustomerGymPage() {
               )}
 
               {memberPass.effectiveStatus === 'expired' && (
-                <div className="flex items-center gap-2.5 rounded-2xl bg-slate-900 px-4 py-3 text-[13px] font-extrabold text-white">
-                  <AlertCircle className="h-4.5 w-4.5 shrink-0 text-red-400" aria-hidden />
-                  <span>
-                    Membership expired on {formatIsoDatePretty(memberPass.endDate)}. Please renew at the front desk.
-                  </span>
+                <div className="rounded-2xl bg-slate-900 px-4 py-3.5 text-white space-y-2.5">
+                  <div className="flex items-center gap-2.5 text-[13px] font-extrabold">
+                    <AlertCircle
+                      className="h-4.5 w-4.5 shrink-0 text-red-400"
+                      aria-hidden
+                    />
+                    <span>
+                      Membership expired on {formatIsoDatePretty(memberPass.endDate)}. Renew at the front desk to restore check-in.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFullName(memberPass.fullName);
+                      setJoinPhone(memberPass.phone);
+                      setSelectedPlanId(memberPass.planId);
+                      setActiveTab('join');
+                      setErrorMsg(null);
+                      setSuccessMsg(null);
+                    }}
+                    className="inline-flex h-10 w-full items-center justify-center rounded-xl bg-[#A3E635] px-4 text-[13px] font-black text-[#0F172A] hover:bg-lime-300 cursor-pointer"
+                  >
+                    Tap to Request Plan Renewal →
+                  </button>
                 </div>
               )}
 

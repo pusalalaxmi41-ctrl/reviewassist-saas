@@ -11,6 +11,7 @@ import {
   RotateCcw,
   Scissors,
   Dumbbell,
+  UtensilsCrossed,
   Share2,
   Upload,
   X,
@@ -42,7 +43,7 @@ import { Button } from '../common/Button';
 
 interface Props {
   business: Business;
-  defaultMode?: 'review' | 'barber_queue' | 'gym';
+  defaultMode?: 'review' | 'barber_queue' | 'gym' | 'restaurant_menu';
 }
 
 export function QRCodeManager({ business, defaultMode }: Props) {
@@ -60,7 +61,9 @@ export function QRCodeManager({ business, defaultMode }: Props) {
 
   const supportsBarberQueue = isBarberOrSalonCategory(business.category);
   const supportsGymPortal = isGymCategory(business.category);
-  const resolvedDefault: 'review' | 'barber_queue' | 'gym' =
+  const supportsRestaurantMenu =
+    business.category === 'restaurant' || business.category === 'cafe';
+  const resolvedDefault: 'review' | 'barber_queue' | 'gym' | 'restaurant_menu' =
     defaultMode ??
     (supportsGymPortal
       ? 'gym'
@@ -68,9 +71,9 @@ export function QRCodeManager({ business, defaultMode }: Props) {
         ? 'barber_queue'
         : 'review');
 
-  const [qrMode, setQrMode] = useState<'review' | 'barber_queue' | 'gym'>(
-    resolvedDefault,
-  );
+  const [qrMode, setQrMode] = useState<
+    'review' | 'barber_queue' | 'gym' | 'restaurant_menu'
+  >(resolvedDefault);
   const [queueHeading, setQueueHeading] = useState('Scan to Join the Live Queue');
   const [queueInstruction, setQueueInstruction] = useState(
     'See live wait time, claim your Token QR & track your turn on your phone',
@@ -79,19 +82,34 @@ export function QRCodeManager({ business, defaultMode }: Props) {
   const [gymInstruction, setGymInstruction] = useState(
     'Join in 10 seconds, track your plan expiry & tap Daily Check-In at the desk',
   );
+  const [menuHeading, setMenuHeading] = useState('Scan for Digital Menu & Loyalty');
+  const [menuInstruction, setMenuInstruction] = useState(
+    'Browse our live menu, play table games & collect Loyalty Stars',
+  );
 
   const isQueueMode = supportsBarberQueue && qrMode === 'barber_queue';
   const isGymMode = supportsGymPortal && qrMode === 'gym';
+  const isMenuMode = supportsRestaurantMenu && qrMode === 'restaurant_menu';
+  const originHost =
+    typeof window !== 'undefined'
+      ? window.location.origin
+      : 'http://localhost:5173';
+  const menuHubUrl = `${originHost}/r/${business.slug}/menu`;
+
   const qrUrl = isGymMode
     ? getGymPortalUrl(business.slug)
     : isQueueMode
       ? getBarberQueueUrl(business.slug)
-      : getCustomerReviewUrl(business.slug, 'qr');
+      : isMenuMode
+        ? menuHubUrl
+        : getCustomerReviewUrl(business.slug, 'qr');
   const directUrl = isGymMode
     ? getGymPortalUrl(business.slug)
     : isQueueMode
       ? getBarberQueueUrl(business.slug)
-      : getCustomerReviewUrl(business.slug, 'direct');
+      : isMenuMode
+        ? menuHubUrl
+        : getCustomerReviewUrl(business.slug, 'direct');
   const whatsAppMsg = buildWhatsAppMessage(business);
   const whatsAppLink = getWhatsAppShareLink(business, customPhone);
 
@@ -109,7 +127,14 @@ export function QRCodeManager({ business, defaultMode }: Props) {
           heading: queueHeading,
           instruction: queueInstruction,
         }
-      : settings;
+      : isMenuMode
+        ? {
+            ...settings,
+            template: 'table_standee',
+            heading: menuHeading,
+            instruction: menuInstruction,
+          }
+        : settings;
 
   const effectiveRenderOptions = isGymMode
     ? {
@@ -129,7 +154,16 @@ export function QRCodeManager({ business, defaultMode }: Props) {
             'Get your Personal Token QR & walk in on time',
           ] as [string, string, string],
         }
-      : undefined;
+      : isMenuMode
+        ? {
+            targetUrl: qrUrl,
+            customSteps: [
+              'Scan QR with phone camera',
+              'Explore dishes & table games',
+              'Collect Loyalty Stars & rewards',
+            ] as [string, string, string],
+          }
+        : undefined;
 
   // Persist per-business settings & re-render high-resolution live preview canvas
   useEffect(() => {
@@ -152,7 +186,14 @@ export function QRCodeManager({ business, defaultMode }: Props) {
                 heading: queueHeading,
                 instruction: queueInstruction,
               }
-            : settings,
+            : isMenuMode
+              ? {
+                  ...settings,
+                  template: 'table_standee',
+                  heading: menuHeading,
+                  instruction: menuInstruction,
+                }
+              : settings,
         isGymMode
           ? {
               targetUrl: qrUrl,
@@ -171,7 +212,16 @@ export function QRCodeManager({ business, defaultMode }: Props) {
                   'Get your Personal Token QR & walk in on time',
                 ],
               }
-            : undefined,
+            : isMenuMode
+              ? {
+                  targetUrl: qrUrl,
+                  customSteps: [
+                    'Scan QR with phone camera',
+                    'Explore dishes & table games',
+                    'Collect Loyalty Stars & rewards',
+                  ],
+                }
+              : undefined,
       );
     }
   }, [
@@ -179,10 +229,13 @@ export function QRCodeManager({ business, defaultMode }: Props) {
     settings,
     isQueueMode,
     isGymMode,
+    isMenuMode,
     queueHeading,
     queueInstruction,
     gymHeading,
     gymInstruction,
+    menuHeading,
+    menuInstruction,
     qrUrl,
   ]);
 
@@ -309,9 +362,26 @@ export function QRCodeManager({ business, defaultMode }: Props) {
 
   return (
     <div className="space-y-8">
-      {/* Industry Standee Mode Switcher: Barber Live Queue / Gym Desk Pass vs Google Review QR */}
-      {(supportsBarberQueue || supportsGymPortal) && (
+      {/* Industry Standee Mode Switcher: Restaurant Menu / Barber Live Queue / Gym Desk Pass vs Google Review QR */}
+      {(supportsRestaurantMenu || supportsBarberQueue || supportsGymPortal) && (
         <div className="inline-flex flex-wrap items-center gap-1.5 rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-2 shadow-2xs">
+          {supportsRestaurantMenu && (
+            <button
+              type="button"
+              onClick={() => setQrMode('restaurant_menu')}
+              className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
+                isMenuMode
+                  ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
+                  : 'text-[#626B65] hover:bg-[#F7F7F2] hover:text-[#252B29]'
+              }`}
+            >
+              <UtensilsCrossed
+                className={`h-4 w-4 ${isMenuMode ? 'text-[#D2DB76]' : ''}`}
+                aria-hidden
+              />
+              <span>Digital Menu &amp; Loyalty Standee</span>
+            </button>
+          )}
           {supportsBarberQueue && (
             <button
               type="button"
@@ -350,7 +420,7 @@ export function QRCodeManager({ business, defaultMode }: Props) {
             type="button"
             onClick={() => setQrMode('review')}
             className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
-              !isQueueMode && !isGymMode
+              !isQueueMode && !isGymMode && !isMenuMode
                 ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
                 : 'text-[#626B65] hover:bg-[#F7F7F2] hover:text-[#252B29]'
             }`}
@@ -369,7 +439,9 @@ export function QRCodeManager({ business, defaultMode }: Props) {
               ? 'Front-Desk Gym Membership & Check-In URL (Encoded in QR)'
               : isQueueMode
                 ? 'Live Queue & Wait-Time Standee URL (Encoded in QR)'
-                : 'Business-Specific Customer Review URL (Encoded in QR)'}
+                : isMenuMode
+                  ? 'Digital Menu & Loyalty Hub URL (Encoded in QR)'
+                  : 'Business-Specific Customer Review URL (Encoded in QR)'}
           </p>
           <p className="break-all font-mono text-[14px] font-medium text-[#244B40]">{qrUrl}</p>
         </div>
@@ -503,13 +575,17 @@ export function QRCodeManager({ business, defaultMode }: Props) {
                       ? gymHeading
                       : isQueueMode
                         ? queueHeading
-                        : settings.heading
+                        : isMenuMode
+                          ? menuHeading
+                          : settings.heading
                   }
                   onChange={(e) => {
                     if (isGymMode) {
                       setGymHeading(e.target.value);
                     } else if (isQueueMode) {
                       setQueueHeading(e.target.value);
+                    } else if (isMenuMode) {
+                      setMenuHeading(e.target.value);
                     } else {
                       setSettings((prev) => ({
                         ...prev,
@@ -537,13 +613,17 @@ export function QRCodeManager({ business, defaultMode }: Props) {
                       ? gymInstruction
                       : isQueueMode
                         ? queueInstruction
-                        : settings.instruction
+                        : isMenuMode
+                          ? menuInstruction
+                          : settings.instruction
                   }
                   onChange={(e) => {
                     if (isGymMode) {
                       setGymInstruction(e.target.value);
                     } else if (isQueueMode) {
                       setQueueInstruction(e.target.value);
+                    } else if (isMenuMode) {
+                      setMenuInstruction(e.target.value);
                     } else {
                       setSettings((prev) => ({
                         ...prev,
