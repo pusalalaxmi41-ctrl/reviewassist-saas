@@ -17,6 +17,8 @@ import {
   Ban,
   CheckCircle2,
   UserCheck,
+  Users,
+  Package,
 } from 'lucide-react';
 import type {
   Business,
@@ -41,32 +43,55 @@ import {
 type PrimaryDestination =
   | 'overview'
   | 'menu'
+  | 'staff'
+  | 'inventory'
   | 'tables'
-  | 'games_loyalty'
-  | 'ai_reviews';
+  | 'games_loyalty';
 
+type LoyaltyAndReviewsMode = 'loyalty' | 'ai_reviews';
 type AiReviewSubTab = 'drafts' | 'qr' | 'analytics' | 'settings';
 
 function parseDestinationFromParam(param: string | null): {
   destination: PrimaryDestination;
+  loyaltyMode?: LoyaltyAndReviewsMode;
   aiSubTab?: AiReviewSubTab;
 } {
   switch (param) {
     case 'menu':
       return { destination: 'menu' };
+    case 'staff':
+      return { destination: 'staff' };
+    case 'inventory':
+      return { destination: 'inventory' };
     case 'tables':
       return { destination: 'tables' };
     case 'games_loyalty':
-      return { destination: 'games_loyalty' };
+      return { destination: 'games_loyalty', loyaltyMode: 'loyalty' };
     case 'ai_reviews':
     case 'drafts':
-      return { destination: 'ai_reviews', aiSubTab: 'drafts' };
+      return {
+        destination: 'games_loyalty',
+        loyaltyMode: 'ai_reviews',
+        aiSubTab: 'drafts',
+      };
     case 'qr':
-      return { destination: 'ai_reviews', aiSubTab: 'qr' };
+      return {
+        destination: 'games_loyalty',
+        loyaltyMode: 'ai_reviews',
+        aiSubTab: 'qr',
+      };
     case 'analytics':
-      return { destination: 'ai_reviews', aiSubTab: 'analytics' };
+      return {
+        destination: 'games_loyalty',
+        loyaltyMode: 'ai_reviews',
+        aiSubTab: 'analytics',
+      };
     case 'settings':
-      return { destination: 'ai_reviews', aiSubTab: 'settings' };
+      return {
+        destination: 'games_loyalty',
+        loyaltyMode: 'ai_reviews',
+        aiSubTab: 'settings',
+      };
     case 'restaurant':
     case 'overview':
     default:
@@ -84,6 +109,9 @@ export default function BusinessDashboard() {
   );
   const [destination, setDestination] = useState<PrimaryDestination>(
     initialParsed.destination,
+  );
+  const [loyaltyMode, setLoyaltyMode] = useState<LoyaltyAndReviewsMode>(
+    initialParsed.loyaltyMode ?? 'loyalty',
   );
   const [aiSubTab, setAiSubTab] = useState<AiReviewSubTab>(
     initialParsed.aiSubTab ?? 'drafts',
@@ -242,6 +270,18 @@ export default function BusinessDashboard() {
       Icon: UtensilsCrossed,
     },
     {
+      id: 'staff',
+      label: 'Staff & Waiters',
+      shortLabel: 'Staff',
+      Icon: Users,
+    },
+    {
+      id: 'inventory',
+      label: 'Stock & Expenses',
+      shortLabel: 'Stock',
+      Icon: Package,
+    },
+    {
       id: 'tables',
       label: 'Tables & QRs',
       shortLabel: 'Tables',
@@ -249,15 +289,9 @@ export default function BusinessDashboard() {
     },
     {
       id: 'games_loyalty',
-      label: 'Games & Loyalty',
+      label: 'Games, Loyalty & Reviews',
       shortLabel: 'Loyalty',
       Icon: Gamepad2,
-    },
-    {
-      id: 'ai_reviews',
-      label: 'AI Reviews',
-      shortLabel: 'Reviews',
-      Icon: Sparkles,
       badge: drafts.length > 0 ? drafts.length : undefined,
     },
   ];
@@ -265,8 +299,10 @@ export default function BusinessDashboard() {
   const isRestaurantDestination =
     destination === 'overview' ||
     destination === 'menu' ||
+    destination === 'staff' ||
+    destination === 'inventory' ||
     destination === 'tables' ||
-    destination === 'games_loyalty';
+    (destination === 'games_loyalty' && loyaltyMode === 'loyalty');
 
   return (
     <div className="grid gap-6 lg:grid-cols-12 items-start">
@@ -415,7 +451,62 @@ export default function BusinessDashboard() {
           </div>
         )}
 
-        {/* DESTINATIONS 1–4: RESTAURANT WORKSPACE */}
+        {/* TAB 6 MODE BAR: Switch cleanly between Games & Loyalty and AI Reviews */}
+        {destination === 'games_loyalty' && (
+          <div className="bistro-card p-2 inline-flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setLoyaltyMode('loyalty')}
+              className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
+                loyaltyMode === 'loyalty'
+                  ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
+                  : 'text-[#6B7280] hover:bg-[#F8F9FA] hover:text-[#111827]'
+              }`}
+            >
+              <Gamepad2
+                className={`h-4 w-4 ${
+                  loyaltyMode === 'loyalty'
+                    ? 'text-[#D2DB76]'
+                    : 'text-[#1E1B4B]'
+                }`}
+                aria-hidden
+              />
+              <span>Games, Loyalty &amp; Rewards</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setLoyaltyMode('ai_reviews')}
+              className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
+                loyaltyMode === 'ai_reviews'
+                  ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
+                  : 'text-[#6B7280] hover:bg-[#F8F9FA] hover:text-[#111827]'
+              }`}
+            >
+              <Sparkles
+                className={`h-4 w-4 ${
+                  loyaltyMode === 'ai_reviews'
+                    ? 'text-[#D2DB76]'
+                    : 'text-[#1E1B4B]'
+                }`}
+                aria-hidden
+              />
+              <span>AI Reviews &amp; Google QR</span>
+              {drafts.length > 0 && (
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[11px] font-extrabold tabular-nums ${
+                    loyaltyMode === 'ai_reviews'
+                      ? 'bg-[#D2DB76] text-[#1E1B4B]'
+                      : 'bg-[#1E1B4B]/10 text-[#1E1B4B]'
+                  }`}
+                >
+                  {drafts.length}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* DESTINATIONS 1–6 (Restaurant Workspace) */}
         {isRestaurantDestination && (
           <RestaurantManagerView
             key={`restaurant-mgmt-${currentBusiness.id}`}
@@ -426,8 +517,8 @@ export default function BusinessDashboard() {
           />
         )}
 
-        {/* DESTINATION 5: AI REVIEWS */}
-        {destination === 'ai_reviews' && (
+        {/* INTEGRATED AI REVIEWS SUB-VIEW INSIDE TAB 6 */}
+        {destination === 'games_loyalty' && loyaltyMode === 'ai_reviews' && (
           <div className="space-y-6 animate-fadeSlideUp">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>

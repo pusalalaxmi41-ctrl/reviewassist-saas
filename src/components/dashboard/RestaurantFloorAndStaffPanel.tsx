@@ -9,6 +9,9 @@ import {
   CameraOff,
   Search,
   ChefHat,
+  Star,
+  LayoutGrid,
+  ShieldCheck,
 } from 'lucide-react';
 import type { Business } from '../../types/business';
 import type {
@@ -70,6 +73,11 @@ export function RestaurantFloorAndStaffPanel({
   const [loading, setLoading] = useState(true);
   const [localStatus, setLocalStatus] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+
+  // Clean 3-tab Mobile Waiter Navigation
+  const [activeTab, setActiveTab] = useState<'scan' | 'orders' | 'tables'>(
+    'scan',
+  );
 
   // Unified Search / Lookup Input (Phone, Email, Loyalty QR Token, or 6-Digit Claim Code)
   const [unifiedLookup, setUnifiedLookup] = useState('');
@@ -314,7 +322,7 @@ export function RestaurantFloorAndStaffPanel({
       setScannedTokenBadge(null);
       await refreshFloorData();
       reportStatus(
-        `Verified paid visit for ${res.customerName}! Awarded +${res.starsAwarded} ★ (New balance: ${res.newLoyaltyStarsBalance} ★).`,
+        `Verified paid bill for ${res.customerName}! Awarded +${res.starsAwarded} ★ (New balance: ${res.newLoyaltyStarsBalance} ★) • Verified by ${res.verifiedByLabel}.`,
       );
     } catch (err) {
       reportError((err as Error).message);
@@ -402,13 +410,22 @@ export function RestaurantFloorAndStaffPanel({
   const activeCalls = floorData?.activeTableCalls ?? [];
   const pendingClaims = floorData?.pendingRewardClaims ?? [];
   const tableOrders = floorData?.tableOrders ?? [];
+  const pendingOrderCount = tableOrders.filter(
+    (o) => o.status === 'pending_approval',
+  ).length;
   const orderingActive =
     Boolean(floorData?.tableOrderingEnabled) ||
     Boolean(profile?.tableOrderingEnabled) ||
     tableOrders.length > 0;
 
+  const trimmedLookup = unifiedLookup.trim();
+  const isSixCharClaimInput =
+    /^[A-Z0-9]{6}$/.test(trimmedLookup.toUpperCase()) &&
+    !trimmedLookup.includes('@') &&
+    !trimmedLookup.toLowerCase().startsWith('vitaran-loyalty://');
+
   return (
-    <div className="space-y-5 animate-fadeSlideUp">
+    <div className="space-y-4 animate-fadeSlideUp">
       {/* Status & Error Toasts */}
       {localStatus && (
         <div
@@ -429,175 +446,321 @@ export function RestaurantFloorAndStaffPanel({
         </div>
       )}
 
-      {/* 1. TOP PRIMARY ACTION ZONE (Matches Mockup 3) */}
-      <div className="space-y-3">
-        {/* Giant Full-Width Midnight Navy Button: SCAN CUSTOMER LOYALTY QR */}
+      {/* 3-TAB MOBILE WAITER NAVIGATION BAR */}
+      <nav
+        aria-label="Waiter Floor Views"
+        className="bistro-card p-1.5 grid grid-cols-3 gap-1.5"
+      >
         <button
           type="button"
-          onClick={() => void handleToggleCameraScanner()}
-          className={`flex min-h-14 w-full items-center justify-center gap-3 rounded-2xl px-5 py-4 text-[14px] font-extrabold uppercase tracking-wider shadow-md transition-all duration-150 active:scale-[0.98] cursor-pointer ${
-            scannerOpen
-              ? 'bg-red-700 text-[#FFFFFF]'
-              : 'bg-[#1E1B4B] text-[#FFFFFF] hover:bg-[#2E2A6E]'
+          onClick={() => setActiveTab('scan')}
+          className={`flex flex-col items-center justify-center gap-1 rounded-xl py-2.5 px-2 text-[11.5px] font-extrabold transition-all cursor-pointer ${
+            activeTab === 'scan'
+              ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-sm'
+              : 'text-[#6B7280] hover:bg-[#F8F9FA] hover:text-[#111827]'
           }`}
         >
-          {scannerOpen ? (
-            <>
-              <CameraOff className="h-5 w-5 text-[#D2DB76]" aria-hidden />
-              <span>CLOSE CAMERA SCANNER</span>
-            </>
-          ) : (
-            <>
-              <Camera className="h-5 w-5 text-[#D2DB76]" aria-hidden />
-              <span>SCAN CUSTOMER LOYALTY QR</span>
-            </>
+          <Camera
+            className={`h-4 w-4 ${
+              activeTab === 'scan' ? 'text-[#D2DB76]' : 'text-[#1E1B4B]'
+            }`}
+            aria-hidden
+          />
+          <span>1. Scan &amp; Stars</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('orders')}
+          className={`relative flex flex-col items-center justify-center gap-1 rounded-xl py-2.5 px-2 text-[11.5px] font-extrabold transition-all cursor-pointer ${
+            activeTab === 'orders'
+              ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-sm'
+              : 'text-[#6B7280] hover:bg-[#F8F9FA] hover:text-[#111827]'
+          }`}
+        >
+          <ChefHat
+            className={`h-4 w-4 ${
+              activeTab === 'orders' ? 'text-[#D2DB76]' : 'text-[#1E1B4B]'
+            }`}
+            aria-hidden
+          />
+          <span>2. Orders → Chef</span>
+          {pendingOrderCount > 0 && (
+            <span className="absolute top-1.5 right-1.5 inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-[#D97706] px-1 text-[10px] font-extrabold text-[#FFFFFF] tabular-nums">
+              {pendingOrderCount}
+            </span>
           )}
         </button>
 
-        {/* Live Camera Viewfinder */}
-        {scannerOpen && (
-          <div className="overflow-hidden rounded-2xl border-2 border-[#1E1B4B] bg-[#111827] p-3 text-center space-y-2 animate-fadeSlideUp">
-            <video
-              ref={videoRef}
-              muted
-              playsInline
-              className="mx-auto h-56 w-full max-w-xs rounded-xl object-cover bg-black"
-            />
-            <p className="text-[12px] font-semibold text-[#D2DB76]">
-              Point camera at the guest&apos;s personal Loyalty QR Pass…
-            </p>
-          </div>
-        )}
-
-        {scannerFallbackNotice && (
-          <div
-            role="status"
-            className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] font-semibold text-[#D97706]"
-          >
-            {scannerFallbackNotice}
-          </div>
-        )}
-
-        {scannedTokenBadge && (
-          <div
-            role="status"
-            className="flex items-center justify-between gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-[12px] font-bold text-[#059669]"
-          >
-            <span className="flex items-center gap-1.5">
-              <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
-              {scannedTokenBadge}
+        <button
+          type="button"
+          onClick={() => setActiveTab('tables')}
+          className={`relative flex flex-col items-center justify-center gap-1 rounded-xl py-2.5 px-2 text-[11.5px] font-extrabold transition-all cursor-pointer ${
+            activeTab === 'tables'
+              ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-sm'
+              : 'text-[#6B7280] hover:bg-[#F8F9FA] hover:text-[#111827]'
+          }`}
+        >
+          <LayoutGrid
+            className={`h-4 w-4 ${
+              activeTab === 'tables' ? 'text-[#D2DB76]' : 'text-[#1E1B4B]'
+            }`}
+            aria-hidden
+          />
+          <span>3. Live Tables</span>
+          {activeCalls.length > 0 && (
+            <span className="absolute top-1.5 right-1.5 inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-[#D97706] px-1 text-[10px] font-extrabold text-[#FFFFFF] tabular-nums">
+              {activeCalls.length}
             </span>
+          )}
+        </button>
+      </nav>
+
+      {/* =====================================================================
+          TAB 1 — SCAN & AWARD LOYALTY STARS (APPROVAL 2: PAID BILL → +1 STAR)
+         ===================================================================== */}
+      {activeTab === 'scan' && (
+        <div className="space-y-4 animate-fadeSlideUp">
+          <div className="bistro-card p-4 space-y-3.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[10.5px] font-extrabold uppercase tracking-wider text-[#059669]">
+                Approval 2 • Paid Bill → +1 Star
+              </span>
+              {selectedTableKey && (
+                <span className="rounded-full bg-[#D2DB76]/60 px-2.5 py-0.5 text-[10.5px] font-extrabold text-[#1E1B4B]">
+                  Table: {selectedTableKey}
+                </span>
+              )}
+            </div>
+
+            {/* Giant Full-Width Midnight Navy Button: SCAN CUSTOMER LOYALTY QR */}
             <button
               type="button"
-              onClick={() => setScannedTokenBadge(null)}
-              className="text-[11px] underline cursor-pointer"
+              onClick={() => void handleToggleCameraScanner()}
+              className={`flex min-h-14 w-full items-center justify-center gap-3 rounded-2xl px-5 py-4 text-[14px] font-extrabold uppercase tracking-wider shadow-md transition-all duration-150 active:scale-[0.98] cursor-pointer ${
+                scannerOpen
+                  ? 'bg-red-700 text-[#FFFFFF]'
+                  : 'bg-[#1E1B4B] text-[#FFFFFF] hover:bg-[#2E2A6E]'
+              }`}
             >
-              Clear
+              {scannerOpen ? (
+                <>
+                  <CameraOff className="h-5 w-5 text-[#D2DB76]" aria-hidden />
+                  <span>CLOSE CAMERA SCANNER</span>
+                </>
+              ) : (
+                <>
+                  <Camera className="h-5 w-5 text-[#D2DB76]" aria-hidden />
+                  <span>SCAN CUSTOMER LOYALTY QR</span>
+                </>
+              )}
             </button>
-          </div>
-        )}
 
-        {/* Single Unified Search & Verify Bar (Phone, Email, QR Token, or 6-Digit Claim Code) */}
-        <form
-          onSubmit={(e) => void handleUnifiedVerify(e)}
-          className="bistro-card p-2 flex items-center gap-2"
-        >
-          <div className="relative flex-1 flex items-center">
-            <Search
-              className="ml-3 h-4 w-4 shrink-0 text-[#6B7280]"
-              aria-hidden
-            />
-            <input
-              type="text"
-              required
-              aria-label="Enter Phone, Email, or 6-Digit Claim Code"
-              placeholder="Enter Phone / Claim Code"
-              value={unifiedLookup}
-              onChange={(e) => {
-                const val = e.target.value;
-                setUnifiedLookup(val);
-                const parsed = parseCustomerLoyaltyLookup(val);
-                if (parsed.mode === 'qr_token') {
-                  setScannedTokenBadge(
-                    `Loyalty QR Pass Detected ✓ (Diner ID: ${parsed.value})`,
-                  );
-                } else {
-                  setScannedTokenBadge(null);
-                }
-              }}
-              className="h-11 w-full bg-transparent pl-2.5 pr-2 text-[14px] font-semibold text-[#111827] placeholder:text-[#6B7280] focus:outline-none"
-            />
-          </div>
+            {/* Live Camera Viewfinder */}
+            {scannerOpen && (
+              <div className="overflow-hidden rounded-2xl border-2 border-[#1E1B4B] bg-[#111827] p-3 text-center space-y-2 animate-fadeSlideUp">
+                <video
+                  ref={videoRef}
+                  muted
+                  playsInline
+                  className="mx-auto h-56 w-full max-w-xs rounded-xl object-cover bg-black"
+                />
+                <p className="text-[12px] font-semibold text-[#D2DB76]">
+                  Point camera at the guest&apos;s personal Loyalty QR Pass…
+                </p>
+              </div>
+            )}
 
-          <button
-            type="submit"
-            disabled={processingLookup || !unifiedLookup.trim()}
-            className="inline-flex h-11 shrink-0 items-center justify-center rounded-xl bg-[#1E1B4B] px-5 text-[13px] font-extrabold text-[#FFFFFF] hover:bg-[#2E2A6E] active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
-          >
-            {processingLookup ? 'Verifying…' : 'Verify'}
-          </button>
-        </form>
-      </div>
-
-      {/* Pending 6-Character Reward Tickets Strip (1-Tap Fulfill) */}
-      {pendingClaims.length > 0 && (
-        <div className="bistro-card p-4 space-y-2.5">
-          <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#6B7280] flex items-center gap-1.5">
-            <Ticket className="h-3.5 w-3.5 text-[#1E1B4B]" aria-hidden />
-            Pending Reward Claim Tickets ({pendingClaims.length})
-          </p>
-          <div className="space-y-2">
-            {pendingClaims.map((claim) => (
+            {scannerFallbackNotice && (
               <div
-                key={claim.id}
-                className="flex items-center justify-between gap-2 rounded-xl border border-[#D2DB76] bg-[#D2DB76]/25 px-3.5 py-2.5"
+                role="status"
+                className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] font-semibold text-[#D97706]"
               >
-                <div className="min-w-0">
-                  <p className="truncate text-[13px] font-extrabold text-[#111827]">
-                    {claim.rewardTitle || 'Reward'} •{' '}
-                    <span className="font-mono text-[#1E1B4B]">
-                      {claim.claimCode}
-                    </span>
-                  </p>
-                  <p className="text-[11px] font-medium text-[#6B7280]">
-                    {claim.customerName || 'Guest'} ({claim.starsSpent} ★)
-                  </p>
-                </div>
+                {scannerFallbackNotice}
+              </div>
+            )}
+
+            {scannedTokenBadge && (
+              <div
+                role="status"
+                className="flex items-center justify-between gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-[12px] font-bold text-[#059669]"
+              >
+                <span className="flex items-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+                  {scannedTokenBadge}
+                </span>
                 <button
                   type="button"
-                  disabled={processingLookup}
-                  onClick={() =>
-                    void handleFulfillClaimCodeDirect(claim.claimCode)
-                  }
-                  className="shrink-0 rounded-xl bg-[#1E1B4B] px-3.5 py-1.5 text-[12px] font-extrabold text-[#FFFFFF] active:scale-[0.98] transition-all cursor-pointer"
+                  onClick={() => setScannedTokenBadge(null)}
+                  className="text-[11px] underline cursor-pointer"
                 >
-                  Fulfill ✓
+                  Clear
                 </button>
               </div>
-            ))}
+            )}
+
+            {/* Step 2: Confirm Paid Bill & Award +1 Star (or Fulfill 6-Char Ticket) */}
+            <form
+              onSubmit={(e) => void handleUnifiedVerify(e)}
+              className="space-y-2.5 pt-1"
+            >
+              <div className="relative flex items-center rounded-xl border border-[#1E1B4B]/20 bg-[#F8F9FA] px-3 focus-within:border-[#1E1B4B] focus-within:bg-[#FFFFFF]">
+                <Search
+                  className="h-4 w-4 shrink-0 text-[#6B7280]"
+                  aria-hidden
+                />
+                <input
+                  type="text"
+                  required
+                  aria-label="Enter Phone, Email, Loyalty QR Token, or 6-Digit Claim Code"
+                  placeholder="Guest Phone, Loyalty QR Token, or 6-Char Ticket…"
+                  value={unifiedLookup}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setUnifiedLookup(val);
+                    const parsed = parseCustomerLoyaltyLookup(val);
+                    if (parsed.mode === 'qr_token') {
+                      setScannedTokenBadge(
+                        `Loyalty QR Pass Detected ✓ (Diner ID: ${parsed.value})`,
+                      );
+                    } else {
+                      setScannedTokenBadge(null);
+                    }
+                  }}
+                  className="h-11 w-full bg-transparent pl-2.5 text-[14px] font-semibold text-[#111827] placeholder:text-[#6B7280] focus:outline-none"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={processingLookup || !trimmedLookup}
+                className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#059669] px-4 py-3 text-[13.5px] font-extrabold text-[#FFFFFF] shadow-sm hover:bg-emerald-700 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
+              >
+                {isSixCharClaimInput ? (
+                  <>
+                    <Ticket className="h-4 w-4" aria-hidden />
+                    <span>
+                      {processingLookup
+                        ? 'Fulfilling Ticket…'
+                        : 'Fulfill 6-Char Reward Ticket ✓'}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Star
+                      className="h-4 w-4 text-[#D2DB76] fill-[#D2DB76]"
+                      aria-hidden
+                    />
+                    <span>
+                      {processingLookup
+                        ? 'Verifying Paid Bill…'
+                        : 'Confirm Paid Bill & Award +1 Star'}
+                    </span>
+                  </>
+                )}
+              </button>
+
+              <p className="flex items-center justify-center gap-1.5 text-[11.5px] font-semibold text-[#6B7280]">
+                <ShieldCheck
+                  className="h-3.5 w-3.5 text-[#1E1B4B]"
+                  aria-hidden
+                />
+                <span>
+                  Audit log records:{' '}
+                  <strong className="text-[#111827]">
+                    Verified by {staffLabel}
+                  </strong>
+                </span>
+              </p>
+            </form>
           </div>
+
+          {/* Pending 6-Character Reward Tickets Strip (1-Tap Fulfill) */}
+          {pendingClaims.length > 0 && (
+            <div className="bistro-card p-4 space-y-2.5">
+              <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#6B7280] flex items-center gap-1.5">
+                <Ticket className="h-3.5 w-3.5 text-[#1E1B4B]" aria-hidden />
+                Pending Reward Claim Tickets ({pendingClaims.length})
+              </p>
+              <div className="space-y-2">
+                {pendingClaims.map((claim) => (
+                  <div
+                    key={claim.id}
+                    className="flex items-center justify-between gap-2 rounded-xl border border-[#D2DB76] bg-[#D2DB76]/25 px-3.5 py-2.5"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-extrabold text-[#111827]">
+                        {claim.rewardTitle || 'Reward'} •{' '}
+                        <span className="font-mono text-[#1E1B4B]">
+                          {claim.claimCode}
+                        </span>
+                      </p>
+                      <p className="text-[11px] font-medium text-[#6B7280]">
+                        {claim.customerName || 'Guest'} ({claim.starsSpent} ★)
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={processingLookup}
+                      onClick={() =>
+                        void handleFulfillClaimCodeDirect(claim.claimCode)
+                      }
+                      className="shrink-0 rounded-xl bg-[#1E1B4B] px-3.5 py-1.5 text-[12px] font-extrabold text-[#FFFFFF] active:scale-[0.98] transition-all cursor-pointer"
+                    >
+                      Fulfill ✓
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* ORDER APPROVAL & CHEF KITCHEN QUEUE (Shown when tableOrderingEnabled is ON) */}
-      {orderingActive && (
-        <div className="bistro-card p-4 space-y-3">
+      {/* =====================================================================
+          TAB 2 — APPROVE ORDERS → CHEF (APPROVAL 1: ORDER → CHEF)
+         ===================================================================== */}
+      {activeTab === 'orders' && (
+        <div className="bistro-card p-4 space-y-3.5 animate-fadeSlideUp">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-[13px] font-extrabold uppercase tracking-wider text-[#111827] flex items-center gap-1.5">
-              <ChefHat className="h-4 w-4 text-[#1E1B4B]" aria-hidden />
-              Order Approval &amp; Chef Queue ({tableOrders.length})
-            </h2>
-            <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[10px] font-extrabold uppercase text-[#059669]">
-              Ordering ON
-            </span>
+            <div>
+              <span className="inline-flex items-center gap-1 rounded-full bg-[#1E1B4B] px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-[#D2DB76]">
+                Approval 1 • Order → Chef
+              </span>
+              <h2 className="mt-1 text-[15px] font-extrabold text-[#111827] flex items-center gap-1.5">
+                <ChefHat className="h-4 w-4 text-[#1E1B4B]" aria-hidden />
+                Incoming Orders &amp; Kitchen Queue ({tableOrders.length})
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => void refreshFloorData()}
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-[#1E1B4B]/15 px-2.5 text-[11px] font-bold text-[#1E1B4B] cursor-pointer"
+            >
+              <RefreshCw className="h-3 w-3" aria-hidden /> Sync
+            </button>
           </div>
 
-          {tableOrders.length === 0 ? (
-            <p className="rounded-xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-4 text-center text-[12px] font-medium text-[#6B7280]">
-              No pending table orders — new orders appear here automatically.
-            </p>
+          {!orderingActive ? (
+            <div className="rounded-xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-6 text-center space-y-1.5">
+              <p className="text-[13.5px] font-bold text-[#111827]">
+                Customer Phone Ordering is currently OFF
+              </p>
+              <p className="text-[12px] text-[#6B7280]">
+                Guests are browsing a view-only menu. Ask the owner to toggle Phone Ordering ON to receive table orders here.
+              </p>
+            </div>
+          ) : tableOrders.length === 0 ? (
+            <div className="rounded-xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-6 text-center space-y-1">
+              <p className="text-[13.5px] font-bold text-[#111827]">
+                No pending table orders
+              </p>
+              <p className="text-[12px] text-[#6B7280]">
+                New guest orders appear here automatically for 1-tap approval to Chef.
+              </p>
+            </div>
           ) : (
-            <div className="space-y-2.5">
+            <div className="space-y-3">
               {tableOrders.map((ord) => {
                 const itemsLine = ord.items
                   .map((i) => `${i.quantity}× ${i.name}`)
@@ -632,7 +795,7 @@ export function RestaurantFloorAndStaffPanel({
                         {ord.status === 'pending_approval'
                           ? 'Pending Approval'
                           : ord.status === 'approved_for_kitchen'
-                            ? 'Kitchen Queue'
+                            ? 'Sent to Chef'
                             : 'Preparing'}
                       </span>
                     </div>
@@ -643,6 +806,14 @@ export function RestaurantFloorAndStaffPanel({
                     {note && (
                       <p className="text-[11.5px] italic text-[#D97706]">
                         Note: &ldquo;{note}&rdquo;
+                      </p>
+                    )}
+                    {ord.approvedBy && (
+                      <p className="text-[11px] font-semibold text-[#6B7280]">
+                        Approved by:{' '}
+                        <strong className="text-[#1E1B4B]">
+                          {ord.approvedBy}
+                        </strong>
                       </p>
                     )}
 
@@ -658,9 +829,9 @@ export function RestaurantFloorAndStaffPanel({
                                 'approved_for_kitchen',
                               )
                             }
-                            className="flex-1 rounded-xl bg-[#1E1B4B] py-2 text-[12px] font-extrabold text-[#FFFFFF] active:scale-[0.98] transition-all cursor-pointer"
+                            className="flex-1 rounded-xl bg-[#1E1B4B] py-2.5 text-[12px] font-extrabold text-[#FFFFFF] active:scale-[0.98] transition-all cursor-pointer"
                           >
-                            Approve to Chef →
+                            Approve Order → Send to Chef
                           </button>
                           <button
                             type="button"
@@ -668,7 +839,7 @@ export function RestaurantFloorAndStaffPanel({
                             onClick={() =>
                               void handleUpdateTableOrder(ord.id, 'cancelled')
                             }
-                            className="rounded-xl border border-red-200 bg-[#FFFFFF] px-3 py-2 text-[12px] font-bold text-red-700 cursor-pointer"
+                            className="rounded-xl border border-red-200 bg-[#FFFFFF] px-3 py-2.5 text-[12px] font-bold text-red-700 cursor-pointer"
                           >
                             Reject
                           </button>
@@ -681,7 +852,7 @@ export function RestaurantFloorAndStaffPanel({
                           onClick={() =>
                             void handleUpdateTableOrder(ord.id, 'preparing')
                           }
-                          className="flex-1 rounded-xl bg-[#1E1B4B] py-2 text-[12px] font-extrabold text-[#FFFFFF] active:scale-[0.98] transition-all cursor-pointer"
+                          className="flex-1 rounded-xl bg-[#1E1B4B] py-2.5 text-[12px] font-extrabold text-[#FFFFFF] active:scale-[0.98] transition-all cursor-pointer"
                         >
                           Chef: Start Preparing
                         </button>
@@ -693,7 +864,7 @@ export function RestaurantFloorAndStaffPanel({
                           onClick={() =>
                             void handleUpdateTableOrder(ord.id, 'served')
                           }
-                          className="flex-1 rounded-xl bg-[#059669] py-2 text-[12px] font-extrabold text-[#FFFFFF] active:scale-[0.98] transition-all cursor-pointer"
+                          className="flex-1 rounded-xl bg-[#059669] py-2.5 text-[12px] font-extrabold text-[#FFFFFF] active:scale-[0.98] transition-all cursor-pointer"
                         >
                           Mark Served ✓
                         </button>
@@ -707,110 +878,112 @@ export function RestaurantFloorAndStaffPanel({
         </div>
       )}
 
-      {/* 2. LIVE 2-COLUMN VISUAL TABLE GRID (Matches Mockup 3: T1, T2, T3, T4...) */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between px-1">
-          <div className="flex items-center gap-2">
-            <h2 className="text-[13px] font-extrabold uppercase tracking-wider text-[#111827]">
-              TABLES
-            </h2>
-            {selectedTableKey && (
-              <span className="rounded-full bg-[#D2DB76]/60 px-2.5 py-0.5 text-[11px] font-extrabold text-[#1E1B4B]">
-                Selected: {selectedTableKey}
-              </span>
-            )}
+      {/* =====================================================================
+          TAB 3 — LIVE 2-COLUMN VISUAL TABLE MAP (T1–T6)
+         ===================================================================== */}
+      {activeTab === 'tables' && (
+        <div className="space-y-3 animate-fadeSlideUp">
+          <div className="flex items-center justify-between px-1">
+            <div className="flex items-center gap-2">
+              <h2 className="text-[13px] font-extrabold uppercase tracking-wider text-[#111827]">
+                LIVE TABLE MAP
+              </h2>
+              {selectedTableKey && (
+                <span className="rounded-full bg-[#D2DB76]/60 px-2.5 py-0.5 text-[11px] font-extrabold text-[#1E1B4B]">
+                  Tagged: {selectedTableKey}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => void refreshFloorData()}
+              className="inline-flex items-center gap-1 text-[12px] font-bold text-[#6B7280] hover:text-[#111827] cursor-pointer"
+            >
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Refresh
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => void refreshFloorData()}
-            className="inline-flex items-center gap-1 text-[12px] font-bold text-[#6B7280] hover:text-[#111827] cursor-pointer"
-          >
-            <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Refresh
-          </button>
-        </div>
 
-        {tables.length === 0 ? (
-          <div className="bistro-card p-8 text-center text-[13px] text-[#6B7280]">
-            No tables configured yet. Add tables in the Owner Workspace under &ldquo;Tables &amp; QRs&rdquo;.
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-3.5">
-            {tables.map((tbl, idx) => {
-              const call = activeCalls.find((c) => c.tableId === tbl.id);
-              const isBillCall = call?.callType === 'ready_for_bill';
-              const shortCode = getShortTableCode(tbl.tableNumber, idx);
-              const isSelected = selectedTableKey === tbl.tableKey;
+          {tables.length === 0 ? (
+            <div className="bistro-card p-8 text-center text-[13px] text-[#6B7280]">
+              No tables configured yet. Add tables in the Owner Workspace under &ldquo;Tables &amp; QRs&rdquo;.
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3.5">
+              {tables.map((tbl, idx) => {
+                const call = activeCalls.find((c) => c.tableId === tbl.id);
+                const isBillCall = call?.callType === 'ready_for_bill';
+                const shortCode = getShortTableCode(tbl.tableNumber, idx);
+                const isSelected = selectedTableKey === tbl.tableKey;
 
-              if (call) {
-                // Active Alert Table Card — Warm Amber Illumination (Matches Mockup 3 T4 Card)
+                if (call) {
+                  return (
+                    <button
+                      key={tbl.id}
+                      type="button"
+                      onClick={() => void handleResolveTableCall(call.id)}
+                      className="group relative flex aspect-square flex-col items-center justify-center gap-2.5 rounded-2xl border-2 border-[#D97706] bg-[#E5A93C] p-4 text-center text-[#111827] shadow-md transition-all duration-150 active:scale-[0.98] cursor-pointer"
+                    >
+                      <span className="absolute top-3 right-3 flex h-3 w-3">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#1E1B4B] opacity-75" />
+                        <span className="relative inline-flex h-3 w-3 rounded-full bg-[#1E1B4B]" />
+                      </span>
+
+                      <span className="text-[32px] leading-none font-extrabold tracking-tight text-[#111827] tabular-nums">
+                        {shortCode}
+                      </span>
+
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#111827]/15 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-[#111827]">
+                        {isBillCall ? 'BILL REQUESTED' : 'WAITER CALLED'}
+                        <BellRing className="h-3 w-3" aria-hidden />
+                      </span>
+
+                      <span className="text-[11px] font-bold text-[#111827]/80 underline">
+                        Tap to Resolve ✓
+                      </span>
+                    </button>
+                  );
+                }
+
                 return (
                   <button
                     key={tbl.id}
                     type="button"
-                    onClick={() => void handleResolveTableCall(call.id)}
-                    className="group relative flex aspect-square flex-col items-center justify-center gap-2.5 rounded-2xl border-2 border-[#D97706] bg-[#E5A93C] p-4 text-center text-[#111827] shadow-md transition-all duration-150 active:scale-[0.98] cursor-pointer"
+                    onClick={() =>
+                      setSelectedTableKey((prev) =>
+                        prev === tbl.tableKey ? '' : tbl.tableKey,
+                      )
+                    }
+                    className={`flex aspect-square flex-col items-center justify-center gap-2.5 rounded-2xl border bg-[#FFFFFF] p-4 text-center shadow-2xs transition-all duration-150 active:scale-[0.98] cursor-pointer ${
+                      isSelected
+                        ? 'border-2 border-[#1E1B4B] ring-2 ring-[#D2DB76]'
+                        : 'border-[#1E1B4B]/10 hover:border-[#1E1B4B]/40'
+                    }`}
                   >
-                    <span className="absolute top-3 right-3 flex h-3 w-3">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#1E1B4B] opacity-75" />
-                      <span className="relative inline-flex h-3 w-3 rounded-full bg-[#1E1B4B]" />
-                    </span>
-
                     <span className="text-[32px] leading-none font-extrabold tracking-tight text-[#111827] tabular-nums">
                       {shortCode}
                     </span>
 
-                    <span className="inline-flex items-center gap-1 rounded-full bg-[#111827]/15 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-[#111827]">
-                      {isBillCall ? 'BILL REQUESTED' : 'WAITER CALLED'}
-                      <BellRing className="h-3 w-3" aria-hidden />
+                    <span
+                      className={`rounded-full px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider ${
+                        isSelected
+                          ? 'bg-[#D2DB76] text-[#1E1B4B]'
+                          : 'bg-emerald-50 text-[#059669] border border-emerald-200'
+                      }`}
+                    >
+                      {isSelected ? 'TAGGED FOR SCAN' : 'AVAILABLE'}
                     </span>
 
-                    <span className="text-[11px] font-bold text-[#111827]/80 underline">
-                      Tap to Resolve ✓
+                    <span className="text-[11px] font-medium text-[#6B7280] truncate max-w-full">
+                      {tbl.tableNumber}
+                      {tbl.tableLabel ? ` • ${tbl.tableLabel}` : ''}
                     </span>
                   </button>
                 );
-              }
-
-              // Standard Table Card (Matches Mockup 3 T1, T2, T3...)
-              return (
-                <button
-                  key={tbl.id}
-                  type="button"
-                  onClick={() =>
-                    setSelectedTableKey((prev) =>
-                      prev === tbl.tableKey ? '' : tbl.tableKey,
-                    )
-                  }
-                  className={`flex aspect-square flex-col items-center justify-center gap-2.5 rounded-2xl border bg-[#FFFFFF] p-4 text-center shadow-2xs transition-all duration-150 active:scale-[0.98] cursor-pointer ${
-                    isSelected
-                      ? 'border-2 border-[#1E1B4B] ring-2 ring-[#D2DB76]'
-                      : 'border-[#1E1B4B]/10 hover:border-[#1E1B4B]/40'
-                  }`}
-                >
-                  <span className="text-[32px] leading-none font-extrabold tracking-tight text-[#111827] tabular-nums">
-                    {shortCode}
-                  </span>
-
-                  <span
-                    className={`rounded-full px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider ${
-                      isSelected
-                        ? 'bg-[#D2DB76] text-[#1E1B4B]'
-                        : 'bg-emerald-50 text-[#059669] border border-emerald-200'
-                    }`}
-                  >
-                    {isSelected ? 'OCCUPIED' : 'AVAILABLE'}
-                  </span>
-
-                  <span className="text-[11px] font-medium text-[#6B7280] truncate max-w-full">
-                    {tbl.tableNumber}
-                    {tbl.tableLabel ? ` • ${tbl.tableLabel}` : ''}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

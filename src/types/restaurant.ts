@@ -18,6 +18,12 @@ export type MenuThemeTemplate =
   | 'samudra'
   | 'sizzler';
 
+export type RestaurantBusinessMode = 'restaurant' | 'cafe';
+
+export type RestaurantStaffRole = 'waiter' | 'cashier' | 'chef' | 'manager';
+
+export type MonthlyInventoryEntryType = 'stock_purchase' | 'monthly_expense';
+
 export type MenuPresetKey =
   | 'masala_indian'
   | 'prakriti_organic'
@@ -93,6 +99,8 @@ export interface RestaurantProfile {
   tableOrderingEnabled?: boolean;
   /** Selected visual cultural theme for the customer Digital Menu view. */
   menuThemeTemplate?: MenuThemeTemplate;
+  /** Operational mode for the dashboard & floor workflows ('restaurant' | 'cafe'). */
+  businessMode?: RestaurantBusinessMode;
   /** Optional custom restaurant logo URL. */
   customLogoUrl?: string | null;
   /** Optional custom hex accent color (#RRGGBB). */
@@ -111,6 +119,7 @@ export interface RestaurantProfileInput {
   minHoursBetweenVisitStars?: number;
   tableOrderingEnabled?: boolean;
   menuThemeTemplate?: MenuThemeTemplate;
+  businessMode?: RestaurantBusinessMode;
   customLogoUrl?: string | null;
   customAccentColor?: string | null;
 }
@@ -554,6 +563,82 @@ export interface RestaurantFloorAndAnalyticsPayload {
     RestaurantRewardClaim & { customerName?: string }
   >;
   tableOrderingEnabled?: boolean;
+  businessMode?: RestaurantBusinessMode;
   tableOrders?: RestaurantTableOrder[];
+  /** Map of `verifiedByLabel` -> count of verified paid visits performed today (UTC day). */
+  staffVerificationCountsToday?: Record<string, number>;
   analytics: RestaurantEngagementAnalytics;
+}
+
+// ===========================================================================
+// Master Upgrade II: Individual Staff Roster & Monthly Inventory / Expenses
+// ===========================================================================
+
+export interface RestaurantStaffMember {
+  id: string;
+  businessId: string;
+  staffCode: string;
+  fullName: string;
+  role: RestaurantStaffRole;
+  pinHash: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RestaurantStaffMemberInput {
+  fullName: string;
+  role: RestaurantStaffRole;
+  /** Optional explicit Staff Code (e.g. 'WTR-01'). Auto-generated when omitted on create. */
+  staffCode?: string;
+  /** Required on create; optional on update (preserves existing PIN when omitted). */
+  pinHash?: string;
+  isActive?: boolean;
+}
+
+export interface PublicStaffLoginOption {
+  id: string;
+  staffCode: string;
+  fullName: string;
+  role: RestaurantStaffRole;
+}
+
+export interface VerifiedStaffMemberSession {
+  verified: boolean;
+  staffId: string | null;
+  staffCode: string;
+  fullName: string;
+  role: RestaurantStaffRole;
+  /** Canonical audit string recorded on verified visits, rewards, and orders, e.g. "Ravi Kumar (WTR-01)". */
+  staffLabel: string;
+  businessId: string;
+  businessSlug: string;
+  businessName: string;
+  businessMode?: RestaurantBusinessMode;
+}
+
+export interface RestaurantMonthlyInventoryItem {
+  id: string;
+  businessId: string;
+  monthKey: string;
+  entryType: MonthlyInventoryEntryType;
+  category: string;
+  itemName: string;
+  quantityLabel: string | null;
+  amountPaise: number;
+  lowStockAlert: boolean;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RestaurantMonthlyInventoryInput {
+  monthKey: string;
+  entryType: MonthlyInventoryEntryType;
+  category: string;
+  itemName: string;
+  quantityLabel?: string | null;
+  amountPaise: number;
+  lowStockAlert?: boolean;
+  notes?: string | null;
 }

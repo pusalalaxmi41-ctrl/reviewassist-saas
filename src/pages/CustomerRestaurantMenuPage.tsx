@@ -20,6 +20,7 @@ import {
   Inbox,
 } from 'lucide-react';
 import type {
+  MenuThemeTemplate,
   PublicRestaurantMenuPayload,
   RestaurantCustomerWalletState,
   RestaurantTableCall,
@@ -76,6 +77,154 @@ function saveStoredDinerIdentity(identity: StoredDinerIdentity): void {
 }
 
 type HubView = 'launcher' | 'menu' | 'games' | 'rewards' | 'extras';
+
+interface HubThemePalette {
+  pageShell: string;
+  headerCard: string;
+  titleClass: string;
+  subtitleClass: string;
+  tableBadge: string;
+  joinBanner: string;
+  joinIconBox: string;
+  joinSubtitle: string;
+  actionBlock: string;
+  actionTitle: string;
+  actionSubtitle: string;
+  chevronClass: string;
+  brandIconBox: string;
+}
+
+function getHubThemePalette(theme: MenuThemeTemplate): HubThemePalette {
+  switch (theme) {
+    case 'masala':
+      return {
+        pageShell:
+          'masala-parchment-bg -mx-4 sm:-mx-6 -mt-6 sm:-mt-12 px-4 sm:px-6 pt-6 pb-12 min-h-[84vh]',
+        headerCard:
+          'rounded-2xl border-4 border-double border-amber-600/60 bg-[#FFFDF7] px-5 py-4 shadow-sm',
+        titleClass:
+          'font-serif-editorial text-[21px] font-bold tracking-tight text-[#7A1624]',
+        subtitleClass: 'text-[12px] italic text-[#7A4420]',
+        tableBadge:
+          'rounded-full border border-[#F4C430] bg-[#7A1624] px-3.5 py-1.5 text-[12px] font-extrabold text-[#F4C430]',
+        joinBanner:
+          'rounded-2xl border-2 border-[#F4C430]/75 bg-[#7A1624] text-[#FDF8EE] shadow-md hover:bg-[#5C0E19]',
+        joinIconBox: 'rounded-xl bg-[#F4C430] text-[#4A1216]',
+        joinSubtitle: 'text-[#F4C430]',
+        actionBlock:
+          'rounded-2xl border-2 border-double border-amber-600/50 bg-[#FFFDF7] shadow-2xs hover:border-[#7A1624]/60',
+        actionTitle: 'font-serif-editorial text-[16px] font-bold text-[#4A1216]',
+        actionSubtitle: 'text-[12.5px] font-medium text-[#7A4420]',
+        chevronClass: 'text-[#7A1624]/70',
+        brandIconBox: 'rounded-2xl bg-[#7A1624] text-[#F4C430]',
+      };
+    case 'prakriti':
+      return {
+        pageShell:
+          'prakriti-paper-bg -mx-4 sm:-mx-6 -mt-6 sm:-mt-12 px-4 sm:px-6 pt-6 pb-12 min-h-[84vh]',
+        headerCard:
+          'rounded-3xl border border-[#2D4A33]/20 bg-[#FAF6EE] px-5 py-4 shadow-sm',
+        titleClass:
+          'font-serif-editorial text-[21px] font-bold tracking-tight text-[#2D4A33]',
+        subtitleClass: 'text-[12px] font-medium text-[#4E644F]',
+        tableBadge:
+          'rounded-full bg-[#B85D3B] px-3.5 py-1.5 text-[12px] font-extrabold text-[#FAF6EE]',
+        joinBanner:
+          'rounded-3xl border border-[#4A6B50]/40 bg-[#2D4A33] text-[#FAF6EE] shadow-md hover:bg-[#223927]',
+        joinIconBox: 'rounded-2xl bg-[#B85D3B] text-[#FAF6EE]',
+        joinSubtitle: 'text-[#E7DFCE]',
+        actionBlock:
+          'rounded-3xl border border-[#2D4A33]/15 bg-[#FAF6EE] shadow-2xs hover:border-[#2D4A33]/40',
+        actionTitle: 'font-serif-editorial text-[16px] font-bold text-[#1E3F20]',
+        actionSubtitle: 'text-[12.5px] font-medium text-[#4E644F]',
+        chevronClass: 'text-[#2D4A33]/70',
+        brandIconBox: 'rounded-2xl bg-[#2D4A33] text-[#FAF6EE]',
+      };
+    case 'bistro':
+      return {
+        pageShell:
+          'bistro-obsidian-bg -mx-4 sm:-mx-6 -mt-6 sm:-mt-12 px-4 sm:px-6 pt-6 pb-12 min-h-[84vh]',
+        headerCard:
+          'rounded-none border border-[#C5A880]/55 bg-[#1B1B1B] px-5 py-4',
+        titleClass:
+          'text-[19px] font-light uppercase tracking-[0.18em] text-[#FAF7F2]',
+        subtitleClass: 'text-[11.5px] tracking-[0.06em] text-[#C5A880]',
+        tableBadge:
+          'rounded-none border border-[#C5A880] bg-transparent px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#C5A880]',
+        joinBanner:
+          'rounded-none border border-[#C5A880] bg-[#1B1B1B] text-[#FAF7F2] hover:bg-[#242424]',
+        joinIconBox: 'rounded-none bg-[#C5A880] text-[#141414]',
+        joinSubtitle: 'text-[#C5A880]',
+        actionBlock:
+          'rounded-none border border-[#C5A880]/40 bg-[#FAF7F2] hover:border-[#C5A880]',
+        actionTitle:
+          'text-[14.5px] font-bold uppercase tracking-[0.06em] text-[#141414]',
+        actionSubtitle: 'text-[12px] font-medium text-[#4B4B4B]',
+        chevronClass: 'text-[#141414]/60',
+        brandIconBox: 'rounded-none border border-[#C5A880] bg-[#141414] text-[#C5A880]',
+      };
+    case 'samudra':
+      return {
+        pageShell:
+          'samudra-coastal-bg -mx-4 sm:-mx-6 -mt-6 sm:-mt-12 px-4 sm:px-6 pt-6 pb-12 min-h-[84vh]',
+        headerCard:
+          'rounded-3xl border border-[#1A365D]/15 bg-[#FFFFFF] px-5 py-4 shadow-sm',
+        titleClass: 'text-[20px] font-extrabold tracking-tight text-[#1A365D]',
+        subtitleClass: 'text-[12px] font-medium text-[#3B5978]',
+        tableBadge:
+          'rounded-full bg-[#0D9488] px-3.5 py-1.5 text-[12px] font-extrabold text-[#FFFFFF]',
+        joinBanner:
+          'rounded-3xl border border-[#2DD4BF]/40 bg-[#1A365D] text-[#FFFFFF] shadow-md hover:bg-[#152C4D]',
+        joinIconBox: 'rounded-2xl bg-[#0D9488] text-[#FFFFFF]',
+        joinSubtitle: 'text-[#99F6E4]',
+        actionBlock:
+          'rounded-3xl border border-[#1A365D]/12 bg-[#FFFFFF] shadow-2xs hover:border-[#0D9488]/50',
+        actionTitle: 'text-[16px] font-extrabold text-[#1A365D]',
+        actionSubtitle: 'text-[12.5px] font-medium text-[#4A627A]',
+        chevronClass: 'text-[#0D9488]',
+        brandIconBox: 'rounded-2xl bg-[#1A365D] text-[#2DD4BF]',
+      };
+    case 'sizzler':
+      return {
+        pageShell:
+          'sizzler-diner-bg -mx-4 sm:-mx-6 -mt-6 sm:-mt-12 px-4 sm:px-6 pt-6 pb-12 min-h-[84vh]',
+        headerCard:
+          'rounded-2xl border-2 border-[#111827] bg-[#FACC15] px-5 py-4 shadow-[4px_4px_0px_#111827]',
+        titleClass: 'text-[21px] font-black uppercase tracking-tight text-[#111827]',
+        subtitleClass: 'text-[12px] font-bold text-[#7F1D1D]',
+        tableBadge:
+          'rounded-xl border-2 border-[#111827] bg-[#DC2626] px-3 py-1 text-[11.5px] font-black uppercase text-[#FEFCE8]',
+        joinBanner:
+          'rounded-2xl border-2 border-[#111827] bg-[#DC2626] text-[#FEFCE8] shadow-[4px_4px_0px_#111827] hover:bg-[#B91C1C]',
+        joinIconBox: 'rounded-xl border-2 border-[#111827] bg-[#FACC15] text-[#111827]',
+        joinSubtitle: 'text-[#FACC15]',
+        actionBlock:
+          'rounded-2xl border-2 border-[#111827] bg-[#FFFFFF] shadow-[4px_4px_0px_#111827] hover:translate-x-[1px] hover:translate-y-[1px]',
+        actionTitle: 'text-[15.5px] font-black uppercase text-[#111827]',
+        actionSubtitle: 'text-[12px] font-semibold text-[#374151]',
+        chevronClass: 'text-[#DC2626]',
+        brandIconBox: 'rounded-xl border-2 border-[#111827] bg-[#DC2626] text-[#FACC15]',
+      };
+    default:
+      return {
+        pageShell: 'pb-8',
+        headerCard: 'bistro-card px-5 py-4',
+        titleClass: 'text-[20px] font-extrabold tracking-tight text-[#111827]',
+        subtitleClass: 'text-[12px] font-medium text-[#6B7280]',
+        tableBadge:
+          'rounded-full bg-[#D2DB76] px-3.5 py-1.5 text-[12px] font-extrabold text-[#1E1B4B]',
+        joinBanner:
+          'rounded-2xl border border-[#1E1B4B]/10 bg-[#1E1B4B] text-[#FFFFFF] shadow-md hover:bg-[#2E2A6E]',
+        joinIconBox: 'rounded-xl bg-[#D2DB76] text-[#1E1B4B]',
+        joinSubtitle: 'text-[#D2DB76]',
+        actionBlock: 'bistro-card hover:border-[#1E1B4B]/30',
+        actionTitle: 'text-[16px] font-extrabold text-[#111827]',
+        actionSubtitle: 'text-[12.5px] font-medium text-[#6B7280]',
+        chevronClass: 'text-[#6B7280]',
+        brandIconBox: 'rounded-2xl bg-[#1E1B4B] text-[#D2DB76]',
+      };
+  }
+}
 
 export default function CustomerRestaurantMenuPage() {
   const { businessSlug, tableKey } = useParams<{
@@ -362,293 +511,304 @@ export default function CustomerRestaurantMenuPage() {
     );
   }
 
+  const activeTheme: MenuThemeTemplate =
+    profile.menuThemeTemplate ?? 'default';
   const activeThemeMeta =
-    MENU_THEME_LIST.find(
-      (t) => t.id === (profile.menuThemeTemplate ?? 'default'),
-    ) ?? MENU_THEME_LIST[MENU_THEME_LIST.length - 1];
+    MENU_THEME_LIST.find((t) => t.id === activeTheme) ??
+    MENU_THEME_LIST[MENU_THEME_LIST.length - 1];
+  const hubTheme = getHubThemePalette(activeTheme);
 
   return (
-    <div className="mx-auto w-full max-w-md pb-8 space-y-4 animate-fadeSlideUp">
-      {/* 1. TOP BRAND HEADER CARD */}
-      <header className="bistro-card px-5 py-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3.5 min-w-0">
-          {profile.customLogoUrl ? (
-            <img
-              src={profile.customLogoUrl}
-              alt={`${business.name} logo`}
-              className="h-12 w-12 shrink-0 rounded-2xl object-cover border border-[#1E1B4B]/10"
+    <div
+      data-hub-theme={activeTheme}
+      className={`transition-colors duration-200 animate-fadeSlideUp ${hubTheme.pageShell}`}
+    >
+      <div className="mx-auto w-full max-w-md space-y-4">
+        {/* 1. TOP BRAND HEADER CARD (Harmonized with Selected Cultural Template) */}
+        <header
+          className={`${hubTheme.headerCard} flex items-center justify-between gap-3`}
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            {profile.customLogoUrl ? (
+              <img
+                src={profile.customLogoUrl}
+                alt={`${business.name} logo`}
+                className="h-12 w-12 shrink-0 rounded-2xl object-cover border border-black/10"
+              />
+            ) : (
+              <div
+                className={`flex h-12 w-12 shrink-0 items-center justify-center shadow-sm ${hubTheme.brandIconBox}`}
+              >
+                <UtensilsCrossed className="h-5 w-5" aria-hidden />
+              </div>
+            )}
+            <div className="min-w-0">
+              <h1 className={`truncate ${hubTheme.titleClass}`}>
+                {business.name}
+              </h1>
+              <p className={`truncate ${hubTheme.subtitleClass}`}>
+                {profile.tagline || `${business.city} • Welcome to Your Table`}
+              </p>
+            </div>
+          </div>
+
+          {/* Table Pill Badge */}
+          {table ? (
+            <div
+              data-testid="detected-table-badge"
+              className={`shrink-0 text-center shadow-2xs whitespace-nowrap ${hubTheme.tableBadge}`}
+            >
+              {table.tableNumber}
+            </div>
+          ) : (
+            tableKey && (
+              <div
+                className={`shrink-0 whitespace-nowrap ${hubTheme.tableBadge}`}
+              >
+                {tableKey}
+              </div>
+            )
+          )}
+        </header>
+
+        {/* 2. LOYALTY STATUS & QUICK JOIN CARD */}
+        {profile.loyaltyEnabled &&
+          (wallet ? (
+            <CustomerLoyaltyHeroCard
+              businessId={business.id}
+              businessSlug={business.slug}
+              businessName={business.name}
+              loyaltyEnabled={profile.loyaltyEnabled}
+              loyaltyRules={loyaltyRules}
+              rewards={rewards}
+              wallet={wallet}
+              onWalletUpdated={(next) => setWallet(next)}
+              onEnsureCustomerWallet={ensureCustomerWallet}
+              onOpenRewards={() => setActiveView('rewards')}
             />
           ) : (
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#1E1B4B] text-[#D2DB76] shadow-sm">
-              <UtensilsCrossed className="h-5 w-5" aria-hidden />
-            </div>
-          )}
-          <div className="min-w-0">
-            <h1 className="truncate text-[20px] font-extrabold tracking-tight text-[#111827]">
-              {business.name}
-            </h1>
-            <p className="truncate text-[12px] font-medium text-[#6B7280]">
-              {profile.tagline || `${business.city} • Welcome to Your Table`}
-            </p>
-          </div>
-        </div>
-
-        {/* Champagne Gold Table Pill Badge */}
-        {table ? (
-          <div
-            data-testid="detected-table-badge"
-            className="shrink-0 rounded-full bg-[#D2DB76] px-3.5 py-1.5 text-center shadow-2xs"
-          >
-            <span className="text-[12px] font-extrabold text-[#1E1B4B] whitespace-nowrap">
-              {table.tableNumber}
-            </span>
-          </div>
-        ) : (
-          tableKey && (
-            <div className="shrink-0 rounded-full bg-[#D2DB76] px-3.5 py-1.5 text-[12px] font-extrabold text-[#1E1B4B]">
-              {tableKey}
-            </div>
-          )
-        )}
-      </header>
-
-      {/* 2. LOYALTY STATUS & QUICK JOIN CARD */}
-      {profile.loyaltyEnabled &&
-        (wallet ? (
-          <CustomerLoyaltyHeroCard
-            businessId={business.id}
-            businessSlug={business.slug}
-            businessName={business.name}
-            loyaltyEnabled={profile.loyaltyEnabled}
-            loyaltyRules={loyaltyRules}
-            rewards={rewards}
-            wallet={wallet}
-            onWalletUpdated={(next) => setWallet(next)}
-            onEnsureCustomerWallet={ensureCustomerWallet}
-            onOpenRewards={() => setActiveView('rewards')}
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={() => {
-              setJoinError(null);
-              setShowJoinModal(true);
-            }}
-            className="w-full rounded-2xl border border-[#1E1B4B]/10 bg-[#1E1B4B] p-4 text-left text-[#FFFFFF] shadow-md transition-all duration-150 hover:bg-[#2E2A6E] active:scale-[0.98] cursor-pointer flex items-center justify-between gap-3"
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#D2DB76] text-[#1E1B4B]">
-                <Star className="h-5 w-5" fill="currentColor" aria-hidden />
-              </span>
-              <div className="min-w-0">
-                <p className="text-[14px] font-extrabold text-[#FFFFFF]">
-                  ★ Join Loyalty &amp; Collect Stars
-                </p>
-                <p className="text-[12px] text-[#D2DB76] font-semibold">
-                  Tap to Start (5 sec) • Unlock free dining perks
-                </p>
-              </div>
-            </div>
-            <ChevronRight
-              className="h-5 w-5 shrink-0 text-[#D2DB76]"
-              aria-hidden
-            />
-          </button>
-        ))}
-
-      {/* 3. STACKED FULL-WIDTH HORIZONTAL ACTION BLOCKS (6 Blocks) */}
-      <nav aria-label="Table Hub Actions" className="space-y-3">
-        {/* BLOCK 1: DIGITAL MENU */}
-        <button
-          type="button"
-          data-testid="launcher-block-menu"
-          onClick={() => setActiveView('menu')}
-          className="bistro-card w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 hover:border-[#1E1B4B]/30 active:scale-[0.98] cursor-pointer"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <span
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl shadow-2xs"
-              style={{
-                backgroundColor: activeThemeMeta.swatches[0],
-                color: activeThemeMeta.swatches[2],
+            <button
+              type="button"
+              onClick={() => {
+                setJoinError(null);
+                setShowJoinModal(true);
               }}
+              className={`w-full p-4 text-left transition-all duration-150 active:scale-[0.98] cursor-pointer flex items-center justify-between gap-3 ${hubTheme.joinBanner}`}
             >
-              <UtensilsCrossed className="h-5 w-5" aria-hidden />
-            </span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[16px] font-extrabold text-[#111827]">
-                  Digital Menu
+              <div className="flex items-center gap-3 min-w-0">
+                <span
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center ${hubTheme.joinIconBox}`}
+                >
+                  <Star className="h-5 w-5" fill="currentColor" aria-hidden />
                 </span>
-                <span className="rounded-full bg-[#D2DB76]/55 px-2.5 py-0.5 text-[10.5px] font-extrabold text-[#1E1B4B]">
-                  {items.length} Dishes
-                </span>
+                <div className="min-w-0">
+                  <p className="text-[14px] font-extrabold">
+                    ★ Join Loyalty &amp; Collect Stars
+                  </p>
+                  <p
+                    className={`text-[12px] font-semibold ${hubTheme.joinSubtitle}`}
+                  >
+                    Tap to Start (5 sec) • Unlock free dining perks
+                  </p>
+                </div>
               </div>
-              <p className="mt-0.5 text-[12.5px] font-medium text-[#6B7280]">
-                {profile.tableOrderingEnabled
-                  ? 'Explore Digital Menu & Send Table Order'
-                  : 'Explore Digital Menu'}
-              </p>
-            </div>
-          </div>
-          <ChevronRight
-            className="h-5 w-5 shrink-0 text-[#6B7280]"
-            aria-hidden
-          />
-        </button>
+              <ChevronRight
+                className={`h-5 w-5 shrink-0 ${hubTheme.joinSubtitle}`}
+                aria-hidden
+              />
+            </button>
+          ))}
 
-        {/* BLOCK 2: GUEST WI-FI */}
-        <button
-          type="button"
-          data-testid="launcher-block-wifi"
-          onClick={() => setShowWifiModal(true)}
-          className="bistro-card w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 hover:border-[#1E1B4B]/30 active:scale-[0.98] cursor-pointer"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#1E1B4B]/[0.07] text-[#1E1B4B]">
-              <Wifi className="h-5 w-5" aria-hidden />
-            </span>
-            <div className="min-w-0">
-              <span className="text-[16px] font-extrabold text-[#111827]">
-                Guest Wi-Fi
-              </span>
-              <p className="mt-0.5 text-[12.5px] font-medium text-[#6B7280]">
-                {loyaltyRules?.wifiNetworkName
-                  ? `Connect to Wi-Fi (${loyaltyRules.wifiNetworkName})`
-                  : 'Connect to Wi-Fi & Table Notes'}
-              </p>
-            </div>
-          </div>
-          <ChevronRight
-            className="h-5 w-5 shrink-0 text-[#6B7280]"
-            aria-hidden
-          />
-        </button>
-
-        {/* BLOCK 3: PLAY TABLE GAMES */}
-        {profile.gamesEnabled && (
+        {/* 3. STACKED FULL-WIDTH HORIZONTAL ACTION BLOCKS (6 Blocks — Theme Harmonized) */}
+        <nav aria-label="Table Hub Actions" className="space-y-3">
+          {/* BLOCK 1: DIGITAL MENU */}
           <button
             type="button"
-            data-testid="launcher-block-games"
-            onClick={() => setActiveView('games')}
-            className="bistro-card w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 hover:border-[#1E1B4B]/30 active:scale-[0.98] cursor-pointer"
+            data-testid="launcher-block-menu"
+            onClick={() => setActiveView('menu')}
+            className={`w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 active:scale-[0.98] cursor-pointer ${hubTheme.actionBlock}`}
           >
             <div className="flex items-center gap-3.5 min-w-0">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#1E1B4B] text-[#D2DB76]">
-                <Gamepad2 className="h-5 w-5" aria-hidden />
+              <span
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl shadow-2xs"
+                style={{
+                  backgroundColor: activeThemeMeta.swatches[0],
+                  color: activeThemeMeta.swatches[2],
+                }}
+              >
+                <UtensilsCrossed className="h-5 w-5" aria-hidden />
               </span>
               <div className="min-w-0">
-                <span className="text-[16px] font-extrabold text-[#111827]">
-                  Play Table Games
-                </span>
-                <p className="mt-0.5 text-[12.5px] font-medium text-[#6B7280]">
-                  Play &amp; Earn Game Points while you wait
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={hubTheme.actionTitle}>Digital Menu</span>
+                  <span className="rounded-full bg-[#D2DB76]/65 px-2.5 py-0.5 text-[10.5px] font-extrabold text-[#1E1B4B]">
+                    {items.length} Dishes
+                  </span>
+                </div>
+                <p className={`mt-0.5 ${hubTheme.actionSubtitle}`}>
+                  {profile.tableOrderingEnabled
+                    ? 'Explore Digital Menu & Send Table Order'
+                    : 'Explore Digital Menu'}
                 </p>
               </div>
             </div>
             <ChevronRight
-              className="h-5 w-5 shrink-0 text-[#6B7280]"
+              className={`h-5 w-5 shrink-0 ${hubTheme.chevronClass}`}
               aria-hidden
             />
           </button>
-        )}
 
-        {/* BLOCK 4: REWARDS & LOYALTY WALLET */}
-        {profile.loyaltyEnabled && (
+          {/* BLOCK 2: GUEST WI-FI */}
           <button
             type="button"
-            data-testid="launcher-block-rewards"
-            onClick={() => setActiveView('rewards')}
-            className="bistro-card w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 hover:border-[#1E1B4B]/30 active:scale-[0.98] cursor-pointer"
+            data-testid="launcher-block-wifi"
+            onClick={() => setShowWifiModal(true)}
+            className={`w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 active:scale-[0.98] cursor-pointer ${hubTheme.actionBlock}`}
           >
             <div className="flex items-center gap-3.5 min-w-0">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#D2DB76]/55 text-[#1E1B4B]">
-                <Gift className="h-5 w-5" aria-hidden />
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#1E1B4B]/[0.08] text-[#1E1B4B]">
+                <Wifi className="h-5 w-5" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <span className={hubTheme.actionTitle}>Guest Wi-Fi</span>
+                <p className={`mt-0.5 ${hubTheme.actionSubtitle}`}>
+                  {loyaltyRules?.wifiNetworkName
+                    ? `Connect to Wi-Fi (${loyaltyRules.wifiNetworkName})`
+                    : 'Connect to Wi-Fi & Table Notes'}
+                </p>
+              </div>
+            </div>
+            <ChevronRight
+              className={`h-5 w-5 shrink-0 ${hubTheme.chevronClass}`}
+              aria-hidden
+            />
+          </button>
+
+          {/* BLOCK 3: PLAY TABLE GAMES */}
+          {profile.gamesEnabled && (
+            <button
+              type="button"
+              data-testid="launcher-block-games"
+              onClick={() => setActiveView('games')}
+              className={`w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 active:scale-[0.98] cursor-pointer ${hubTheme.actionBlock}`}
+            >
+              <div className="flex items-center gap-3.5 min-w-0">
+                <span
+                  className={`flex h-12 w-12 shrink-0 items-center justify-center ${hubTheme.brandIconBox}`}
+                >
+                  <Gamepad2 className="h-5 w-5" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <span className={hubTheme.actionTitle}>Play Table Games</span>
+                  <p className={`mt-0.5 ${hubTheme.actionSubtitle}`}>
+                    Play &amp; Earn Game Points while you wait
+                  </p>
+                </div>
+              </div>
+              <ChevronRight
+                className={`h-5 w-5 shrink-0 ${hubTheme.chevronClass}`}
+                aria-hidden
+              />
+            </button>
+          )}
+
+          {/* BLOCK 4: REWARDS & LOYALTY WALLET */}
+          {profile.loyaltyEnabled && (
+            <button
+              type="button"
+              data-testid="launcher-block-rewards"
+              onClick={() => setActiveView('rewards')}
+              className={`w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 active:scale-[0.98] cursor-pointer ${hubTheme.actionBlock}`}
+            >
+              <div className="flex items-center gap-3.5 min-w-0">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#D2DB76]/60 text-[#1E1B4B]">
+                  <Gift className="h-5 w-5" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={hubTheme.actionTitle}>
+                      Rewards &amp; Loyalty Wallet
+                    </span>
+                    {(rewards ?? []).length > 0 && (
+                      <span className="rounded-full bg-[#1E1B4B]/[0.08] px-2 py-0.5 text-[10.5px] font-extrabold text-[#1E1B4B] tabular-nums">
+                        {(rewards ?? []).length}
+                      </span>
+                    )}
+                  </div>
+                  <p className={`mt-0.5 ${hubTheme.actionSubtitle}`}>
+                    Rewards &amp; Star Conversion
+                  </p>
+                </div>
+              </div>
+              <ChevronRight
+                className={`h-5 w-5 shrink-0 ${hubTheme.chevronClass}`}
+                aria-hidden
+              />
+            </button>
+          )}
+
+          {/* BLOCK 5: LEAVE A GOOGLE REVIEW */}
+          <Link
+            to={`/r/${business.slug}`}
+            data-testid="launcher-block-review"
+            className={`w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 active:scale-[0.98] ${hubTheme.actionBlock}`}
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-50 border border-amber-200 text-[#D97706]">
+                <Star className="h-5 w-5" fill="#FACC15" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <span className={hubTheme.actionTitle}>
+                  Leave a Google Review
+                </span>
+                <p className={`mt-0.5 ${hubTheme.actionSubtitle}`}>
+                  Share Your Experience in 30 seconds
+                </p>
+              </div>
+            </div>
+            <ChevronRight
+              className={`h-5 w-5 shrink-0 ${hubTheme.chevronClass}`}
+              aria-hidden
+            />
+          </Link>
+
+          {/* BLOCK 6: CALL WAITER / READY FOR BILL */}
+          <button
+            type="button"
+            data-testid="launcher-block-waiter"
+            onClick={() => {
+              setCallError(null);
+              setShowCallModal(true);
+            }}
+            className={`w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 active:scale-[0.98] cursor-pointer ${hubTheme.actionBlock}`}
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/15 text-[#D97706]">
+                <BellRing className="h-5 w-5" aria-hidden />
               </span>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-[16px] font-extrabold text-[#111827]">
-                    Rewards &amp; Loyalty Wallet
+                  <span className={hubTheme.actionTitle}>
+                    Call Waiter / Ready for Bill
                   </span>
-                  {(rewards ?? []).length > 0 && (
-                    <span className="rounded-full bg-[#1E1B4B]/[0.08] px-2 py-0.5 text-[10.5px] font-extrabold text-[#1E1B4B] tabular-nums">
-                      {(rewards ?? []).length}
+                  {activeCall && (
+                    <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-extrabold text-[#059669]">
+                      Notified ✓
                     </span>
                   )}
                 </div>
-                <p className="mt-0.5 text-[12.5px] font-medium text-[#6B7280]">
-                  Rewards &amp; Star Conversion
+                <p className={`mt-0.5 ${hubTheme.actionSubtitle}`}>
+                  Notify Your Server directly from your table
                 </p>
               </div>
             </div>
             <ChevronRight
-              className="h-5 w-5 shrink-0 text-[#6B7280]"
+              className={`h-5 w-5 shrink-0 ${hubTheme.chevronClass}`}
               aria-hidden
             />
           </button>
-        )}
-
-        {/* BLOCK 5: LEAVE A GOOGLE REVIEW */}
-        <Link
-          to={`/r/${business.slug}`}
-          data-testid="launcher-block-review"
-          className="bistro-card w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 hover:border-[#1E1B4B]/30 active:scale-[0.98]"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-50 border border-amber-200 text-[#D97706]">
-              <Star className="h-5 w-5" fill="#FACC15" aria-hidden />
-            </span>
-            <div className="min-w-0">
-              <span className="text-[16px] font-extrabold text-[#111827]">
-                Leave a Google Review
-              </span>
-              <p className="mt-0.5 text-[12.5px] font-medium text-[#6B7280]">
-                Share Your Experience in 30 seconds
-              </p>
-            </div>
-          </div>
-          <ChevronRight
-            className="h-5 w-5 shrink-0 text-[#6B7280]"
-            aria-hidden
-          />
-        </Link>
-
-        {/* BLOCK 6: CALL WAITER / READY FOR BILL */}
-        <button
-          type="button"
-          data-testid="launcher-block-waiter"
-          onClick={() => {
-            setCallError(null);
-            setShowCallModal(true);
-          }}
-          className="bistro-card w-full p-4 flex items-center justify-between gap-3.5 text-left transition-all duration-150 hover:border-[#D97706]/50 active:scale-[0.98] cursor-pointer"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/15 text-[#D97706]">
-              <BellRing className="h-5 w-5" aria-hidden />
-            </span>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-[16px] font-extrabold text-[#111827]">
-                  Call Waiter / Ready for Bill
-                </span>
-                {activeCall && (
-                  <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-extrabold text-[#059669]">
-                    Notified ✓
-                  </span>
-                )}
-              </div>
-              <p className="mt-0.5 text-[12.5px] font-medium text-[#6B7280]">
-                Notify Your Server directly from your table
-              </p>
-            </div>
-          </div>
-          <ChevronRight
-            className="h-5 w-5 shrink-0 text-[#6B7280]"
-            aria-hidden
-          />
-        </button>
-      </nav>
+        </nav>
+      </div>
 
       {/* =====================================================================
           MODAL 1: 5-SECOND QUICK LOYALTY JOIN (Name + Phone)

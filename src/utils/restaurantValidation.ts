@@ -3,6 +3,8 @@ import {
   type DietaryTag,
   type MenuPresetKey,
   type MenuThemeTemplate,
+  type MonthlyInventoryEntryType,
+  type RestaurantBusinessMode,
   type RestaurantCurrencyCode,
   type RestaurantCustomerCheckInInput,
   type RestaurantGameCategory,
@@ -15,9 +17,12 @@ import {
   type RestaurantLoyaltyRulesInput,
   type RestaurantMenuCategoryInput,
   type RestaurantMenuItemInput,
+  type RestaurantMonthlyInventoryInput,
   type RestaurantProfile,
   type RestaurantProfileInput,
   type RestaurantRewardInput,
+  type RestaurantStaffMemberInput,
+  type RestaurantStaffRole,
   type RestaurantSuggestionInput,
   type RestaurantTableInput,
   type RestaurantTableOrderStatus,
@@ -61,6 +66,67 @@ export const ALLOWED_MENU_THEME_TEMPLATES: ReadonlyArray<MenuThemeTemplate> = [
   'bistro',
   'samudra',
   'sizzler',
+];
+
+export const ALLOWED_BUSINESS_MODES: ReadonlyArray<RestaurantBusinessMode> = [
+  'restaurant',
+  'cafe',
+];
+
+export const ALLOWED_STAFF_ROLES: ReadonlyArray<RestaurantStaffRole> = [
+  'waiter',
+  'cashier',
+  'chef',
+  'manager',
+];
+
+export const STAFF_ROLE_METADATA: Record<
+  RestaurantStaffRole,
+  { label: string; codePrefix: string; badgeBg: string; badgeText: string }
+> = {
+  waiter: {
+    label: 'Waiter',
+    codePrefix: 'WTR',
+    badgeBg: 'bg-indigo-50',
+    badgeText: 'text-indigo-800',
+  },
+  cashier: {
+    label: 'Cashier',
+    codePrefix: 'CSH',
+    badgeBg: 'bg-emerald-50',
+    badgeText: 'text-emerald-800',
+  },
+  chef: {
+    label: 'Chef',
+    codePrefix: 'CHF',
+    badgeBg: 'bg-amber-50',
+    badgeText: 'text-amber-900',
+  },
+  manager: {
+    label: 'Manager',
+    codePrefix: 'MGR',
+    badgeBg: 'bg-slate-900',
+    badgeText: 'text-[#D2DB76]',
+  },
+};
+
+export const ALLOWED_INVENTORY_ENTRY_TYPES: ReadonlyArray<MonthlyInventoryEntryType> = [
+  'stock_purchase',
+  'monthly_expense',
+];
+
+export const DEFAULT_INVENTORY_CATEGORIES: ReadonlyArray<{
+  label: string;
+  suggestedType: MonthlyInventoryEntryType;
+}> = [
+  { label: 'Dairy & Milk', suggestedType: 'stock_purchase' },
+  { label: 'Coffee & Beverages', suggestedType: 'stock_purchase' },
+  { label: 'Vegetables & Groceries', suggestedType: 'stock_purchase' },
+  { label: 'Meat, Poultry & Seafood', suggestedType: 'stock_purchase' },
+  { label: 'Packaging & Disposables', suggestedType: 'stock_purchase' },
+  { label: 'Gas & Utilities', suggestedType: 'monthly_expense' },
+  { label: 'Rent & Staff', suggestedType: 'monthly_expense' },
+  { label: 'Vendor Bill', suggestedType: 'monthly_expense' },
 ];
 
 export const ALLOWED_MENU_PRESET_KEYS: ReadonlyArray<MenuPresetKey> = [
@@ -264,6 +330,7 @@ export function validateRestaurantProfileInput(
         minHoursBetweenVisitStars?: number;
         tableOrderingEnabled?: boolean;
         menuThemeTemplate?: MenuThemeTemplate;
+        businessMode?: RestaurantBusinessMode;
         customLogoUrl?: string | null;
         customAccentColor?: string | null;
       };
@@ -370,6 +437,22 @@ export function validateRestaurantProfileInput(
     menuThemeTemplate = rec.menuThemeTemplate as MenuThemeTemplate;
   }
 
+  let businessMode: RestaurantBusinessMode | undefined = undefined;
+  if (rec.businessMode !== undefined) {
+    if (
+      typeof rec.businessMode !== 'string' ||
+      !ALLOWED_BUSINESS_MODES.includes(
+        rec.businessMode as RestaurantBusinessMode,
+      )
+    ) {
+      return {
+        ok: false,
+        error: `Business mode must be one of: ${ALLOWED_BUSINESS_MODES.join(', ')}.`,
+      };
+    }
+    businessMode = rec.businessMode as RestaurantBusinessMode;
+  }
+
   let customLogoUrl: string | null | undefined = undefined;
   if (rec.customLogoUrl !== undefined) {
     if (rec.customLogoUrl === null || rec.customLogoUrl === '') {
@@ -419,6 +502,7 @@ export function validateRestaurantProfileInput(
         : {}),
       ...(tableOrderingEnabled !== undefined ? { tableOrderingEnabled } : {}),
       ...(menuThemeTemplate !== undefined ? { menuThemeTemplate } : {}),
+      ...(businessMode !== undefined ? { businessMode } : {}),
       ...(customLogoUrl !== undefined ? { customLogoUrl } : {}),
       ...(customAccentColor !== undefined ? { customAccentColor } : {}),
     },
@@ -461,6 +545,12 @@ export function normalizeRestaurantProfile(
       ? partial.menuThemeTemplate
       : 'default';
 
+  const businessMode: RestaurantBusinessMode =
+    partial?.businessMode &&
+    ALLOWED_BUSINESS_MODES.includes(partial.businessMode)
+      ? partial.businessMode
+      : 'restaurant';
+
   const customLogoUrl =
     typeof partial?.customLogoUrl === 'string' &&
     /^https?:\/\/.+/i.test(partial.customLogoUrl.trim())
@@ -488,6 +578,7 @@ export function normalizeRestaurantProfile(
     minHoursBetweenVisitStars,
     tableOrderingEnabled: Boolean(partial?.tableOrderingEnabled),
     menuThemeTemplate,
+    businessMode,
     customLogoUrl,
     customAccentColor,
     updatedAt:
@@ -1889,4 +1980,293 @@ export function validateTableOrderItemsInput(
   }
 
   return { ok: true, value: normalized };
+}
+
+// ===========================================================================
+// Master Upgrade II: Individual Staff Roster & Monthly Inventory Validation
+// ===========================================================================
+
+export function formatStaffAuditLabel(
+  fullName: string,
+  staffCode: string,
+): string {
+  const cleanName = stripControlChars(fullName).replace(/\s+/g, ' ');
+  const cleanCode = stripControlChars(staffCode).toUpperCase();
+  return `${cleanName} (${cleanCode})`.slice(0, 80);
+}
+
+export function generateNextStaffCode(
+  role: RestaurantStaffRole,
+  existingCodes: ReadonlyArray<string>,
+): string {
+  const prefix = STAFF_ROLE_METADATA[role]?.codePrefix ?? 'STF';
+  const taken = new Set(existingCodes.map((c) => c.trim().toUpperCase()));
+  for (let i = 1; i <= 999; i++) {
+    const candidate = `${prefix}-${String(i).padStart(2, '0')}`;
+    if (!taken.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `${prefix}-${Date.now().toString().slice(-4)}`;
+}
+
+export function getCurrentMonthKey(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}
+
+export function formatMonthKeyLabel(monthKey: string): string {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec((monthKey ?? '').trim());
+  if (!match) {
+    return monthKey;
+  }
+  const year = Number.parseInt(match[1], 10);
+  const monthIndex = Number.parseInt(match[2], 10) - 1;
+  const monthNames = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+  return `${monthNames[monthIndex]} ${year}`;
+}
+
+export function validateStaffMemberInput(
+  businessId: unknown,
+  input: unknown,
+  requirePinHash = true,
+):
+  | {
+      ok: true;
+      value: {
+        fullName: string;
+        role: RestaurantStaffRole;
+        staffCode?: string;
+        pinHash?: string;
+        isActive: boolean;
+      };
+    }
+  | { ok: false; error: string } {
+  const idErr = validateBusinessId(businessId);
+  if (idErr) {
+    return { ok: false, error: idErr };
+  }
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { ok: false, error: 'Staff member details must be an object.' };
+  }
+  const rec = input as Partial<RestaurantStaffMemberInput> &
+    Record<string, unknown>;
+
+  if (typeof rec.fullName !== 'string') {
+    return { ok: false, error: 'Staff full name is required.' };
+  }
+  const fullName = stripControlChars(rec.fullName).replace(/\s+/g, ' ');
+  if (fullName.length < 1 || fullName.length > 80) {
+    return {
+      ok: false,
+      error: 'Staff full name must be between 1 and 80 characters.',
+    };
+  }
+
+  const rawRole = rec.role === undefined ? 'waiter' : rec.role;
+  if (
+    typeof rawRole !== 'string' ||
+    !ALLOWED_STAFF_ROLES.includes(rawRole as RestaurantStaffRole)
+  ) {
+    return {
+      ok: false,
+      error: `Staff role must be one of: ${ALLOWED_STAFF_ROLES.join(', ')}.`,
+    };
+  }
+
+  let staffCode: string | undefined = undefined;
+  if (
+    rec.staffCode !== undefined &&
+    rec.staffCode !== null &&
+    String(rec.staffCode).trim() !== ''
+  ) {
+    if (typeof rec.staffCode !== 'string') {
+      return { ok: false, error: 'Staff code must be text.' };
+    }
+    const cleanCode = stripControlChars(rec.staffCode).toUpperCase();
+    if (!/^[A-Z0-9-]{2,20}$/.test(cleanCode)) {
+      return {
+        ok: false,
+        error:
+          'Staff code must be 2–20 uppercase letters, numbers, or hyphens (e.g. WTR-01).',
+      };
+    }
+    staffCode = cleanCode;
+  }
+
+  let pinHash: string | undefined = undefined;
+  if (rec.pinHash !== undefined && rec.pinHash !== null && rec.pinHash !== '') {
+    if (
+      typeof rec.pinHash !== 'string' ||
+      !/^[0-9a-f]{64}$/i.test(rec.pinHash.trim())
+    ) {
+      return {
+        ok: false,
+        error: 'Staff PIN hash must be a valid 64-character SHA-256 hex digest.',
+      };
+    }
+    pinHash = rec.pinHash.trim().toLowerCase();
+  } else if (requirePinHash) {
+    return {
+      ok: false,
+      error: 'A personal 4–6 digit Staff PIN is required.',
+    };
+  }
+
+  const isActive = typeof rec.isActive === 'boolean' ? rec.isActive : true;
+
+  return {
+    ok: true,
+    value: {
+      fullName,
+      role: rawRole as RestaurantStaffRole,
+      ...(staffCode ? { staffCode } : {}),
+      ...(pinHash ? { pinHash } : {}),
+      isActive,
+    },
+  };
+}
+
+export function validateMonthlyInventoryInput(
+  businessId: unknown,
+  input: unknown,
+):
+  | {
+      ok: true;
+      value: {
+        monthKey: string;
+        entryType: MonthlyInventoryEntryType;
+        category: string;
+        itemName: string;
+        quantityLabel: string | null;
+        amountPaise: number;
+        lowStockAlert: boolean;
+        notes: string | null;
+      };
+    }
+  | { ok: false; error: string } {
+  const idErr = validateBusinessId(businessId);
+  if (idErr) {
+    return { ok: false, error: idErr };
+  }
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { ok: false, error: 'Inventory / expense entry must be an object.' };
+  }
+  const rec = input as Partial<RestaurantMonthlyInventoryInput> &
+    Record<string, unknown>;
+
+  const monthKey =
+    typeof rec.monthKey === 'string' ? stripControlChars(rec.monthKey) : '';
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(monthKey)) {
+    return {
+      ok: false,
+      error: 'Month must be in YYYY-MM format (e.g. 2026-11).',
+    };
+  }
+
+  if (
+    typeof rec.entryType !== 'string' ||
+    !ALLOWED_INVENTORY_ENTRY_TYPES.includes(
+      rec.entryType as MonthlyInventoryEntryType,
+    )
+  ) {
+    return {
+      ok: false,
+      error: `Entry type must be one of: ${ALLOWED_INVENTORY_ENTRY_TYPES.join(', ')}.`,
+    };
+  }
+
+  if (typeof rec.category !== 'string') {
+    return { ok: false, error: 'Category is required.' };
+  }
+  const category = stripControlChars(rec.category).replace(/\s+/g, ' ');
+  if (category.length < 1 || category.length > 80) {
+    return {
+      ok: false,
+      error: 'Category must be between 1 and 80 characters.',
+    };
+  }
+
+  if (typeof rec.itemName !== 'string') {
+    return { ok: false, error: 'Item or expense name is required.' };
+  }
+  const itemName = stripControlChars(rec.itemName).replace(/\s+/g, ' ');
+  if (itemName.length < 1 || itemName.length > 120) {
+    return {
+      ok: false,
+      error: 'Item name must be between 1 and 120 characters.',
+    };
+  }
+
+  let quantityLabel: string | null = null;
+  if (rec.quantityLabel !== undefined && rec.quantityLabel !== null) {
+    if (typeof rec.quantityLabel !== 'string') {
+      return { ok: false, error: 'Quantity label must be text.' };
+    }
+    const cleanQty = stripControlChars(rec.quantityLabel).replace(/\s+/g, ' ');
+    if (cleanQty.length > 60) {
+      return {
+        ok: false,
+        error: 'Quantity label must be 60 characters or fewer.',
+      };
+    }
+    quantityLabel = cleanQty || null;
+  }
+
+  if (
+    typeof rec.amountPaise !== 'number' ||
+    !Number.isInteger(rec.amountPaise) ||
+    rec.amountPaise < 0 ||
+    rec.amountPaise > 1_000_000_000
+  ) {
+    return {
+      ok: false,
+      error: 'Cost amount must be a valid non-negative integer in paise/cents.',
+    };
+  }
+
+  let notes: string | null = null;
+  if (rec.notes !== undefined && rec.notes !== null) {
+    if (typeof rec.notes !== 'string') {
+      return { ok: false, error: 'Notes must be text.' };
+    }
+    const cleanNotes = stripControlChars(rec.notes);
+    if (cleanNotes.length > 300) {
+      return {
+        ok: false,
+        error: 'Notes must be 300 characters or fewer.',
+      };
+    }
+    notes = cleanNotes || null;
+  }
+
+  const lowStockAlert = Boolean(rec.lowStockAlert);
+
+  return {
+    ok: true,
+    value: {
+      monthKey,
+      entryType: rec.entryType as MonthlyInventoryEntryType,
+      category,
+      itemName,
+      quantityLabel,
+      amountPaise: rec.amountPaise,
+      lowStockAlert,
+      notes,
+    },
+  };
 }

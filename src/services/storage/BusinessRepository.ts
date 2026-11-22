@@ -20,6 +20,7 @@ import type {
   ApplyMenuPresetResult,
   MenuPresetKey,
   PublicRestaurantMenuPayload,
+  PublicStaffLoginOption,
   RestaurantCustomerCheckInInput,
   RestaurantCustomerWalletState,
   RestaurantFloorAndAnalyticsPayload,
@@ -36,6 +37,8 @@ import type {
   RestaurantMenuCategoryInput,
   RestaurantMenuItem,
   RestaurantMenuItemInput,
+  RestaurantMonthlyInventoryInput,
+  RestaurantMonthlyInventoryItem,
   RestaurantPointToStarExchangeResponse,
   RestaurantProfile,
   RestaurantProfileInput,
@@ -44,6 +47,8 @@ import type {
   RestaurantRewardClaimResponse,
   RestaurantRewardInput,
   RestaurantStaffAwardVisitResponse,
+  RestaurantStaffMember,
+  RestaurantStaffMemberInput,
   RestaurantSuggestion,
   RestaurantSuggestionInput,
   RestaurantTable,
@@ -53,6 +58,7 @@ import type {
   RestaurantTableInput,
   RestaurantTableOrder,
   RestaurantTableOrderStatus,
+  VerifiedStaffMemberSession,
 } from '../../types/restaurant';
 
 export interface AIConfigAccessOptions {
@@ -506,4 +512,85 @@ export interface IBusinessRepository {
     staffPinHash?: string | null;
     options?: AIConfigAccessOptions;
   }): Promise<RestaurantTableOrder>;
+
+  // ---------------------------------------------------------------------------
+  // Master Upgrade II: Individual Staff Roster & Monthly Inventory / Expenses
+  // ---------------------------------------------------------------------------
+
+  /** Retrieves the individual Staff & Waiter Roster for a business owner. */
+  getRestaurantStaffMembers(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantStaffMember[]>;
+
+  /** Adds a new waiter/cashier/chef/manager with unique Staff Code & personal hashed PIN. */
+  createRestaurantStaffMember(
+    businessId: string,
+    input: RestaurantStaffMemberInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantStaffMember>;
+
+  /** Updates a staff member's name, role, active state, or resets their personal PIN. */
+  updateRestaurantStaffMember(
+    businessId: string,
+    staffId: string,
+    input: RestaurantStaffMemberInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantStaffMember>;
+
+  /** Removes a staff member from the business's directory. */
+  deleteRestaurantStaffMember(
+    businessId: string,
+    staffId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void>;
+
+  /**
+   * Public safe staff login directory for `/r/:businessSlug/staff`.
+   * Returns only `{ id, staffCode, fullName, role }` for active staff (NEVER exposes pinHash).
+   */
+  getPublicStaffLoginDirectory(
+    businessSlug: string,
+  ): Promise<PublicStaffLoginOption[]>;
+
+  /**
+   * Authenticates an individual staff member by their personal PIN (with optional Staff Code)
+   * and returns their personal session `{ staffId, staffCode, fullName, role, staffLabel }`.
+   * Backwards compatible with the legacy shared restaurant-level Staff PIN.
+   */
+  verifyStaffMemberPin(params: {
+    businessSlug: string;
+    staffCode?: string | null;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<VerifiedStaffMemberSession>;
+
+  /** Retrieves monthly stock purchase & operating expense entries (filtered by YYYY-MM if provided). */
+  getRestaurantMonthlyInventory(
+    businessId: string,
+    monthKey?: string | null,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantMonthlyInventoryItem[]>;
+
+  /** Logs a new monthly stock purchase or operating expense entry. */
+  createRestaurantMonthlyInventoryItem(
+    businessId: string,
+    input: RestaurantMonthlyInventoryInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantMonthlyInventoryItem>;
+
+  /** Updates an existing monthly stock or expense entry (including toggling `lowStockAlert`). */
+  updateRestaurantMonthlyInventoryItem(
+    businessId: string,
+    itemId: string,
+    input: RestaurantMonthlyInventoryInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantMonthlyInventoryItem>;
+
+  /** Deletes a monthly stock or expense entry. */
+  deleteRestaurantMonthlyInventoryItem(
+    businessId: string,
+    itemId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void>;
 }

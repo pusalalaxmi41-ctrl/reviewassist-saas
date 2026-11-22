@@ -116,8 +116,36 @@ h1, h2, h3, h4 {
 
 .masala-parchment-bg {
   background-color: #FDF8EE;
-  background-image: radial-gradient(rgba(230, 126, 34, 0.08) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(180, 83, 9, 0.09) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+.prakriti-paper-bg {
+  background-color: #F2ECE1;
+  background-image: radial-gradient(rgba(45, 74, 51, 0.06) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+.bistro-obsidian-bg {
+  background-color: #141414;
+  background-image: linear-gradient(
+      rgba(197, 168, 128, 0.05) 1px,
+      transparent 1px
+    ),
+    linear-gradient(90deg, rgba(197, 168, 128, 0.05) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.samudra-coastal-bg {
+  background-color: #F5EFE6;
+  background-image: radial-gradient(rgba(13, 148, 136, 0.08) 1px, transparent 1px);
   background-size: 20px 20px;
+}
+
+.sizzler-diner-bg {
+  background-color: #FEFCE8;
+  background-image: radial-gradient(rgba(220, 38, 38, 0.06) 1.2px, transparent 1.2px);
+  background-size: 16px 16px;
 }
 
 .sizzler-checker-stripe {

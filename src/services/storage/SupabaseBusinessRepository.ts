@@ -30,7 +30,10 @@ import type {
   DietaryTag,
   MenuPresetKey,
   MenuThemeTemplate,
+  MonthlyInventoryEntryType,
   PublicRestaurantMenuPayload,
+  PublicStaffLoginOption,
+  RestaurantBusinessMode,
   RestaurantCurrencyCode,
   RestaurantCustomerCheckInInput,
   RestaurantCustomerWalletState,
@@ -49,6 +52,8 @@ import type {
   RestaurantMenuCategoryInput,
   RestaurantMenuItem,
   RestaurantMenuItemInput,
+  RestaurantMonthlyInventoryInput,
+  RestaurantMonthlyInventoryItem,
   RestaurantPointToStarExchangeResponse,
   RestaurantProfile,
   RestaurantProfileInput,
@@ -57,6 +62,9 @@ import type {
   RestaurantRewardClaimResponse,
   RestaurantRewardInput,
   RestaurantStaffAwardVisitResponse,
+  RestaurantStaffMember,
+  RestaurantStaffMemberInput,
+  RestaurantStaffRole,
   RestaurantSuggestion,
   RestaurantSuggestionInput,
   RestaurantTable,
@@ -67,6 +75,7 @@ import type {
   RestaurantTableOrder,
   RestaurantTableOrderStatus,
   RestaurantTriviaQuestion,
+  VerifiedStaffMemberSession,
 } from '../../types/restaurant';
 import { MENU_PRESET_PACKS } from '../../config/menuPresets';
 import {
@@ -80,10 +89,12 @@ import {
 } from '../../utils/businessKnowledgeValidation';
 import {
   deriveTableKey,
+  generateNextStaffCode,
   getDefaultRestaurantGameConfigs,
   normalizeRestaurantLoyaltyRules,
   normalizeRestaurantProfile,
   validateMenuPresetKey,
+  validateMonthlyInventoryInput,
   validateRestaurantCustomerCheckInInput,
   validateRestaurantGameConfigInput,
   validateRestaurantLoyaltyRulesInput,
@@ -93,6 +104,7 @@ import {
   validateRestaurantRewardInput,
   validateRestaurantSuggestionInput,
   validateRestaurantTableInput,
+  validateStaffMemberInput,
   validateTableOrderItemsInput,
   validateTableOrderStatus,
 } from '../../utils/restaurantValidation';
@@ -1252,6 +1264,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         min_hours_between_visit_stars?: number;
         table_ordering_enabled?: boolean;
         menu_theme_template?: MenuThemeTemplate;
+        business_mode?: RestaurantBusinessMode;
         custom_logo_url?: string | null;
         custom_accent_color?: string | null;
         updated_at: string;
@@ -1268,6 +1281,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
           minHoursBetweenVisitStars: row.min_hours_between_visit_stars ?? 4,
           tableOrderingEnabled: Boolean(row.table_ordering_enabled),
           menuThemeTemplate: row.menu_theme_template ?? 'default',
+          businessMode: row.business_mode ?? 'restaurant',
           customLogoUrl: row.custom_logo_url ?? null,
           customAccentColor: row.custom_accent_color ?? null,
           updatedAt: row.updated_at,
@@ -1317,6 +1331,9 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     if (validation.value.menuThemeTemplate !== undefined) {
       upsertPayload.menu_theme_template = validation.value.menuThemeTemplate;
     }
+    if (validation.value.businessMode !== undefined) {
+      upsertPayload.business_mode = validation.value.businessMode;
+    }
     if (validation.value.customLogoUrl !== undefined) {
       upsertPayload.custom_logo_url = validation.value.customLogoUrl;
     }
@@ -1342,6 +1359,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         min_hours_between_visit_stars?: number;
         table_ordering_enabled?: boolean;
         menu_theme_template?: MenuThemeTemplate;
+        business_mode?: RestaurantBusinessMode;
         custom_logo_url?: string | null;
         custom_accent_color?: string | null;
         updated_at: string;
@@ -1358,6 +1376,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
           minHoursBetweenVisitStars: row.min_hours_between_visit_stars ?? 4,
           tableOrderingEnabled: Boolean(row.table_ordering_enabled),
           menuThemeTemplate: row.menu_theme_template ?? 'default',
+          businessMode: row.business_mode ?? 'restaurant',
           customLogoUrl: row.custom_logo_url ?? null,
           customAccentColor: row.custom_accent_color ?? null,
           updatedAt: row.updated_at,
@@ -3201,5 +3220,546 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     }
 
     return mockBusinessRepository.updateTableOrderStatus(params);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Master Upgrade II: Individual Staff Roster & Monthly Inventory / Expenses
+  // ---------------------------------------------------------------------------
+
+  async getRestaurantStaffMembers(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantStaffMember[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_staff_members')
+      .select(
+        'id, business_id, staff_code, full_name, role, pin_hash, is_active, created_at, updated_at',
+      )
+      .eq('business_id', cleanId)
+      .order('staff_code', { ascending: true });
+
+    if (!error && data) {
+      return (
+        data as Array<{
+          id: string;
+          business_id: string;
+          staff_code: string;
+          full_name: string;
+          role: RestaurantStaffRole;
+          pin_hash: string;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        }>
+      ).map((row) => ({
+        id: row.id,
+        businessId: row.business_id,
+        staffCode: row.staff_code,
+        fullName: row.full_name,
+        role: row.role,
+        pinHash: row.pin_hash,
+        isActive: row.is_active,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }));
+    }
+
+    return mockBusinessRepository.getRestaurantStaffMembers(cleanId, options);
+  }
+
+  async createRestaurantStaffMember(
+    businessId: string,
+    input: RestaurantStaffMemberInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantStaffMember> {
+    const validation = validateStaffMemberInput(businessId, input, true);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    let staffCode = validation.value.staffCode;
+    if (!staffCode) {
+      const existing = await this.getRestaurantStaffMembers(cleanId, options);
+      staffCode = generateNextStaffCode(
+        validation.value.role,
+        existing.map((m) => m.staffCode),
+      );
+    }
+
+    const { data, error } = await client
+      .from('restaurant_staff_members')
+      .insert({
+        business_id: cleanId,
+        staff_code: staffCode,
+        full_name: validation.value.fullName,
+        role: validation.value.role,
+        pin_hash: validation.value.pinHash!,
+        is_active: validation.value.isActive,
+      })
+      .select(
+        'id, business_id, staff_code, full_name, role, pin_hash, is_active, created_at, updated_at',
+      )
+      .single();
+
+    if (error) {
+      if (error.code === '23505') {
+        throw new Error(
+          `Staff ID "${staffCode}" is already assigned to another team member.`,
+        );
+      }
+      return mockBusinessRepository.createRestaurantStaffMember(
+        cleanId,
+        { ...validation.value, staffCode },
+        options,
+      );
+    }
+
+    const row = data as {
+      id: string;
+      business_id: string;
+      staff_code: string;
+      full_name: string;
+      role: RestaurantStaffRole;
+      pin_hash: string;
+      is_active: boolean;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      id: row.id,
+      businessId: row.business_id,
+      staffCode: row.staff_code,
+      fullName: row.full_name,
+      role: row.role,
+      pinHash: row.pin_hash,
+      isActive: row.is_active,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async updateRestaurantStaffMember(
+    businessId: string,
+    staffId: string,
+    input: RestaurantStaffMemberInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantStaffMember> {
+    const validation = validateStaffMemberInput(businessId, input, false);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const updatePayload: Record<string, unknown> = {
+      full_name: validation.value.fullName,
+      role: validation.value.role,
+      is_active: validation.value.isActive,
+      updated_at: new Date().toISOString(),
+    };
+    if (validation.value.staffCode) {
+      updatePayload.staff_code = validation.value.staffCode;
+    }
+    if (validation.value.pinHash) {
+      updatePayload.pin_hash = validation.value.pinHash;
+    }
+
+    const { data, error } = await client
+      .from('restaurant_staff_members')
+      .update(updatePayload)
+      .eq('id', staffId)
+      .eq('business_id', cleanId)
+      .select(
+        'id, business_id, staff_code, full_name, role, pin_hash, is_active, created_at, updated_at',
+      )
+      .single();
+
+    if (error) {
+      if (error.code === '23505') {
+        throw new Error(
+          `Staff ID "${validation.value.staffCode ?? ''}" is already assigned to another team member.`,
+        );
+      }
+      return mockBusinessRepository.updateRestaurantStaffMember(
+        cleanId,
+        staffId,
+        validation.value,
+        options,
+      );
+    }
+
+    const row = data as {
+      id: string;
+      business_id: string;
+      staff_code: string;
+      full_name: string;
+      role: RestaurantStaffRole;
+      pin_hash: string;
+      is_active: boolean;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      id: row.id,
+      businessId: row.business_id,
+      staffCode: row.staff_code,
+      fullName: row.full_name,
+      role: row.role,
+      pinHash: row.pin_hash,
+      isActive: row.is_active,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async deleteRestaurantStaffMember(
+    businessId: string,
+    staffId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { error } = await client
+      .from('restaurant_staff_members')
+      .delete()
+      .eq('id', staffId)
+      .eq('business_id', cleanId);
+
+    if (error) {
+      await mockBusinessRepository.deleteRestaurantStaffMember(
+        cleanId,
+        staffId,
+        options,
+      );
+    }
+  }
+
+  async getPublicStaffLoginDirectory(
+    businessSlug: string,
+  ): Promise<PublicStaffLoginOption[]> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc(
+      'get_public_staff_roster_for_login',
+      {
+        p_slug: businessSlug.trim().toLowerCase(),
+      },
+    );
+
+    if (!error && Array.isArray(data)) {
+      return data as PublicStaffLoginOption[];
+    }
+
+    return mockBusinessRepository.getPublicStaffLoginDirectory(businessSlug);
+  }
+
+  async verifyStaffMemberPin(params: {
+    businessSlug: string;
+    staffCode?: string | null;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<VerifiedStaffMemberSession> {
+    const client = this.requireClient();
+    const cleanCode = (params.staffCode ?? '').trim().toUpperCase() || null;
+    const cleanHash = (params.staffPinHash ?? '').trim().toLowerCase() || null;
+
+    const { data, error } = await client.rpc('verify_staff_member_pin', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_staff_code_or_pin_hash: cleanCode ?? cleanHash,
+      p_pin_hash: cleanCode ? cleanHash : null,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as VerifiedStaffMemberSession;
+    }
+
+    if (
+      error &&
+      (error.message.includes('Invalid Staff ID or PIN') ||
+        error.message.includes('Invalid Staff PIN'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    // Backwards compatibility fallback when migration 013 RPC is not yet live
+    try {
+      const legacy = await this.verifyRestaurantStaffPin({
+        businessSlug: params.businessSlug,
+        staffPinHash: params.staffPinHash,
+        options: params.options,
+      });
+      if (legacy.verified) {
+        return {
+          verified: true,
+          staffId: null,
+          staffCode: 'STAFF',
+          fullName: 'Floor Staff',
+          role: 'manager',
+          staffLabel: 'Floor Staff (STAFF)',
+          businessId: legacy.businessId,
+          businessSlug: legacy.businessSlug,
+          businessName: legacy.businessName,
+        };
+      }
+    } catch {
+      // Fall through to mock repository fallback
+    }
+
+    return mockBusinessRepository.verifyStaffMemberPin(params);
+  }
+
+  async getRestaurantMonthlyInventory(
+    businessId: string,
+    monthKey?: string | null,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantMonthlyInventoryItem[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    let query = client
+      .from('restaurant_monthly_inventory')
+      .select(
+        'id, business_id, month_key, entry_type, category, item_name, quantity_label, amount_paise, low_stock_alert, notes, created_at, updated_at',
+      )
+      .eq('business_id', cleanId);
+
+    const cleanMonth = (monthKey ?? '').trim();
+    if (cleanMonth) {
+      query = query.eq('month_key', cleanMonth);
+    }
+
+    const { data, error } = await query.order('created_at', {
+      ascending: false,
+    });
+
+    if (!error && data) {
+      return (
+        data as Array<{
+          id: string;
+          business_id: string;
+          month_key: string;
+          entry_type: MonthlyInventoryEntryType;
+          category: string;
+          item_name: string;
+          quantity_label: string | null;
+          amount_paise: number;
+          low_stock_alert: boolean;
+          notes: string | null;
+          created_at: string;
+          updated_at: string;
+        }>
+      ).map((row) => ({
+        id: row.id,
+        businessId: row.business_id,
+        monthKey: row.month_key,
+        entryType: row.entry_type,
+        category: row.category,
+        itemName: row.item_name,
+        quantityLabel: row.quantity_label,
+        amountPaise: row.amount_paise,
+        lowStockAlert: row.low_stock_alert,
+        notes: row.notes,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }));
+    }
+
+    return mockBusinessRepository.getRestaurantMonthlyInventory(
+      cleanId,
+      monthKey,
+      options,
+    );
+  }
+
+  async createRestaurantMonthlyInventoryItem(
+    businessId: string,
+    input: RestaurantMonthlyInventoryInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantMonthlyInventoryItem> {
+    const validation = validateMonthlyInventoryInput(businessId, input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_monthly_inventory')
+      .insert({
+        business_id: cleanId,
+        month_key: validation.value.monthKey,
+        entry_type: validation.value.entryType,
+        category: validation.value.category,
+        item_name: validation.value.itemName,
+        quantity_label: validation.value.quantityLabel,
+        amount_paise: validation.value.amountPaise,
+        low_stock_alert: validation.value.lowStockAlert,
+        notes: validation.value.notes,
+      })
+      .select(
+        'id, business_id, month_key, entry_type, category, item_name, quantity_label, amount_paise, low_stock_alert, notes, created_at, updated_at',
+      )
+      .single();
+
+    if (error || !data) {
+      return mockBusinessRepository.createRestaurantMonthlyInventoryItem(
+        cleanId,
+        validation.value,
+        options,
+      );
+    }
+
+    const row = data as {
+      id: string;
+      business_id: string;
+      month_key: string;
+      entry_type: MonthlyInventoryEntryType;
+      category: string;
+      item_name: string;
+      quantity_label: string | null;
+      amount_paise: number;
+      low_stock_alert: boolean;
+      notes: string | null;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      id: row.id,
+      businessId: row.business_id,
+      monthKey: row.month_key,
+      entryType: row.entry_type,
+      category: row.category,
+      itemName: row.item_name,
+      quantityLabel: row.quantity_label,
+      amountPaise: row.amount_paise,
+      lowStockAlert: row.low_stock_alert,
+      notes: row.notes,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async updateRestaurantMonthlyInventoryItem(
+    businessId: string,
+    itemId: string,
+    input: RestaurantMonthlyInventoryInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantMonthlyInventoryItem> {
+    const validation = validateMonthlyInventoryInput(businessId, input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('restaurant_monthly_inventory')
+      .update({
+        month_key: validation.value.monthKey,
+        entry_type: validation.value.entryType,
+        category: validation.value.category,
+        item_name: validation.value.itemName,
+        quantity_label: validation.value.quantityLabel,
+        amount_paise: validation.value.amountPaise,
+        low_stock_alert: validation.value.lowStockAlert,
+        notes: validation.value.notes,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', itemId)
+      .eq('business_id', cleanId)
+      .select(
+        'id, business_id, month_key, entry_type, category, item_name, quantity_label, amount_paise, low_stock_alert, notes, created_at, updated_at',
+      )
+      .single();
+
+    if (error || !data) {
+      return mockBusinessRepository.updateRestaurantMonthlyInventoryItem(
+        cleanId,
+        itemId,
+        validation.value,
+        options,
+      );
+    }
+
+    const row = data as {
+      id: string;
+      business_id: string;
+      month_key: string;
+      entry_type: MonthlyInventoryEntryType;
+      category: string;
+      item_name: string;
+      quantity_label: string | null;
+      amount_paise: number;
+      low_stock_alert: boolean;
+      notes: string | null;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      id: row.id,
+      businessId: row.business_id,
+      monthKey: row.month_key,
+      entryType: row.entry_type,
+      category: row.category,
+      itemName: row.item_name,
+      quantityLabel: row.quantity_label,
+      amountPaise: row.amount_paise,
+      lowStockAlert: row.low_stock_alert,
+      notes: row.notes,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async deleteRestaurantMonthlyInventoryItem(
+    businessId: string,
+    itemId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { error } = await client
+      .from('restaurant_monthly_inventory')
+      .delete()
+      .eq('id', itemId)
+      .eq('business_id', cleanId);
+
+    if (error) {
+      await mockBusinessRepository.deleteRestaurantMonthlyInventoryItem(
+        cleanId,
+        itemId,
+        options,
+      );
+    }
   }
 }

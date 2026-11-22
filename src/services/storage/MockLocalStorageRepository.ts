@@ -36,6 +36,7 @@ import {
   type ApplyMenuPresetResult,
   type MenuPresetKey,
   type PublicRestaurantMenuPayload,
+  type PublicStaffLoginOption,
   type RestaurantCustomer,
   type RestaurantCustomerCheckInInput,
   type RestaurantCustomerWalletState,
@@ -56,6 +57,8 @@ import {
   type RestaurantMenuCategoryInput,
   type RestaurantMenuItem,
   type RestaurantMenuItemInput,
+  type RestaurantMonthlyInventoryInput,
+  type RestaurantMonthlyInventoryItem,
   type RestaurantPointToStarExchangeResponse,
   type RestaurantProfile,
   type RestaurantProfileInput,
@@ -64,6 +67,8 @@ import {
   type RestaurantRewardClaimResponse,
   type RestaurantRewardInput,
   type RestaurantStaffAwardVisitResponse,
+  type RestaurantStaffMember,
+  type RestaurantStaffMemberInput,
   type RestaurantSuggestion,
   type RestaurantSuggestionInput,
   type RestaurantTable,
@@ -75,17 +80,21 @@ import {
   type RestaurantTableOrderItem,
   type RestaurantTableOrderStatus,
   type RestaurantVerifiedVisit,
+  type VerifiedStaffMemberSession,
 } from '../../types/restaurant';
 import { MENU_PRESET_PACKS } from '../../config/menuPresets';
 import {
   buildServerSeedAndClientChallenge,
   deriveTableKey,
+  formatStaffAuditLabel,
+  generateNextStaffCode,
   generateRewardClaimCode,
   getDefaultRestaurantGameConfigs,
   normalizeRestaurantLoyaltyRules,
   normalizeRestaurantProfile,
   parseCustomerLoyaltyLookup,
   validateMenuPresetKey,
+  validateMonthlyInventoryInput,
   validateRestaurantCustomerCheckInInput,
   validateRestaurantGameConfigInput,
   validateRestaurantLoyaltyRulesInput,
@@ -95,6 +104,7 @@ import {
   validateRestaurantRewardInput,
   validateRestaurantSuggestionInput,
   validateRestaurantTableInput,
+  validateStaffMemberInput,
   validateTableOrderItemsInput,
   validateTableOrderStatus,
   verifyGameSubmissionAgainstServerSeed,
@@ -125,6 +135,9 @@ const STORAGE_KEYS = {
   RESTAURANT_TABLE_CALLS: 'reviewassist_mock_restaurant_table_calls_v1',
   RESTAURANT_VERIFIED_VISITS: 'reviewassist_mock_restaurant_verified_visits_v1',
   RESTAURANT_TABLE_ORDERS: 'reviewassist_mock_restaurant_table_orders_v1',
+  RESTAURANT_STAFF_MEMBERS: 'reviewassist_mock_restaurant_staff_members_v1',
+  RESTAURANT_MONTHLY_INVENTORY:
+    'reviewassist_mock_restaurant_monthly_inventory_v1',
 };
 
 // Initial seed businesses for development & preview
@@ -783,6 +796,10 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         validation.value.menuThemeTemplate !== undefined
           ? validation.value.menuThemeTemplate
           : (existing?.menuThemeTemplate ?? 'default'),
+      businessMode:
+        validation.value.businessMode !== undefined
+          ? validation.value.businessMode
+          : (existing?.businessMode ?? 'restaurant'),
       customLogoUrl:
         validation.value.customLogoUrl !== undefined
           ? validation.value.customLogoUrl
@@ -2581,6 +2598,43 @@ export class MockLocalStorageRepository implements IBusinessRepository {
   // Phase 4: Visual Table Floor Map, Staff Verification Mode & Owner Analytics
   // ---------------------------------------------------------------------------
 
+  private findActiveStaffMemberByPin(
+    businessId: string,
+    staffPinHash?: string | null,
+    staffCode?: string | null,
+  ): RestaurantStaffMember | null {
+    const cleanHash = (staffPinHash ?? '').trim().toLowerCase();
+    if (!cleanHash) {
+      return null;
+    }
+    const cleanCode = (staffCode ?? '').trim().toUpperCase();
+    const store = this.read<Record<string, RestaurantStaffMember[]>>(
+      STORAGE_KEYS.RESTAURANT_STAFF_MEMBERS,
+      {},
+    );
+    const list = store[businessId] ?? [];
+    return (
+      list.find(
+        (m) =>
+          m.isActive &&
+          m.pinHash === cleanHash &&
+          (!cleanCode || m.staffCode.toUpperCase() === cleanCode),
+      ) ?? null
+    );
+  }
+
+  private resolveAuditStaffLabel(
+    businessId: string,
+    staffPinHash?: string | null,
+    fallbackLabel?: string,
+  ): string {
+    const matched = this.findActiveStaffMemberByPin(businessId, staffPinHash);
+    if (matched) {
+      return formatStaffAuditLabel(matched.fullName, matched.staffCode);
+    }
+    return (fallbackLabel ?? '').trim().slice(0, 80) || 'Staff';
+  }
+
   private assertOwnerOrStaffPin(
     business: Business,
     profile: RestaurantProfile,
@@ -2597,9 +2651,16 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       return;
     }
 
-    // 2. If staffPinHash is provided, verify it matches profile.staffPinHash
+    // 2. If staffPinHash is provided, verify it matches either an active staff member PIN OR legacy profile.staffPinHash
     if (staffPinHash !== undefined && staffPinHash !== null) {
       const cleanHash = staffPinHash.trim().toLowerCase();
+      const matchedMember = this.findActiveStaffMemberByPin(
+        business.id,
+        cleanHash,
+      );
+      if (matchedMember) {
+        return;
+      }
       if (!profile.staffPinHash || profile.staffPinHash !== cleanHash) {
         throw new Error('Invalid Staff PIN.');
       }
@@ -2697,7 +2758,14 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       this.assertOwnerAccess(business, params.options);
     } else {
       const cleanHash = (params.staffPinHash ?? '').trim().toLowerCase();
-      if (!profile.staffPinHash || !cleanHash || profile.staffPinHash !== cleanHash) {
+      const matchedMember = this.findActiveStaffMemberByPin(
+        business.id,
+        cleanHash,
+      );
+      if (
+        !matchedMember &&
+        (!profile.staffPinHash || !cleanHash || profile.staffPinHash !== cleanHash)
+      ) {
         throw new Error('Invalid Staff PIN.');
       }
     }
@@ -2929,7 +2997,11 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       customerStarTxs.length > 0 ? customerStarTxs[0].balanceAfter : 0;
     const newStars = currentStars + rules.starsPerVerifiedVisit;
     const now = new Date().toISOString();
-    const staffLabel = (params.staffLabel ?? '').trim() || 'Staff';
+    const staffLabel = this.resolveAuditStaffLabel(
+      business.id,
+      params.staffPinHash,
+      params.staffLabel,
+    );
 
     const visitId = `vvisit-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const newVisit: RestaurantVerifiedVisit = {
@@ -3035,7 +3107,11 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       throw new Error(`Reward claim code "${cleanCode}" was cancelled.`);
     }
 
-    const staffLabel = (params.staffLabel ?? '').trim() || 'Staff';
+    const staffLabel = this.resolveAuditStaffLabel(
+      business.id,
+      params.staffPinHash,
+      params.staffLabel,
+    );
     const updated: RestaurantRewardClaim = {
       ...claim,
       status: 'fulfilled',
@@ -3162,11 +3238,25 @@ export class MockLocalStorageRepository implements IBusinessRepository {
 
     const activeTableOrders = [...allOrders].reverse();
 
+    const startOfToday = new Date();
+    startOfToday.setUTCHours(0, 0, 0, 0);
+    const todayMs = startOfToday.getTime();
+    const staffVerificationCountsToday: Record<string, number> = {};
+    for (const visit of verifiedVisits) {
+      if (new Date(visit.createdAt).getTime() >= todayMs) {
+        const key = visit.verifiedByLabel || 'Staff';
+        staffVerificationCountsToday[key] =
+          (staffVerificationCountsToday[key] ?? 0) + 1;
+      }
+    }
+
     return {
       activeTableCalls: calls,
       pendingRewardClaims,
       tableOrderingEnabled: Boolean(profile.tableOrderingEnabled),
+      businessMode: profile.businessMode ?? 'restaurant',
       tableOrders: activeTableOrders,
+      staffVerificationCountsToday,
       analytics: {
         qrScans: metrics.qrScans,
         checkedInDiners: distinctCustomers.size,
@@ -3481,7 +3571,11 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       throw new Error('Table order not found for this restaurant.');
     }
 
-    const staffLabel = (params.staffLabel ?? '').trim().slice(0, 80) || 'Staff';
+    const staffLabel = this.resolveAuditStaffLabel(
+      business.id,
+      params.staffPinHash,
+      params.staffLabel,
+    );
     const existing = orders[idx];
     const shouldRecordApprover =
       statusCheck.value === 'approved_for_kitchen' ||
@@ -3499,6 +3593,454 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     orders[idx] = updated;
     this.write(STORAGE_KEYS.RESTAURANT_TABLE_ORDERS, orders);
     return updated;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Master Upgrade II: Individual Staff Roster & Monthly Inventory / Expenses
+  // ---------------------------------------------------------------------------
+
+  async getRestaurantStaffMembers(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantStaffMember[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    const store = this.read<Record<string, RestaurantStaffMember[]>>(
+      STORAGE_KEYS.RESTAURANT_STAFF_MEMBERS,
+      {},
+    );
+    return [...(store[cleanId] ?? [])].sort((a, b) =>
+      a.staffCode.localeCompare(b.staffCode),
+    );
+  }
+
+  async createRestaurantStaffMember(
+    businessId: string,
+    input: RestaurantStaffMemberInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantStaffMember> {
+    const validation = validateStaffMemberInput(businessId, input, true);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    const store = this.read<Record<string, RestaurantStaffMember[]>>(
+      STORAGE_KEYS.RESTAURANT_STAFF_MEMBERS,
+      {},
+    );
+    const list = store[cleanId] ?? [];
+    const staffCode =
+      validation.value.staffCode ??
+      generateNextStaffCode(
+        validation.value.role,
+        list.map((m) => m.staffCode),
+      );
+
+    if (
+      list.some(
+        (m) => m.staffCode.toUpperCase() === staffCode.toUpperCase(),
+      )
+    ) {
+      throw new Error(
+        `Staff ID "${staffCode}" is already assigned to another team member.`,
+      );
+    }
+
+    const now = new Date().toISOString();
+    const created: RestaurantStaffMember = {
+      id: `stf-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      businessId: cleanId,
+      staffCode,
+      fullName: validation.value.fullName,
+      role: validation.value.role,
+      pinHash: validation.value.pinHash!,
+      isActive: validation.value.isActive,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    store[cleanId] = [...list, created];
+    this.write(STORAGE_KEYS.RESTAURANT_STAFF_MEMBERS, store);
+    return created;
+  }
+
+  async updateRestaurantStaffMember(
+    businessId: string,
+    staffId: string,
+    input: RestaurantStaffMemberInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantStaffMember> {
+    const validation = validateStaffMemberInput(businessId, input, false);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    const store = this.read<Record<string, RestaurantStaffMember[]>>(
+      STORAGE_KEYS.RESTAURANT_STAFF_MEMBERS,
+      {},
+    );
+    const list = store[cleanId] ?? [];
+    const idx = list.findIndex((m) => m.id === staffId);
+    if (idx === -1) {
+      throw new Error(`Staff member "${staffId}" not found for this business.`);
+    }
+
+    const existing = list[idx];
+    const nextCode = validation.value.staffCode ?? existing.staffCode;
+    if (
+      list.some(
+        (m) =>
+          m.id !== staffId &&
+          m.staffCode.toUpperCase() === nextCode.toUpperCase(),
+      )
+    ) {
+      throw new Error(
+        `Staff ID "${nextCode}" is already assigned to another team member.`,
+      );
+    }
+
+    const updated: RestaurantStaffMember = {
+      ...existing,
+      staffCode: nextCode,
+      fullName: validation.value.fullName,
+      role: validation.value.role,
+      pinHash: validation.value.pinHash ?? existing.pinHash,
+      isActive: validation.value.isActive,
+      updatedAt: new Date().toISOString(),
+    };
+    list[idx] = updated;
+    store[cleanId] = list;
+    this.write(STORAGE_KEYS.RESTAURANT_STAFF_MEMBERS, store);
+    return updated;
+  }
+
+  async deleteRestaurantStaffMember(
+    businessId: string,
+    staffId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    const store = this.read<Record<string, RestaurantStaffMember[]>>(
+      STORAGE_KEYS.RESTAURANT_STAFF_MEMBERS,
+      {},
+    );
+    const list = store[cleanId] ?? [];
+    if (!list.some((m) => m.id === staffId)) {
+      throw new Error(`Staff member "${staffId}" not found for this business.`);
+    }
+    store[cleanId] = list.filter((m) => m.id !== staffId);
+    this.write(STORAGE_KEYS.RESTAURANT_STAFF_MEMBERS, store);
+  }
+
+  async getPublicStaffLoginDirectory(
+    businessSlug: string,
+  ): Promise<PublicStaffLoginOption[]> {
+    const business = await this.getBusinessBySlug(businessSlug);
+    if (
+      !business ||
+      business.status !== 'active' ||
+      business.accountState !== 'active'
+    ) {
+      return [];
+    }
+    const profileStore = this.read<Record<string, RestaurantProfile>>(
+      STORAGE_KEYS.RESTAURANT_PROFILES,
+      {},
+    );
+    const profile = normalizeRestaurantProfile(
+      business.id,
+      profileStore[business.id],
+      'local',
+    );
+    if (!profile.isEnabled) {
+      return [];
+    }
+    const store = this.read<Record<string, RestaurantStaffMember[]>>(
+      STORAGE_KEYS.RESTAURANT_STAFF_MEMBERS,
+      {},
+    );
+    return (store[business.id] ?? [])
+      .filter((m) => m.isActive)
+      .sort((a, b) => a.staffCode.localeCompare(b.staffCode))
+      .map((m) => ({
+        id: m.id,
+        staffCode: m.staffCode,
+        fullName: m.fullName,
+        role: m.role,
+      }));
+  }
+
+  async verifyStaffMemberPin(params: {
+    businessSlug: string;
+    staffCode?: string | null;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<VerifiedStaffMemberSession> {
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (
+      !business ||
+      business.status !== 'active' ||
+      business.accountState !== 'active'
+    ) {
+      throw new Error('Restaurant is not active.');
+    }
+    const profileStore = this.read<Record<string, RestaurantProfile>>(
+      STORAGE_KEYS.RESTAURANT_PROFILES,
+      {},
+    );
+    const profile = normalizeRestaurantProfile(
+      business.id,
+      profileStore[business.id],
+      'local',
+    );
+    if (!profile.isEnabled) {
+      throw new Error('Restaurant Suite is not enabled.');
+    }
+
+    if (params.options?.actorOwnerId) {
+      this.assertOwnerAccess(business, params.options);
+      return {
+        verified: true,
+        staffId: null,
+        staffCode: 'OWNER',
+        fullName: 'Owner',
+        role: 'manager',
+        staffLabel: 'Owner',
+        businessId: business.id,
+        businessSlug: business.slug,
+        businessName: business.name,
+        businessMode: profile.businessMode ?? 'restaurant',
+      };
+    }
+
+    const cleanHash = (params.staffPinHash ?? '').trim().toLowerCase();
+    const cleanCode = (params.staffCode ?? '').trim().toUpperCase();
+    if (!cleanHash) {
+      throw new Error('Invalid Staff ID or PIN.');
+    }
+
+    // 1. Check active individual staff roster first
+    const matchedMember = this.findActiveStaffMemberByPin(
+      business.id,
+      cleanHash,
+      cleanCode || null,
+    );
+    if (matchedMember) {
+      return {
+        verified: true,
+        staffId: matchedMember.id,
+        staffCode: matchedMember.staffCode,
+        fullName: matchedMember.fullName,
+        role: matchedMember.role,
+        staffLabel: formatStaffAuditLabel(
+          matchedMember.fullName,
+          matchedMember.staffCode,
+        ),
+        businessId: business.id,
+        businessSlug: business.slug,
+        businessName: business.name,
+        businessMode: profile.businessMode ?? 'restaurant',
+      };
+    }
+
+    // 2. Fallback to legacy restaurant-level shared Staff PIN when no specific staffCode mismatch
+    if (
+      !cleanCode &&
+      profile.staffPinHash &&
+      profile.staffPinHash === cleanHash
+    ) {
+      return {
+        verified: true,
+        staffId: null,
+        staffCode: 'STAFF',
+        fullName: 'Floor Staff',
+        role: 'manager',
+        staffLabel: 'Floor Staff (STAFF)',
+        businessId: business.id,
+        businessSlug: business.slug,
+        businessName: business.name,
+        businessMode: profile.businessMode ?? 'restaurant',
+      };
+    }
+
+    throw new Error('Invalid Staff ID or PIN.');
+  }
+
+  async getRestaurantMonthlyInventory(
+    businessId: string,
+    monthKey?: string | null,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantMonthlyInventoryItem[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    const store = this.read<Record<string, RestaurantMonthlyInventoryItem[]>>(
+      STORAGE_KEYS.RESTAURANT_MONTHLY_INVENTORY,
+      {},
+    );
+    const list = store[cleanId] ?? [];
+    const cleanMonth = (monthKey ?? '').trim();
+    const filtered = cleanMonth
+      ? list.filter((item) => item.monthKey === cleanMonth)
+      : list;
+    return [...filtered].reverse();
+  }
+
+  async createRestaurantMonthlyInventoryItem(
+    businessId: string,
+    input: RestaurantMonthlyInventoryInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantMonthlyInventoryItem> {
+    const validation = validateMonthlyInventoryInput(businessId, input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    const store = this.read<Record<string, RestaurantMonthlyInventoryItem[]>>(
+      STORAGE_KEYS.RESTAURANT_MONTHLY_INVENTORY,
+      {},
+    );
+    const list = store[cleanId] ?? [];
+    const now = new Date().toISOString();
+    const created: RestaurantMonthlyInventoryItem = {
+      id: `inv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      businessId: cleanId,
+      monthKey: validation.value.monthKey,
+      entryType: validation.value.entryType,
+      category: validation.value.category,
+      itemName: validation.value.itemName,
+      quantityLabel: validation.value.quantityLabel,
+      amountPaise: validation.value.amountPaise,
+      lowStockAlert: validation.value.lowStockAlert,
+      notes: validation.value.notes,
+      createdAt: now,
+      updatedAt: now,
+    };
+    store[cleanId] = [...list, created];
+    this.write(STORAGE_KEYS.RESTAURANT_MONTHLY_INVENTORY, store);
+    return created;
+  }
+
+  async updateRestaurantMonthlyInventoryItem(
+    businessId: string,
+    itemId: string,
+    input: RestaurantMonthlyInventoryInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantMonthlyInventoryItem> {
+    const validation = validateMonthlyInventoryInput(businessId, input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    const store = this.read<Record<string, RestaurantMonthlyInventoryItem[]>>(
+      STORAGE_KEYS.RESTAURANT_MONTHLY_INVENTORY,
+      {},
+    );
+    const list = store[cleanId] ?? [];
+    const idx = list.findIndex((i) => i.id === itemId);
+    if (idx === -1) {
+      throw new Error(
+        `Inventory/expense entry "${itemId}" not found for this business.`,
+      );
+    }
+
+    const updated: RestaurantMonthlyInventoryItem = {
+      ...list[idx],
+      monthKey: validation.value.monthKey,
+      entryType: validation.value.entryType,
+      category: validation.value.category,
+      itemName: validation.value.itemName,
+      quantityLabel: validation.value.quantityLabel,
+      amountPaise: validation.value.amountPaise,
+      lowStockAlert: validation.value.lowStockAlert,
+      notes: validation.value.notes,
+      updatedAt: new Date().toISOString(),
+    };
+    list[idx] = updated;
+    store[cleanId] = list;
+    this.write(STORAGE_KEYS.RESTAURANT_MONTHLY_INVENTORY, store);
+    return updated;
+  }
+
+  async deleteRestaurantMonthlyInventoryItem(
+    businessId: string,
+    itemId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    const store = this.read<Record<string, RestaurantMonthlyInventoryItem[]>>(
+      STORAGE_KEYS.RESTAURANT_MONTHLY_INVENTORY,
+      {},
+    );
+    const list = store[cleanId] ?? [];
+    if (!list.some((i) => i.id === itemId)) {
+      throw new Error(
+        `Inventory/expense entry "${itemId}" not found for this business.`,
+      );
+    }
+    store[cleanId] = list.filter((i) => i.id !== itemId);
+    this.write(STORAGE_KEYS.RESTAURANT_MONTHLY_INVENTORY, store);
   }
 }
 

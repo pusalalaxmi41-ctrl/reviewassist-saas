@@ -15,6 +15,8 @@ export interface MenuThemePreviewMeta {
   previewText: string;
   previewAccent: string;
   previewButtonStyle: string;
+  previewBorderStyle: string;
+  previewFontClass: string;
   sampleTagline: string;
 }
 
@@ -24,6 +26,7 @@ export interface PresetDishSpec {
   pricePaise: number;
   dietaryTag: DietaryTag;
   isFeatured?: boolean;
+  imageUrl?: string;
 }
 
 export interface PresetCategorySpec {
@@ -54,37 +57,43 @@ export const MENU_THEME_LIST: ReadonlyArray<MenuThemePreviewMeta> = [
     name: 'Masala',
     subtitle: 'Traditional Indian Royal Parchment',
     vibeBadge: 'Crimson & Saffron',
-    swatches: ['#7A1624', '#E67E22', '#FDF8EE'],
+    swatches: ['#7A1624', '#D97706', '#FDF8EE'],
     previewBg: '#FDF8EE',
     previewText: '#7A1624',
-    previewAccent: '#E67E22',
+    previewAccent: '#D97706',
     previewButtonStyle: 'rounded-full bg-[#7A1624] text-[#FDF8EE]',
+    previewBorderStyle: 'rounded-2xl border-4 border-double border-amber-600/60',
+    previewFontClass: 'font-serif-editorial',
     sampleTagline: 'Royal Tandoor, Slow-Cooked Dum Curries & Heritage Spices',
   },
   {
     id: 'prakriti',
     presetKey: 'prakriti_organic',
     name: 'Prakriti',
-    subtitle: 'Organic Earthy Botanical Kitchen',
+    subtitle: 'Organic Earthy Botanical Cafe',
     vibeBadge: 'Moss, Sand & Clay',
-    swatches: ['#3D5A40', '#B85D3B', '#EDE4D3'],
-    previewBg: '#EDE4D3',
-    previewText: '#1E3F20',
+    swatches: ['#2D4A33', '#B85D3B', '#F2ECE1'],
+    previewBg: '#F2ECE1',
+    previewText: '#2D4A33',
     previewAccent: '#B85D3B',
-    previewButtonStyle: 'rounded-full bg-[#3D5A40] text-[#EDE4D3]',
+    previewButtonStyle: 'rounded-full bg-[#B85D3B] text-[#FAF6EE]',
+    previewBorderStyle: 'rounded-3xl border border-[#2D4A33]/25',
+    previewFontClass: 'font-serif-editorial',
     sampleTagline: 'Farm-to-Table Bowls, Ancient Grains & Botanical Elixirs',
   },
   {
     id: 'bistro',
     presetKey: 'bistro_modern',
     name: 'Bistro',
-    subtitle: 'Sleek Modern Architectural Dining',
+    subtitle: 'Sleek Modern Fine Dining',
     vibeBadge: 'Charcoal & Gold',
     swatches: ['#141414', '#C5A880', '#FAF7F2'],
     previewBg: '#141414',
     previewText: '#FAF7F2',
     previewAccent: '#C5A880',
     previewButtonStyle: 'rounded-none border border-[#C5A880] text-[#C5A880]',
+    previewBorderStyle: 'rounded-none border border-[#C5A880]/70',
+    previewFontClass: 'uppercase tracking-[0.16em]',
     sampleTagline: 'Artisan Small Plates, Craft Coffee & Modern Plates',
   },
   {
@@ -92,12 +101,14 @@ export const MENU_THEME_LIST: ReadonlyArray<MenuThemePreviewMeta> = [
     presetKey: 'samudra_coastal',
     name: 'Samudra',
     subtitle: 'Coastal Seaside & Harbor Catch',
-    vibeBadge: 'Navy & Seafoam',
+    vibeBadge: 'Ocean & Turquoise',
     swatches: ['#1A365D', '#0D9488', '#F5EFE6'],
     previewBg: '#F5EFE6',
     previewText: '#1A365D',
     previewAccent: '#0D9488',
     previewButtonStyle: 'rounded-full bg-[#0D9488] text-[#FFFFFF]',
+    previewBorderStyle: 'rounded-2xl border border-[#0D9488]/35',
+    previewFontClass: 'font-extrabold tracking-tight',
     sampleTagline: 'Fresh Coastal Spices, Malabar Curries & Island Coolers',
   },
   {
@@ -112,6 +123,9 @@ export const MENU_THEME_LIST: ReadonlyArray<MenuThemePreviewMeta> = [
     previewAccent: '#DC2626',
     previewButtonStyle:
       'rounded-xl border-2 border-[#111827] bg-[#FACC15] text-[#111827]',
+    previewBorderStyle:
+      'rounded-xl border-2 border-[#111827] shadow-[3px_3px_0px_#111827]',
+    previewFontClass: 'font-black uppercase tracking-tight',
     sampleTagline: 'Sizzling Grills, Double Smash Burgers & Classic Shakes',
   },
   {
@@ -124,9 +138,98 @@ export const MENU_THEME_LIST: ReadonlyArray<MenuThemePreviewMeta> = [
     previewText: '#1E1B4B',
     previewAccent: '#D2DB76',
     previewButtonStyle: 'rounded-full bg-[#1E1B4B] text-[#FFFFFF]',
+    previewBorderStyle: 'rounded-2xl border border-[#1E1B4B]/15',
+    previewFontClass: 'font-extrabold tracking-tight',
     sampleTagline: 'Freshly crafted dishes served hot to your table',
   },
 ];
+
+const CURATED_FOOD_PHOTOS: ReadonlyArray<{
+  keywords: string[];
+  url: string;
+}> = [
+  {
+    keywords: ['biryani', 'pulao', 'rice', 'handi'],
+    url: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=480&q=80&auto=format&fit=crop',
+  },
+  {
+    keywords: ['paneer', 'tikka', 'kebab', 'tandoor', 'tandoori'],
+    url: 'https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?w=480&q=80&auto=format&fit=crop',
+  },
+  {
+    keywords: ['butter chicken', 'curry', 'masala', 'dal', 'makhani', 'mutton'],
+    url: 'https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=480&q=80&auto=format&fit=crop',
+  },
+  {
+    keywords: ['naan', 'roti', 'parotta', 'dosa', 'appam', 'flatbread', 'chapati'],
+    url: 'https://images.unsplash.com/photo-1630383249896-424e482df921?w=480&q=80&auto=format&fit=crop',
+  },
+  {
+    keywords: ['gulab', 'jamun', 'sweet', 'dessert', 'halwa', 'tart', 'parfait', 'cake', 'chocolate'],
+    url: 'https://images.unsplash.com/photo-1551024601-bec78aea704b?w=480&q=80&auto=format&fit=crop',
+  },
+  {
+    keywords: ['coffee', 'espresso', 'cappuccino', 'latte', 'chai', 'tea'],
+    url: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=480&q=80&auto=format&fit=crop',
+  },
+  {
+    keywords: ['lassi', 'cooler', 'spritz', 'tonic', 'juice', 'mojito', 'soda', 'shake', 'float', 'chaas', 'drink'],
+    url: 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=480&q=80&auto=format&fit=crop',
+  },
+  {
+    keywords: ['avocado', 'salad', 'quinoa', 'bowl', 'tartine', 'khichdi', 'soup', 'velouté', 'tofu'],
+    url: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=480&q=80&auto=format&fit=crop',
+  },
+  {
+    keywords: ['pasta', 'risotto', 'bruschetta', 'burrata', 'noodle', 'mac'],
+    url: 'https://images.unsplash.com/photo-1473093295043-cdd812d0e601?w=480&q=80&auto=format&fit=crop',
+  },
+  {
+    keywords: ['fish', 'prawn', 'salmon', 'calamari', 'squid', 'seafood', 'coastal'],
+    url: 'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?w=480&q=80&auto=format&fit=crop',
+  },
+  {
+    keywords: ['burger', 'smash', 'sizzler', 'wings', 'fries', 'onion ring', 'grill', 'chicken'],
+    url: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=480&q=80&auto=format&fit=crop',
+  },
+];
+
+const THEME_FALLBACK_PHOTOS: Record<MenuThemeTemplate, string> = {
+  masala:
+    'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=480&q=80&auto=format&fit=crop',
+  prakriti:
+    'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=480&q=80&auto=format&fit=crop',
+  bistro:
+    'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=480&q=80&auto=format&fit=crop',
+  samudra:
+    'https://images.unsplash.com/photo-1559339352-11d035aa65de?w=480&q=80&auto=format&fit=crop',
+  sizzler:
+    'https://images.unsplash.com/photo-1550547660-d9450f859349?w=480&q=80&auto=format&fit=crop',
+  default:
+    'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=480&q=80&auto=format&fit=crop',
+};
+
+/**
+ * Resolves a crisp dish photo URL: prefers explicit owner URL, otherwise matches
+ * curated culinary imagery by dish/category keyword with a theme-aware fallback.
+ */
+export function resolveDishPhotoUrl(
+  dishName: string,
+  categoryName: string,
+  explicitUrl: string | null | undefined,
+  theme: MenuThemeTemplate = 'default',
+): string {
+  if (explicitUrl && /^https?:\/\/.+/i.test(explicitUrl.trim())) {
+    return explicitUrl.trim();
+  }
+  const haystack = `${dishName} ${categoryName}`.toLowerCase();
+  for (const entry of CURATED_FOOD_PHOTOS) {
+    if (entry.keywords.some((kw) => haystack.includes(kw))) {
+      return entry.url;
+    }
+  }
+  return THEME_FALLBACK_PHOTOS[theme] ?? THEME_FALLBACK_PHOTOS.default;
+}
 
 export const MENU_PRESET_PACKS: Record<
   MenuPresetKey,

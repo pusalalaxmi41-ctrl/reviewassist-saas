@@ -30,20 +30,26 @@ import {
   ChefHat,
   Palette,
   Wand2,
+  Coffee,
+  AlertTriangle,
+  Star,
 } from 'lucide-react';
 import type { Business } from '../../types/business';
 import type {
   DietaryTag,
   MenuPresetKey,
   MenuThemeTemplate,
+  RestaurantBusinessMode,
   RestaurantCurrencyCode,
   RestaurantFloorAndAnalyticsPayload,
   RestaurantGameConfig,
   RestaurantLoyaltyRules,
   RestaurantMenuCategory,
   RestaurantMenuItem,
+  RestaurantMonthlyInventoryItem,
   RestaurantProfile,
   RestaurantReward,
+  RestaurantStaffMember,
   RestaurantSuggestion,
   RestaurantTable,
   RestaurantTableOrderStatus,
@@ -60,6 +66,7 @@ import {
   DIETARY_TAG_METADATA,
   deriveTableKey,
   formatPriceFromPaise,
+  getCurrentMonthKey,
   getRestaurantMenuUrl,
   getRestaurantTableQrUrl,
   hashStaffPin,
@@ -78,10 +85,14 @@ import {
 import { copyText } from '../../utils/clipboard';
 import { Button } from '../common/Button';
 import { categoryLabels } from '../../services/business/mockBusinesses';
+import { RestaurantStaffRosterPanel } from './RestaurantStaffRosterPanel';
+import { RestaurantMonthlyInventoryPanel } from './RestaurantMonthlyInventoryPanel';
 
 export type RestaurantWorkspaceSection =
   | 'overview'
   | 'menu'
+  | 'staff'
+  | 'inventory'
   | 'tables'
   | 'games_loyalty';
 
@@ -157,11 +168,24 @@ export function RestaurantManagerView({
   const [tableOrderingEnabled, setTableOrderingEnabled] = useState(false);
   const [menuThemeTemplate, setMenuThemeTemplate] =
     useState<MenuThemeTemplate>('default');
+  const [businessMode, setBusinessMode] =
+    useState<RestaurantBusinessMode>('restaurant');
   const [applyingPresetKey, setApplyingPresetKey] =
     useState<MenuPresetKey | null>(null);
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+  const [quickVerifyLookup, setQuickVerifyLookup] = useState('');
+  const [quickVerifyingBill, setQuickVerifyingBill] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
+
+  // Staff Roster & Monthly Inventory state
+  const [staffMembers, setStaffMembers] = useState<RestaurantStaffMember[]>([]);
+  const [selectedMonthKey, setSelectedMonthKey] = useState<string>(() =>
+    getCurrentMonthKey(),
+  );
+  const [inventoryEntries, setInventoryEntries] = useState<
+    RestaurantMonthlyInventoryItem[]
+  >([]);
 
   // Live Overview Floor & Analytics state
   const [floorData, setFloorData] =
@@ -191,6 +215,7 @@ export function RestaurantManagerView({
   const [itemDietaryTag, setItemDietaryTag] = useState<DietaryTag>('veg');
   const [itemIsAvailable, setItemIsAvailable] = useState(true);
   const [itemIsFeatured, setItemIsFeatured] = useState(false);
+  const [itemImageUrl, setItemImageUrl] = useState('');
 
   // Tables & Standee QR state
   const [tables, setTables] = useState<RestaurantTable[]>([]);
@@ -286,6 +311,8 @@ export function RestaurantManagerView({
           rwds,
           sugs,
           flr,
+          staffList,
+          invList,
         ] = await Promise.all([
           businessRepository.getRestaurantProfile(business.id),
           businessRepository.getRestaurantMenuCategories(business.id),
@@ -299,6 +326,11 @@ export function RestaurantManagerView({
             businessSlug: business.slug,
             staffPinHash: null,
           }),
+          businessRepository.getRestaurantStaffMembers(business.id),
+          businessRepository.getRestaurantMonthlyInventory(
+            business.id,
+            getCurrentMonthKey(),
+          ),
         ]);
         setProfile(prof);
         setIsEnabled(prof.isEnabled);
@@ -308,6 +340,10 @@ export function RestaurantManagerView({
         setLoyaltyEnabled(prof.loyaltyEnabled);
         setTableOrderingEnabled(Boolean(prof.tableOrderingEnabled));
         setMenuThemeTemplate(prof.menuThemeTemplate ?? 'default');
+        setBusinessMode(
+          prof.businessMode ??
+            (business.category === 'cafe' ? 'cafe' : 'restaurant'),
+        );
         setMinHoursCooldown(prof.minHoursBetweenVisitStars ?? 4);
 
         setCategories(cats);
@@ -318,6 +354,8 @@ export function RestaurantManagerView({
         setRewards(rwds);
         setSuggestions(sugs);
         setFloorData(flr);
+        setStaffMembers(staffList);
+        setInventoryEntries(invList);
 
         if (cats.length > 0) {
           setItemCategoryId(cats[0].id);
@@ -334,7 +372,20 @@ export function RestaurantManagerView({
       }
     }
     void loadAll();
-  }, [business.id, business.slug]);
+  }, [business.id, business.slug, business.category]);
+
+  async function handleChangeInventoryMonth(nextMonthKey: string) {
+    setSelectedMonthKey(nextMonthKey);
+    try {
+      const list = await businessRepository.getRestaurantMonthlyInventory(
+        business.id,
+        nextMonthKey,
+      );
+      setInventoryEntries(list);
+    } catch (err) {
+      setErrorMessage((err as Error).message);
+    }
+  }
 
   useEffect(() => {
     if (currentSection !== 'overview') return;
@@ -402,6 +453,7 @@ export function RestaurantManagerView({
       isEnabled?: boolean;
       tableOrderingEnabled?: boolean;
       menuThemeTemplate?: MenuThemeTemplate;
+      businessMode?: RestaurantBusinessMode;
       statusMessage?: string;
     },
   ) {
@@ -417,6 +469,7 @@ export function RestaurantManagerView({
           ? overrides.tableOrderingEnabled
           : tableOrderingEnabled;
       const targetTheme = overrides?.menuThemeTemplate ?? menuThemeTemplate;
+      const targetBusinessMode = overrides?.businessMode ?? businessMode;
 
       const saved = await businessRepository.updateRestaurantProfile(
         business.id,
@@ -430,12 +483,14 @@ export function RestaurantManagerView({
           minHoursBetweenVisitStars: minHoursCooldown,
           tableOrderingEnabled: targetOrdering,
           menuThemeTemplate: targetTheme,
+          businessMode: targetBusinessMode,
         },
       );
       setProfile(saved);
       setIsEnabled(saved.isEnabled);
       setTableOrderingEnabled(Boolean(saved.tableOrderingEnabled));
       setMenuThemeTemplate(saved.menuThemeTemplate ?? 'default');
+      setBusinessMode(saved.businessMode ?? 'restaurant');
       onProfileChanged?.(saved);
       notifyStatus(
         overrides?.statusMessage ??
@@ -533,6 +588,36 @@ export function RestaurantManagerView({
       );
     } catch (err) {
       setErrorMessage((err as Error).message);
+    }
+  }
+
+  async function handleQuickVerifyBillStar(
+    e: React.FormEvent,
+    tableKeyOverride?: string | null,
+  ) {
+    e.preventDefault();
+    const lookup = quickVerifyLookup.trim();
+    if (!lookup) return;
+    setQuickVerifyingBill(true);
+    setErrorMessage(null);
+    try {
+      const res = await businessRepository.staffAwardVisitStars({
+        businessSlug: business.slug,
+        customerLookup: lookup,
+        tableKey: tableKeyOverride ?? null,
+        staffLabel: 'Owner',
+        idempotencyKey: `owner-bill-${business.slug}-${crypto.randomUUID()}`,
+        staffPinHash: null,
+      });
+      setQuickVerifyLookup('');
+      await refreshFloorData();
+      notifyStatus(
+        `Verified paid bill for ${res.customerName}! Awarded +${res.starsAwarded} ★ (New balance: ${res.newLoyaltyStarsBalance} ★).`,
+      );
+    } catch (err) {
+      setErrorMessage((err as Error).message);
+    } finally {
+      setQuickVerifyingBill(false);
     }
   }
 
@@ -751,6 +836,7 @@ export function RestaurantManagerView({
             dietaryTag: itemDietaryTag,
             isAvailable: itemIsAvailable,
             isFeatured: itemIsFeatured,
+            imageUrl: itemImageUrl.trim() || null,
           },
         );
         setItems((prev) =>
@@ -769,6 +855,7 @@ export function RestaurantManagerView({
             dietaryTag: itemDietaryTag,
             isAvailable: itemIsAvailable,
             isFeatured: itemIsFeatured,
+            imageUrl: itemImageUrl.trim() || null,
           },
         );
         setItems((prev) => [...prev, created]);
@@ -780,6 +867,7 @@ export function RestaurantManagerView({
       setItemDietaryTag('veg');
       setItemIsAvailable(true);
       setItemIsFeatured(false);
+      setItemImageUrl('');
       setShowDishForm(false);
     } catch (err) {
       setErrorMessage((err as Error).message);
@@ -795,6 +883,7 @@ export function RestaurantManagerView({
     setItemDietaryTag(item.dietaryTag);
     setItemIsAvailable(item.isAvailable);
     setItemIsFeatured(item.isFeatured);
+    setItemImageUrl(item.imageUrl ?? '');
     setShowDishForm(true);
   }
 
@@ -1336,41 +1425,110 @@ export function RestaurantManagerView({
               </div>
             </div>
 
-            {/* Tactile Restaurant Experience: ACTIVE Pill Switch */}
-            <div className="bistro-card inline-flex items-center justify-between sm:justify-start gap-3.5 px-5 py-3">
-              <span className="text-[14px] font-semibold text-[#111827]">
-                Restaurant Experience:
-              </span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={isEnabled}
-                aria-label="Toggle Restaurant Experience"
-                disabled={savingProfile}
-                onClick={() => {
-                  const next = !isEnabled;
-                  setIsEnabled(next);
-                  void handleSaveProfile({ isEnabled: next });
-                }}
-                className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] ${
-                  isEnabled ? 'bg-[#059669]' : 'bg-[#6B7280]/30'
-                }`}
+            {/* Right Controls: Business Mode [Restaurant | Cafe] + Restaurant Experience Switch */}
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Business Mode Pill Switcher */}
+              <div
+                className="bistro-card inline-flex items-center gap-1.5 p-1.5"
+                role="group"
+                aria-label="Business Mode Switcher"
               >
-                <span
-                  className={`inline-block h-5 w-5 transform rounded-full bg-[#FFFFFF] shadow-sm transition-transform duration-200 ${
-                    isEnabled ? 'translate-x-6' : 'translate-x-1'
+                <span className="hidden xl:inline pl-2 pr-1 text-[11px] font-bold uppercase tracking-wider text-[#6B7280]">
+                  Mode:
+                </span>
+                <button
+                  type="button"
+                  disabled={savingProfile}
+                  onClick={() => {
+                    if (businessMode === 'restaurant') return;
+                    setBusinessMode('restaurant');
+                    void handleSaveProfile({
+                      businessMode: 'restaurant',
+                      statusMessage: 'Switched workspace to Restaurant Mode.',
+                    });
+                  }}
+                  className={`inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-[12px] font-extrabold transition-all cursor-pointer ${
+                    businessMode === 'restaurant'
+                      ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
+                      : 'text-[#6B7280] hover:bg-[#F8F9FA] hover:text-[#111827]'
                   }`}
-                />
-              </button>
-              <span
-                className={`rounded-full px-3 py-1 text-[12px] font-bold uppercase tracking-wider ${
-                  isEnabled
-                    ? 'bg-emerald-50 text-[#059669] border border-emerald-200'
-                    : 'bg-gray-100 text-[#6B7280]'
-                }`}
-              >
-                {isEnabled ? 'ACTIVE' : 'PAUSED'}
-              </span>
+                >
+                  <UtensilsCrossed
+                    className={`h-3.5 w-3.5 ${
+                      businessMode === 'restaurant'
+                        ? 'text-[#D2DB76]'
+                        : 'text-[#6B7280]'
+                    }`}
+                    aria-hidden
+                  />
+                  Restaurant
+                </button>
+                <button
+                  type="button"
+                  disabled={savingProfile}
+                  onClick={() => {
+                    if (businessMode === 'cafe') return;
+                    setBusinessMode('cafe');
+                    void handleSaveProfile({
+                      businessMode: 'cafe',
+                      statusMessage:
+                        'Switched workspace to Cafe Mode — fast stock alerts enabled.',
+                    });
+                  }}
+                  className={`inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-[12px] font-extrabold transition-all cursor-pointer ${
+                    businessMode === 'cafe'
+                      ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
+                      : 'text-[#6B7280] hover:bg-[#F8F9FA] hover:text-[#111827]'
+                  }`}
+                >
+                  <Coffee
+                    className={`h-3.5 w-3.5 ${
+                      businessMode === 'cafe'
+                        ? 'text-[#D2DB76]'
+                        : 'text-[#6B7280]'
+                    }`}
+                    aria-hidden
+                  />
+                  Cafe
+                </button>
+              </div>
+
+              {/* Tactile Restaurant Experience: ACTIVE Pill Switch */}
+              <div className="bistro-card inline-flex items-center justify-between sm:justify-start gap-3 px-4 py-2.5">
+                <span className="text-[13px] font-semibold text-[#111827]">
+                  Experience:
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isEnabled}
+                  aria-label="Toggle Restaurant Experience"
+                  disabled={savingProfile}
+                  onClick={() => {
+                    const next = !isEnabled;
+                    setIsEnabled(next);
+                    void handleSaveProfile({ isEnabled: next });
+                  }}
+                  className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] ${
+                    isEnabled ? 'bg-[#059669]' : 'bg-[#6B7280]/30'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-[#FFFFFF] shadow-sm transition-transform duration-200 ${
+                      isEnabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider ${
+                    isEnabled
+                      ? 'bg-emerald-50 text-[#059669] border border-emerald-200'
+                      : 'bg-gray-100 text-[#6B7280]'
+                  }`}
+                >
+                  {isEnabled ? 'ACTIVE' : 'PAUSED'}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -1507,84 +1665,104 @@ export function RestaurantManagerView({
             </div>
           </div>
 
-          {/* Prominent Master Switch: Customer Phone Ordering (Send to Chef after Approval) */}
-          <div className="bistro-card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-start gap-3.5">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#1E1B4B] text-[#D2DB76] shadow-2xs">
-                <ChefHat className="h-5 w-5" aria-hidden />
-              </span>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-[15px] font-extrabold text-[#111827]">
-                    Customer Phone Ordering (Send to Chef after Approval)
-                  </p>
-                  <span
-                    className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider ${
-                      tableOrderingEnabled
-                        ? 'bg-emerald-50 text-[#059669] border border-emerald-200'
-                        : 'bg-gray-100 text-[#6B7280]'
-                    }`}
-                  >
-                    {tableOrderingEnabled ? 'ON' : 'OFF — View-Only Menu'}
-                  </span>
-                </div>
-                <p className="mt-0.5 text-[13px] text-[#6B7280]">
-                  {tableOrderingEnabled
-                    ? 'Guests can tap + on dishes to send table orders for your approval before going to the Chef queue (zero payment or tax).'
-                    : 'Menu is view-only with zero + buttons. Guests tell their waiter directly.'}
+          {/* Low-Stock Quick Alert Strip (Visible when low-stock items are flagged) */}
+          {inventoryEntries.some((i) => i.lowStockAlert) && (
+            <div className="rounded-2xl border border-amber-300 bg-amber-50/85 px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle
+                  className="h-4.5 w-4.5 shrink-0 text-[#D97706]"
+                  aria-hidden
+                />
+                <p className="text-[13px] font-bold text-[#111827]">
+                  <span className="text-[#D97706]">
+                    {inventoryEntries.filter((i) => i.lowStockAlert).length}{' '}
+                    Low-Stock Alert
+                    {inventoryEntries.filter((i) => i.lowStockAlert).length ===
+                    1
+                      ? ''
+                      : 's'}
+                    :
+                  </span>{' '}
+                  {inventoryEntries
+                    .filter((i) => i.lowStockAlert)
+                    .slice(0, 3)
+                    .map((i) => i.itemName)
+                    .join(', ')}
                 </p>
               </div>
+              <button
+                type="button"
+                onClick={() => setSection('inventory')}
+                className="rounded-xl bg-[#1E1B4B] px-3.5 py-1.5 text-[12px] font-bold text-[#FFFFFF] hover:bg-[#2E2A6E] cursor-pointer"
+              >
+                Manage Stock →
+              </button>
             </div>
+          )}
 
-            <button
-              type="button"
-              role="switch"
-              aria-checked={tableOrderingEnabled}
-              aria-label="Toggle Customer Phone Ordering"
-              disabled={savingProfile}
-              onClick={() => {
-                const next = !tableOrderingEnabled;
-                setTableOrderingEnabled(next);
-                void handleSaveProfile({
-                  tableOrderingEnabled: next,
-                  statusMessage: next
-                    ? 'Customer Phone Ordering enabled — incoming table orders require Manager/Staff approval before sending to Chef.'
-                    : 'Customer Phone Ordering turned OFF — menu is now strictly view-only.',
-                });
-              }}
-              className={`relative inline-flex h-7 w-13 shrink-0 items-center rounded-full transition-colors duration-200 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] ${
-                tableOrderingEnabled ? 'bg-[#059669]' : 'bg-[#6B7280]/30'
-              }`}
-            >
-              <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-[#FFFFFF] shadow-sm transition-transform duration-200 ${
-                  tableOrderingEnabled ? 'translate-x-7' : 'translate-x-1'
-                }`}
-              />
-            </button>
-          </div>
-
-          {/* Incoming Table Orders Queue (Shown when Phone Ordering is ON or orders exist) */}
-          {(tableOrderingEnabled || activeOrders.length > 0) && (
-            <div className="bistro-card p-6 sm:p-8 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <h2 className="text-[19px] font-bold text-[#111827] flex items-center gap-2">
-                    <ChefHat className="h-5 w-5 text-[#1E1B4B]" aria-hidden />
-                    Incoming Table Orders Queue
-                  </h2>
-                  <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[#D2DB76] px-2 text-[12px] font-extrabold text-[#1E1B4B] tabular-nums">
-                    {activeOrders.length}
+          {/* 2-COLUMN DUAL-APPROVAL CENTER (Side-by-Side) */}
+          <div className="grid gap-5 xl:grid-cols-2 items-start">
+            {/* LEFT CARD — APPROVAL 1: INCOMING TABLE ORDERS → CHEF */}
+            <div className="bistro-card p-6 space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-[#1E1B4B] px-2.5 py-0.5 text-[10.5px] font-extrabold uppercase tracking-wider text-[#D2DB76]">
+                    Approval 1 • Order → Chef
                   </span>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-[18px] font-extrabold text-[#111827]">
+                      Incoming Table Orders
+                    </h2>
+                    <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[#D2DB76] px-2 text-[12px] font-extrabold text-[#1E1B4B] tabular-nums">
+                      {activeOrders.length}
+                    </span>
+                  </div>
                 </div>
-                <span className="text-[12px] font-semibold text-[#6B7280]">
-                  Approve → Kitchen Queue → Served (Zero billing)
-                </span>
+
+                {/* Inline Master Switch for Phone Ordering */}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={tableOrderingEnabled}
+                  aria-label="Toggle Customer Phone Ordering"
+                  disabled={savingProfile}
+                  onClick={() => {
+                    const next = !tableOrderingEnabled;
+                    setTableOrderingEnabled(next);
+                    void handleSaveProfile({
+                      tableOrderingEnabled: next,
+                      statusMessage: next
+                        ? 'Customer Phone Ordering enabled — incoming table orders require Manager/Staff approval before sending to Chef.'
+                        : 'Customer Phone Ordering turned OFF — menu is now strictly view-only.',
+                    });
+                  }}
+                  className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-[11.5px] font-extrabold transition-colors cursor-pointer ${
+                    tableOrderingEnabled
+                      ? 'border-emerald-200 bg-emerald-50 text-[#059669]'
+                      : 'border-[#1E1B4B]/15 bg-[#F8F9FA] text-[#6B7280]'
+                  }`}
+                >
+                  <ChefHat className="h-3.5 w-3.5" aria-hidden />
+                  Phone Ordering: {tableOrderingEnabled ? 'ON' : 'OFF'}
+                </button>
               </div>
 
               {activeOrders.length === 0 ? (
-                <div className="rounded-2xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-6 text-center text-[13px] font-medium text-[#6B7280]">
-                  No pending table orders right now. When guests submit a table order from the Digital Menu, it will appear here for 1-tap approval.
+                <div className="rounded-2xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-6 text-center space-y-1.5">
+                  <ChefHat
+                    className="mx-auto h-7 w-7 text-[#1E1B4B]/50"
+                    aria-hidden
+                  />
+                  <p className="text-[14px] font-bold text-[#111827]">
+                    {tableOrderingEnabled
+                      ? 'No pending table orders right now'
+                      : 'Customer Phone Ordering is currently OFF'}
+                  </p>
+                  <p className="text-[12.5px] text-[#6B7280]">
+                    {tableOrderingEnabled
+                      ? 'When a guest submits a table order, tap Approve → Send to Chef here.'
+                      : 'Menu is view-only (zero + buttons). Flip Phone Ordering ON anytime to receive orders here.'}
+                  </p>
                 </div>
               ) : (
                 <div className="divide-y divide-[#1E1B4B]/10 rounded-2xl border border-[#1E1B4B]/10 bg-[#FFFFFF]">
@@ -1596,13 +1774,10 @@ export function RestaurantManagerView({
                     const firstNote = ord.items.find((i) => i.notes)?.notes;
 
                     return (
-                      <div
-                        key={ord.id}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 p-4 sm:px-5"
-                      >
-                        <div className="space-y-1 min-w-0 flex-1">
+                      <div key={ord.id} className="p-4 space-y-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[15px] font-extrabold text-[#111827]">
+                            <span className="text-[14px] font-extrabold text-[#111827]">
                               {ord.tableNumber || 'Table Order'}
                             </span>
                             {ord.guestName && (
@@ -1610,36 +1785,45 @@ export function RestaurantManagerView({
                                 • {ord.guestName}
                               </span>
                             )}
-                            <span
-                              className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider ${
-                                ord.status === 'pending_approval'
-                                  ? 'bg-amber-50 text-[#D97706] border border-amber-300'
-                                  : ord.status === 'approved_for_kitchen'
-                                    ? 'bg-[#1E1B4B] text-[#D2DB76]'
-                                    : 'bg-emerald-50 text-[#059669] border border-emerald-200'
-                              }`}
-                            >
-                              {ord.status === 'pending_approval'
-                                ? 'Pending Approval'
-                                : ord.status === 'approved_for_kitchen'
-                                  ? 'Sent to Chef'
-                                  : 'Preparing'}
-                            </span>
-                            <span className="text-[12px] text-[#6B7280] tabular-nums">
+                            <span className="text-[11.5px] text-[#6B7280] tabular-nums">
                               • {formatTimeAgo(ord.createdAt)}
                             </span>
                           </div>
-                          <p className="text-[14px] font-semibold text-[#111827]">
-                            {itemSummary}
-                          </p>
-                          {firstNote && (
-                            <p className="text-[12px] italic text-[#D97706]">
-                              Note: &ldquo;{firstNote}&rdquo;
-                            </p>
-                          )}
+                          <span
+                            className={`rounded-full px-2.5 py-0.5 text-[10.5px] font-bold uppercase tracking-wider ${
+                              ord.status === 'pending_approval'
+                                ? 'bg-amber-50 text-[#D97706] border border-amber-300'
+                                : ord.status === 'approved_for_kitchen'
+                                  ? 'bg-[#1E1B4B] text-[#D2DB76]'
+                                  : 'bg-emerald-50 text-[#059669] border border-emerald-200'
+                            }`}
+                          >
+                            {ord.status === 'pending_approval'
+                              ? 'Pending Approval'
+                              : ord.status === 'approved_for_kitchen'
+                                ? 'Sent to Chef'
+                                : 'Preparing'}
+                          </span>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <p className="text-[13.5px] font-semibold text-[#111827]">
+                          {itemSummary}
+                        </p>
+                        {firstNote && (
+                          <p className="text-[12px] italic text-[#D97706]">
+                            Note: &ldquo;{firstNote}&rdquo;
+                          </p>
+                        )}
+                        {ord.approvedBy && (
+                          <p className="text-[11.5px] font-semibold text-[#6B7280]">
+                            Approved by:{' '}
+                            <span className="text-[#1E1B4B]">
+                              {ord.approvedBy}
+                            </span>
+                          </p>
+                        )}
+
+                        <div className="flex flex-wrap items-center gap-2 pt-0.5">
                           {ord.status === 'pending_approval' && (
                             <>
                               <button
@@ -1651,7 +1835,7 @@ export function RestaurantManagerView({
                                     'approved_for_kitchen',
                                   )
                                 }
-                                className="rounded-xl bg-[#1E1B4B] px-4 py-2 text-[12px] font-extrabold text-[#FFFFFF] hover:bg-[#2E2A6E] active:scale-[0.98] transition-all cursor-pointer"
+                                className="rounded-xl bg-[#1E1B4B] px-3.5 py-2 text-[12px] font-extrabold text-[#FFFFFF] hover:bg-[#2E2A6E] active:scale-[0.98] transition-all cursor-pointer"
                               >
                                 Approve → Send to Chef
                               </button>
@@ -1664,7 +1848,7 @@ export function RestaurantManagerView({
                                     'cancelled',
                                   )
                                 }
-                                className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2 text-[12px] font-bold text-red-700 hover:bg-red-100 active:scale-[0.98] transition-all cursor-pointer"
+                                className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-bold text-red-700 hover:bg-red-100 active:scale-[0.98] transition-all cursor-pointer"
                               >
                                 Reject
                               </button>
@@ -1680,7 +1864,7 @@ export function RestaurantManagerView({
                                   'preparing',
                                 )
                               }
-                              className="rounded-xl bg-[#1E1B4B] px-4 py-2 text-[12px] font-extrabold text-[#FFFFFF] hover:bg-[#2E2A6E] active:scale-[0.98] transition-all cursor-pointer"
+                              className="rounded-xl bg-[#1E1B4B] px-3.5 py-2 text-[12px] font-extrabold text-[#FFFFFF] hover:bg-[#2E2A6E] cursor-pointer"
                             >
                               Start Preparing
                             </button>
@@ -1692,7 +1876,7 @@ export function RestaurantManagerView({
                               onClick={() =>
                                 void handleUpdateOrderStatus(ord.id, 'served')
                               }
-                              className="rounded-xl bg-[#059669] px-4 py-2 text-[12px] font-extrabold text-[#FFFFFF] hover:bg-emerald-700 active:scale-[0.98] transition-all cursor-pointer"
+                              className="rounded-xl bg-[#059669] px-3.5 py-2 text-[12px] font-extrabold text-[#FFFFFF] hover:bg-emerald-700 cursor-pointer"
                             >
                               Mark Served ✓
                             </button>
@@ -1704,150 +1888,176 @@ export function RestaurantManagerView({
                 </div>
               )}
             </div>
-          )}
 
-          {/* Live Table Alerts Card (Matching Mockup 1) */}
-          <div className="bistro-card p-6 sm:p-8 space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <h2 className="text-[19px] font-bold text-[#111827]">
-                  Live Table Alerts
-                </h2>
-                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[#1E1B4B] px-2 text-[12px] font-bold text-[#FFFFFF] tabular-nums">
-                  {activeCalls.length}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void refreshFloorData()}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#1E1B4B]/15 bg-[#FFFFFF] px-3 text-[13px] font-semibold text-[#111827] hover:bg-[#F8F9FA] active:scale-[0.98] transition-all cursor-pointer"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Refresh
-                </button>
-                <a
-                  href={`/r/${business.slug}/staff`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#1E1B4B]/[0.06] px-3.5 text-[13px] font-semibold text-[#1E1B4B] hover:bg-[#1E1B4B]/10 transition-all"
-                >
-                  Waiter Floor Mode <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-                </a>
-              </div>
-            </div>
-
-            {activeCalls.length === 0 ? (
-              <div className="rounded-2xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-8 text-center space-y-2">
-                <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-emerald-50 text-[#059669] border border-emerald-200">
-                  <CheckCircle2 className="h-5 w-5" aria-hidden />
+            {/* RIGHT CARD — APPROVAL 2: LIVE WAITER CALLS & BILL VERIFICATIONS (+1 STAR) */}
+            <div className="bistro-card p-6 space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[10.5px] font-extrabold uppercase tracking-wider text-[#059669]">
+                    Approval 2 • Paid Bill → +1 Star
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-[18px] font-extrabold text-[#111827]">
+                      Waiter Calls &amp; Bill Verifications
+                    </h2>
+                    <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[#1E1B4B] px-2 text-[12px] font-bold text-[#FFFFFF] tabular-nums">
+                      {activeCalls.length}
+                    </span>
+                  </div>
                 </div>
-                <p className="text-[15px] font-bold text-[#111827]">
-                  All tables caught up — no pending waiter calls
-                </p>
-                <p className="text-[13px] text-[#6B7280] max-w-md mx-auto">
-                  When dining guests tap &ldquo;Call Waiter&rdquo; or &ldquo;Ready for Bill&rdquo; on their table QR hub, real-time alerts appear here.
-                </p>
-                {tables.length === 0 && (
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setSection('tables')}
-                    className="mt-2 inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#1E1B4B] px-4 text-[13px] font-semibold text-[#FFFFFF] hover:bg-[#2E2A6E] active:scale-[0.98] transition-all cursor-pointer"
+                    onClick={() => void refreshFloorData()}
+                    className="inline-flex h-8 items-center gap-1 rounded-xl border border-[#1E1B4B]/15 bg-[#FFFFFF] px-2.5 text-[12px] font-semibold text-[#111827] hover:bg-[#F8F9FA] cursor-pointer"
                   >
-                    <Plus className="h-4 w-4" aria-hidden /> Add Your First Table QR
+                    <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Refresh
                   </button>
-                )}
+                  <a
+                    href={`/r/${business.slug}/staff`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex h-8 items-center gap-1 rounded-xl bg-[#1E1B4B]/[0.07] px-3 text-[12px] font-bold text-[#1E1B4B] hover:bg-[#1E1B4B]/12"
+                  >
+                    Waiter App <ExternalLink className="h-3 w-3" aria-hidden />
+                  </a>
+                </div>
               </div>
-            ) : (
-              <div className="divide-y divide-[#1E1B4B]/10 rounded-2xl border border-[#1E1B4B]/10 bg-[#FFFFFF]">
-                {activeCalls.map((call) => {
-                  const isBill = call.callType === 'ready_for_bill';
-                  return (
-                    <div
-                      key={call.id}
-                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:px-5"
-                    >
-                      <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-                        <span className="text-[16px] font-extrabold text-[#111827]">
-                          {call.tableNumber || 'Table'}
-                        </span>
-                        <span className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-[13px] font-semibold text-[#D97706]">
-                          <span className="relative flex h-2 w-2">
-                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#D97706] opacity-75" />
-                            <span className="relative inline-flex h-2 w-2 rounded-full bg-[#D97706]" />
-                          </span>
-                          {isBill ? 'Ready for Bill' : 'Calling Waiter'}
-                        </span>
-                        <span className="text-[13px] font-medium text-[#6B7280] tabular-nums">
-                          • {formatTimeAgo(call.createdAt)}
-                        </span>
-                      </div>
 
-                      <div className="flex items-center gap-2">
-                        {call.status === 'open' && (
+              {/* Quick Verify Paid Bill (+1 Star) Form */}
+              <form
+                onSubmit={(e) => void handleQuickVerifyBillStar(e)}
+                className="rounded-2xl border border-[#1E1B4B]/15 bg-[#F8F9FA] p-3 flex flex-col sm:flex-row gap-2"
+              >
+                <input
+                  type="text"
+                  aria-label="Guest Phone, Email, or Loyalty QR Token"
+                  placeholder="Guest Phone / Loyalty QR Token…"
+                  value={quickVerifyLookup}
+                  onChange={(e) => setQuickVerifyLookup(e.target.value)}
+                  className="h-10 flex-1 rounded-xl border border-[#1E1B4B]/15 bg-[#FFFFFF] px-3 text-[13px] font-semibold text-[#111827] focus:border-[#1E1B4B] focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={quickVerifyingBill || !quickVerifyLookup.trim()}
+                  className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-[#1E1B4B] px-4 text-[12px] font-extrabold text-[#FFFFFF] hover:bg-[#2E2A6E] disabled:opacity-50 cursor-pointer"
+                >
+                  <Star
+                    className="h-3.5 w-3.5 text-[#D2DB76] fill-[#D2DB76]"
+                    aria-hidden
+                  />
+                  {quickVerifyingBill ? 'Awarding…' : 'Verify Bill (+1 Star)'}
+                </button>
+              </form>
+
+              {activeCalls.length === 0 ? (
+                <div className="rounded-2xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-5 text-center space-y-1.5">
+                  <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-emerald-50 text-[#059669] border border-emerald-200">
+                    <CheckCircle2 className="h-4.5 w-4.5" aria-hidden />
+                  </div>
+                  <p className="text-[14px] font-bold text-[#111827]">
+                    All tables caught up — no pending waiter calls
+                  </p>
+                  <p className="text-[12px] text-[#6B7280]">
+                    &ldquo;Call Waiter&rdquo; and &ldquo;Ready for Bill&rdquo; table alerts appear here live.
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y divide-[#1E1B4B]/10 rounded-2xl border border-[#1E1B4B]/10 bg-[#FFFFFF]">
+                  {activeCalls.map((call) => {
+                    const isBill = call.callType === 'ready_for_bill';
+                    return (
+                      <div
+                        key={call.id}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3.5"
+                      >
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          <span className="text-[14px] font-extrabold text-[#111827]">
+                            {call.tableNumber || 'Table'}
+                          </span>
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-[12px] font-semibold text-[#D97706]">
+                            <span className="relative flex h-2 w-2">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#D97706] opacity-75" />
+                              <span className="relative inline-flex h-2 w-2 rounded-full bg-[#D97706]" />
+                            </span>
+                            {isBill ? 'Ready for Bill' : 'Calling Waiter'}
+                          </span>
+                          <span className="text-[12px] font-medium text-[#6B7280] tabular-nums">
+                            • {formatTimeAgo(call.createdAt)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {call.status === 'open' && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void handleUpdateTableCall(
+                                  call.id,
+                                  'acknowledged',
+                                )
+                              }
+                              className="rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-3 py-1.5 text-[12px] font-semibold text-[#111827] hover:bg-[#F8F9FA] cursor-pointer"
+                            >
+                              Acknowledge
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() =>
-                              void handleUpdateTableCall(call.id, 'acknowledged')
+                              void handleUpdateTableCall(call.id, 'resolved')
                             }
-                            className="rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-3.5 py-2 text-[13px] font-semibold text-[#111827] hover:bg-[#F8F9FA] active:scale-[0.98] transition-all cursor-pointer"
+                            className="rounded-xl bg-[#1E1B4B] px-3.5 py-1.5 text-[12px] font-bold text-[#FFFFFF] hover:bg-[#2E2A6E] cursor-pointer"
                           >
-                            Acknowledge
+                            Resolve
                           </button>
-                        )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Pending Reward Claim Tickets (if any active) */}
+              {pendingClaims.length > 0 && (
+                <div className="space-y-2.5 border-t border-[#1E1B4B]/10 pt-4">
+                  <h3 className="text-[12px] font-extrabold uppercase tracking-wider text-[#6B7280] flex items-center gap-1.5">
+                    <Ticket className="h-3.5 w-3.5 text-[#1E1B4B]" aria-hidden />
+                    Pending Reward Tickets ({pendingClaims.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {pendingClaims.map((claim) => (
+                      <div
+                        key={claim.id}
+                        className="flex items-center justify-between gap-2 rounded-xl border border-[#D2DB76] bg-[#D2DB76]/25 px-3.5 py-2.5"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-[13px] font-bold text-[#111827]">
+                            {claim.rewardTitle || 'Reward'} •{' '}
+                            <span className="font-mono text-[#1E1B4B]">
+                              {claim.claimCode}
+                            </span>
+                          </p>
+                          <p className="text-[11.5px] text-[#6B7280]">
+                            Guest: {claim.customerName || 'Diner'} (
+                            {claim.starsSpent} ★)
+                          </p>
+                        </div>
                         <button
                           type="button"
                           onClick={() =>
-                            void handleUpdateTableCall(call.id, 'resolved')
+                            void handleFulfillClaimCode(claim.claimCode)
                           }
-                          className="rounded-xl bg-[#1E1B4B] px-5 py-2 text-[13px] font-semibold text-[#FFFFFF] hover:bg-[#2E2A6E] active:scale-[0.98] transition-all cursor-pointer"
+                          className="shrink-0 rounded-xl bg-[#1E1B4B] px-3 py-1.5 text-[12px] font-bold text-[#FFFFFF] hover:bg-[#2E2A6E] cursor-pointer"
                         >
-                          Resolve
+                          Fulfill ✓
                         </button>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Pending Reward Claim Tickets (if any active) */}
-            {pendingClaims.length > 0 && (
-              <div className="space-y-3 border-t border-[#1E1B4B]/10 pt-5">
-                <h3 className="text-[14px] font-bold uppercase tracking-wider text-[#6B7280] flex items-center gap-2">
-                  <Ticket className="h-4 w-4 text-[#1E1B4B]" aria-hidden />
-                  Pending Guest Reward Tickets ({pendingClaims.length})
-                </h3>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {pendingClaims.map((claim) => (
-                    <div
-                      key={claim.id}
-                      className="flex items-center justify-between gap-3 rounded-2xl border border-[#D2DB76] bg-[#D2DB76]/20 p-4"
-                    >
-                      <div>
-                        <p className="text-[14px] font-bold text-[#111827]">
-                          {claim.rewardTitle || 'Reward'} •{' '}
-                          <span className="font-mono text-[#1E1B4B]">
-                            {claim.claimCode}
-                          </span>
-                        </p>
-                        <p className="text-[12px] text-[#6B7280]">
-                          Guest: {claim.customerName || 'Diner'} ({claim.starsSpent} ★)
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleFulfillClaimCode(claim.claimCode)
-                        }
-                        className="rounded-xl bg-[#1E1B4B] px-3.5 py-2 text-[12px] font-semibold text-[#FFFFFF] hover:bg-[#2E2A6E] active:scale-[0.98] transition-all cursor-pointer"
-                      >
-                        Fulfill ✓
-                      </button>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1892,6 +2102,7 @@ export function RestaurantManagerView({
                   setItemDietaryTag('veg');
                   setItemIsAvailable(true);
                   setItemIsFeatured(false);
+                  setItemImageUrl('');
                   if (
                     selectedCategoryId !== 'all' &&
                     selectedCategoryId
@@ -2013,27 +2224,41 @@ export function RestaurantManagerView({
                       }}
                       className="text-left space-y-3 cursor-pointer"
                     >
-                      {/* Mini Visual Swatch Preview */}
+                      {/* Mini Visual Swatch Preview (Authentic Font, Border & Swatches) */}
                       <div
-                        className="rounded-xl p-3 border border-black/10 flex items-center justify-between gap-2"
+                        className={`p-3.5 space-y-2 ${tpl.previewBorderStyle}`}
                         style={{
                           backgroundColor: tpl.previewBg,
                           color: tpl.previewText,
                         }}
                       >
-                        <div className="min-w-0">
-                          <p className="text-[14px] font-extrabold truncate">
-                            {tpl.name}
-                          </p>
-                          <p className="text-[10.5px] opacity-80 truncate">
-                            {tpl.vibeBadge}
-                          </p>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p
+                              className={`text-[15px] font-bold truncate ${tpl.previewFontClass}`}
+                            >
+                              {tpl.id === 'prakriti'
+                                ? `🌿 ${tpl.name}`
+                                : tpl.name}
+                            </p>
+                            <p className="text-[10px] opacity-80 truncate">
+                              {tpl.vibeBadge}
+                            </p>
+                          </div>
+                          <span
+                            className={`shrink-0 px-2.5 py-1 text-[10px] font-bold ${tpl.previewButtonStyle}`}
+                          >
+                            Menu
+                          </span>
                         </div>
-                        <span
-                          className={`shrink-0 px-2.5 py-1 text-[10px] font-bold ${tpl.previewButtonStyle}`}
-                        >
-                          Menu
-                        </span>
+                        <div className="flex items-center justify-between border-t border-current/15 pt-1.5 text-[10px] opacity-85">
+                          <span className="truncate font-semibold">
+                            Signature Dish
+                          </span>
+                          <span className="font-extrabold tabular-nums">
+                            ₹295
+                          </span>
+                        </div>
                       </div>
 
                       <div className="flex items-center justify-between gap-2">
@@ -2359,22 +2584,41 @@ export function RestaurantManagerView({
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="dishDescField"
-                  className="block text-[13px] font-semibold text-[#111827]"
-                >
-                  Concise Description (Optional)
-                </label>
-                <input
-                  id="dishDescField"
-                  type="text"
-                  maxLength={300}
-                  placeholder="e.g. Slow-cooked with aromatic saffron, served with mirchi ka salan & raita"
-                  value={itemDescription}
-                  onChange={(e) => setItemDescription(e.target.value)}
-                  className="block h-11 w-full rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-3.5 text-[14px] text-[#111827] focus:border-[#1E1B4B] focus:outline-none"
-                />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="dishDescField"
+                    className="block text-[13px] font-semibold text-[#111827]"
+                  >
+                    Concise Description / Regional Name (Optional)
+                  </label>
+                  <input
+                    id="dishDescField"
+                    type="text"
+                    maxLength={300}
+                    placeholder="e.g. Slow-cooked with saffron, or Telugu subtitle (ఘీ పొడి దోశ)"
+                    value={itemDescription}
+                    onChange={(e) => setItemDescription(e.target.value)}
+                    className="block h-11 w-full rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-3.5 text-[14px] text-[#111827] focus:border-[#1E1B4B] focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="dishImageField"
+                    className="block text-[13px] font-semibold text-[#111827]"
+                  >
+                    Dish Photo URL (Optional)
+                  </label>
+                  <input
+                    id="dishImageField"
+                    type="url"
+                    maxLength={2048}
+                    placeholder="https://images.unsplash.com/..."
+                    value={itemImageUrl}
+                    onChange={(e) => setItemImageUrl(e.target.value)}
+                    className="block h-11 w-full rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-3.5 text-[14px] text-[#111827] focus:border-[#1E1B4B] focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-4 border-t border-[#1E1B4B]/10 pt-4">
@@ -2568,7 +2812,43 @@ export function RestaurantManagerView({
       )}
 
       {/* =====================================================================
-          3. TABLES & QRS
+          3. STAFF & WAITERS ROSTER (NEW)
+         ===================================================================== */}
+      {currentSection === 'staff' && (
+        <RestaurantStaffRosterPanel
+          business={business}
+          isBusinessLive={isBusinessLive}
+          staffMembers={staffMembers}
+          staffVerificationCountsToday={
+            floorData?.staffVerificationCountsToday ?? {}
+          }
+          onStaffChanged={setStaffMembers}
+          onStatus={notifyStatus}
+          onError={setErrorMessage}
+        />
+      )}
+
+      {/* =====================================================================
+          4. MONTHLY STOCK & EXPENSES (NEW)
+         ===================================================================== */}
+      {currentSection === 'inventory' && (
+        <RestaurantMonthlyInventoryPanel
+          business={business}
+          currencyCode={currencyCode}
+          businessMode={businessMode}
+          selectedMonthKey={selectedMonthKey}
+          entries={inventoryEntries}
+          onMonthKeyChange={(nextMonth) =>
+            void handleChangeInventoryMonth(nextMonth)
+          }
+          onEntriesChanged={setInventoryEntries}
+          onStatus={notifyStatus}
+          onError={setErrorMessage}
+        />
+      )}
+
+      {/* =====================================================================
+          5. TABLES & QRS
          ===================================================================== */}
       {currentSection === 'tables' && (
         <div className="space-y-6">
