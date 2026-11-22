@@ -60,6 +60,17 @@ import type {
   RestaurantTableOrderStatus,
   VerifiedStaffMemberSession,
 } from '../../types/restaurant';
+import type {
+  AdvanceBarberQueueTicketResult,
+  BarberQueueConfig,
+  BarberQueueConfigInput,
+  BarberQueueDelayIncrement,
+  BarberQueueTicketStatus,
+  ExtendBarberQueueTimerResult,
+  JoinBarberQueueInput,
+  JoinBarberQueueResult,
+  PublicBarberQueueStatusPayload,
+} from '../../types/barberQueue';
 
 export interface AIConfigAccessOptions {
   /** Optional explicit owner ID used to verify tenant isolation. */
@@ -593,4 +604,60 @@ export interface IBusinessRepository {
     itemId: string,
     options?: AIConfigAccessOptions,
   ): Promise<void>;
+
+  // ---------------------------------------------------------------------------
+  // Module 4: Barber & Salon Live Queue Timer, Broadcast Delays & Loyalty
+  // ---------------------------------------------------------------------------
+
+  /** Retrieves the 1:1 Barber/Salon Live Queue configuration for a business owner. */
+  getBarberQueueConfig(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<BarberQueueConfig>;
+
+  /** Validates and saves the 1:1 Barber/Salon Live Queue configuration (open/paused, services, caps). */
+  updateBarberQueueConfig(
+    businessId: string,
+    input: BarberQueueConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<BarberQueueConfig>;
+
+  /** Public live queue telemetry for `/r/:businessSlug/queue` (now serving, waiting list with live wait times, rewards). */
+  getPublicBarberQueueStatus(
+    businessSlug: string,
+  ): Promise<PublicBarberQueueStatusPayload | null>;
+
+  /** Adds a walk-in guest to today's queue with sequential daily token numbering and Loyalty wallet linking. */
+  joinBarberQueue(input: JoinBarberQueueInput): Promise<JoinBarberQueueResult>;
+
+  /** Lets a waiting customer voluntarily leave today's queue from their countdown pass. */
+  leaveBarberQueueTicket(params: {
+    businessSlug: string;
+    ticketId: string;
+  }): Promise<{
+    id: string;
+    status: BarberQueueTicketStatus;
+    tokenNumber: number;
+  }>;
+
+  /** Broadcasts +5/+10/+15/+20/+30 minutes of extra delay to all today's waiting customers. */
+  barberExtendQueueTimer(params: {
+    businessSlug: string;
+    addMinutes: BarberQueueDelayIncrement;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<ExtendBarberQueueTimerResult>;
+
+  /**
+   * Advances a queue ticket ('waiting' -> 'in_chair' -> 'completed' / 'no_show' / 'cancelled').
+   * When completed with `awardStarOnCompletion` enabled & a linked customer, idempotently awards Loyalty Stars.
+   */
+  barberAdvanceQueueTicket(params: {
+    businessSlug: string;
+    ticketId: string;
+    status: BarberQueueTicketStatus;
+    staffLabel?: string;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<AdvanceBarberQueueTicketResult>;
 }

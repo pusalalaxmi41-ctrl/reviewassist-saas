@@ -18,6 +18,7 @@
     "test:staff": "deno run tests/verify-restaurant-staff-and-analytics.ts",
     "test:templates": "deno run tests/verify-restaurant-templates-and-orders.ts",
     "test:staff-roster": "deno run tests/verify-staff-roster-and-inventory.ts",
+    "test:barber": "deno run --allow-read --allow-env tests/verify-barber-queue.ts",
     "preview": "vite preview"
   },
   "dependencies": {

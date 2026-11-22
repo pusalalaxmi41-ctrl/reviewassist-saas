@@ -24,6 +24,7 @@ import {
 } from '../config/reviewExperience';
 import { copyText } from '../utils/clipboard';
 import { getCustomerReviewUrl, getWhatsAppShareLink } from '../utils/sharing';
+import { isBarberOrSalonCategory } from '../utils/barberQueueValidation';
 import { Button } from '../components/common/Button';
 import { TextField } from '../components/common/TextField';
 import { Alert } from '../components/common/Alert';
@@ -276,12 +277,19 @@ export default function BusinessSetupPage() {
 
             <div className="grid gap-3 sm:grid-cols-2">
               <a
-                href={`/r/${createdBusiness.slug}/menu`}
+                href={
+                  isBarberOrSalonCategory(createdBusiness.category)
+                    ? `/r/${createdBusiness.slug}/queue`
+                    : `/r/${createdBusiness.slug}/menu`
+                }
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-4 py-2.5 text-[14px] font-semibold text-[#111827] hover:border-[#1E1B4B] hover:bg-[#F8F9FA]"
               >
-                <ExternalLink className="h-4 w-4" aria-hidden /> Open Customer Menu
+                <ExternalLink className="h-4 w-4" aria-hidden />{' '}
+                {isBarberOrSalonCategory(createdBusiness.category)
+                  ? 'Open Live Queue'
+                  : 'Open Customer Menu'}
               </a>
               <Button
                 variant="primary"
@@ -396,7 +404,10 @@ export default function BusinessSetupPage() {
               />
             </div>
             <p className="text-[13px] text-[#6B7280]">
-              Guest menu URL: <span className="font-mono text-[#1E1B4B] font-semibold">{host}/r/{slug || 'your-slug'}/menu</span>
+              {isBarberOrSalonCategory(category) ? 'Live queue URL: ' : 'Guest menu URL: '}
+              <span className="font-mono text-[#1E1B4B] font-semibold">
+                {host}/r/{slug || 'your-slug'}/{isBarberOrSalonCategory(category) ? 'queue' : 'menu'}
+              </span>
             </p>
           </div>
 

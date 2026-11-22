@@ -9,15 +9,17 @@
 **Vitaran AI Reviews / BistroOS** is a multi-tenant SaaS platform combining:
 1. **AI Google Reviews & Reputation Suite** (5-step guest review flow, AI business reply drafting with Business Knowledge & Local SEO context, sentiment tagging, non-gating compliance, printable QR posters & WhatsApp links).
 2. **Restaurant & Cafe Operating Suite (BistroOS)** (5 cultural digital menu templates + 1-tap preset menus, table-specific QR standees, optional phone-to-chef table ordering, server-validated table mini-games with anti-cheat ledger, dual-currency Game Points vs. Loyalty Stars wallet, personal Loyalty QR passes, 6-char reward claim tickets, individual Staff & Waiter Roster with personal PINs, Cafe/Restaurant Monthly Stock & Expenses tracker, and a Mobile Waiter Floor App).
-3. **Platform Admin Console** (`/admin`) for approving/suspending/rejecting tenant businesses and managing account lifecycle.
+3. **Barber & Salon Live Queue Suite (Module 4)** (Zero-hardware walk-in queue at `/r/:slug/queue` with real-time wait countdowns, sequential daily tokens, 1-tap `+5 / +10 / +15 / +20 / +30 Min` barber broadcast delays, standalone Barber Staff Mobile Floor Mode at `/r/:slug/barber-staff` with personal `BAR-01` PINs, Live Queue QR Standees, and automatic idempotent +1 Loyalty Star crediting upon haircut completion).
+4. **Platform Admin Console** (`/admin`) for approving/suspending/rejecting tenant businesses and managing account lifecycle.
 
 ```mermaid
 flowchart TB
     subgraph Clients["Frontend Surfaces (React 19 + TypeScript + Vite 8 + Tailwind CSS v4)"]
-        Owner["Owner Workspace (/dashboard)\n6 Plain-English Tabs"]
+        Owner["Owner Workspace (/dashboard)\n6 Plain-English Tabs + Live Queue Tab (Salon/Barber)"]
         Customer["Customer Table Hub (/r/:slug/table/:tableKey)\nUnified 5-Theme Hub + Digital Menu + Games + Loyalty"]
+        BarberGuest["Customer Live Queue (/r/:slug/queue)\nLive Countdown + Walk-In Token + Loyalty Stars"]
         Review["5-Step Review Flow (/r/:slug)\nVoice/Text + AI Review Draft"]
-        Waiter["Waiter Mobile Floor App (/r/:slug/staff)\nPersonal Waiter PIN + QR Camera Scanner + 3 Tabs"]
+        Waiter["Waiter & Barber Staff Apps (/r/:slug/staff, /r/:slug/barber-staff)\nPersonal Staff PIN + Floor / Chair Controls"]
         Admin["Platform Admin (/admin)\nTenant Approvals & Lifecycle"]
     end
 
@@ -29,7 +31,7 @@ flowchart TB
 
     subgraph Backend["Supabase Cloud Backend (jwgofsrubthumuymhzva)"]
         Auth["Supabase Auth (JWT + auth.uid)"]
-        DB["PostgreSQL 15+ (Migrations 001–013)\nFORCE RLS + SECURITY DEFINER RPCs"]
+        DB["PostgreSQL 15+ (Migrations 001–014)\nFORCE RLS + SECURITY DEFINER RPCs"]
         Edge["Supabase Edge Functions (Deno)\nAI Drafts, Public Lookup, Event Tracking, Account Deletion"]
     end
 
@@ -69,9 +71,12 @@ flowchart TB
 | `/r/:businessSlug/menu` | `CustomerLayout` | Public | `src/pages/CustomerRestaurantMenuPage.tsx` | General Customer Table Hub & Digital Menu |
 | `/r/:businessSlug/table/:tableKey` | `CustomerLayout` | Public | `src/pages/CustomerRestaurantMenuPage.tsx` | Table-aware QR Hub (pre-binds table for orders & waiter calls) |
 | `/r/:businessSlug/staff` | `CustomerLayout` | Staff PIN Gate | `src/pages/RestaurantStaffVerificationPage.tsx` | Waiter Mobile Floor App (Personal Staff ID + PIN) |
+| `/r/:businessSlug/queue` | `CustomerLayout` | Public | `src/pages/CustomerBarberQueuePage.tsx` | Barber & Salon Customer Live Queue & Countdown Pass |
+| `/r/:businessSlug/barber-staff` | `CustomerLayout` | Barber PIN Gate | `src/pages/BarberStaffQueuePage.tsx` | Standalone Barber Chair Mobile App (Personal `BAR-01` PIN) |
 
-### Owner Dashboard 6-Tab Architecture (`src/pages/BusinessDashboard.tsx`)
+### Owner Dashboard Architecture (`src/pages/BusinessDashboard.tsx`)
 URL query params `?tab=...` map cleanly (with full backwards compatibility for legacy query tabs):
+0. `barber_queue` (`?tab=queue` — automatic default primary tab for `'salon'` and `'barber'` businesses) — **Live Queue Controller** (`BarberQueueManagerView.tsx`): Open/Pause Walk-In Queue toggle, **1-Tap Broadcast Delay Bar** (`+5`, `+10`, `+15 Mins`), Now Serving chair card with `Complete Cut (+1 Star) ✓`, Waiting Queue list (`Call to Chair →` / `No-Show`), `+ Add Walk-In` form, Services & Loyalty Rules drawer, and built-in **Live Queue QR Standee** PNG/A5 PDF studio (also switchable inside `QRCodeManager.tsx`).
 1. `overview` — **Live Overview & Dual-Approvals**: Business Mode (`Restaurant` | `Cafe`), Experience switch, 3 KPI cards (`QR Scans`, `Game Players`, `Verified Visits`), Low-Stock alert banner, and **Side-by-Side Dual-Approval Center** (**Approval 1: Incoming Table Orders → Chef** and **Approval 2: Waiter Calls & Bill Verifications (+1 Star)**).
 2. `menu` — **Digital Menu & 5 Cultural Templates**: Phone Ordering master switch, 5-Template Visual Picker + 1-Tap Preset Menu Injector, Category & Dish CRUD (including optional `imageUrl` and FSSAI dietary tag).
 3. `staff` — **Staff & Waiters** (`RestaurantStaffRosterPanel.tsx`): `+ Add Staff / Waiter` form (Full Name, Role, auto-incremented Staff ID `WTR-01`/`CSH-01`/`CHF-01`/`MGR-01`, hashed 4–6 digit personal PIN), Active/Inactive switch, inline `Reset PIN`, and live **"Verified today"** Loyalty QR counter per waiter.
@@ -96,9 +101,9 @@ Every feature MUST work identically in **both** modes via `src/services/storage/
 
 ---
 
-## 4. Complete Database Schema & Migrations (`001` – `013`)
+## 4. Complete Database Schema & Migrations (`001` – `014`)
 
-All 13 migrations are applied and live in Supabase (`jwgofsrubthumuymhzva`):
+Migrations `001` – `013` are applied in Supabase (`jwgofsrubthumuymhzva`), with Migration `014` adding Module 4 (Barber & Salon Live Queue Timer):
 
 | Migration | Scope & Tables / Columns Added |
 | :--- | :--- |
@@ -113,6 +118,7 @@ All 13 migrations are applied and live in Supabase (`jwgofsrubthumuymhzva`):
 | `011` | Restaurant Phase 4: `staff_pin_hash`, `min_hours_between_visit_stars`, `restaurant_table_calls`, `restaurant_verified_visits` |
 | `012` | Master Upgrade I: `table_ordering_enabled`, `menu_theme_template`, `custom_logo_url`, `custom_accent_color`, `restaurant_table_orders`, 1-tap `apply_restaurant_menu_preset` |
 | `013` | Master Upgrade II: `business_mode` (`restaurant`/`cafe`), `restaurant_staff_members`, `restaurant_monthly_inventory`, `verify_staff_member_pin`, `get_public_staff_roster_for_login`, per-waiter audit labeling |
+| `014` | Module 4 (Barber & Salon Live Queue): `'barber'` category & staff role, `barber_queue_configs`, `barber_queue_tickets`, plus 5 hardened RPCs (`get_public_barber_queue_status`, `join_barber_queue`, `barber_extend_queue_timer`, `barber_advance_queue_ticket`, `leave_barber_queue_ticket`) |
 
 ### Core Entity Relationships (Restaurant & Cafe Suite)
 
@@ -135,9 +141,12 @@ erDiagram
     businesses ||--o{ restaurant_rewards : "reward catalogue"
     businesses ||--o{ restaurant_reward_claims : "6-char claim tickets"
     businesses ||--o{ restaurant_suggestions : "private feedback box"
+    businesses ||--o| barber_queue_configs : "1:1 barber/salon queue rules"
+    businesses ||--o{ barber_queue_tickets : "daily walk-in queue tokens"
     restaurant_customers ||--o{ restaurant_game_sessions : "plays"
     restaurant_customers ||--o{ restaurant_verified_visits : "earns stars"
     restaurant_customers ||--o{ restaurant_reward_claims : "redeems"
+    restaurant_customers ||--o{ barber_queue_tickets : "auto-linked loyalty cuts"
 ```
 
 ---
@@ -224,7 +233,7 @@ Run these commands from `C:\work\review-saas` after every change:
 npm run lint
 npm run build
 
-# 2. All 10 automated Deno verification suites (287 checks total)
+# 2. All 11 automated Deno verification suites (326 checks total)
 npm run test:qr              # 45 checks — QR URLs, scan tracking, poster rendering
 npm run test:ai-config       # 34 checks — AI tone/length/language config & tenant isolation
 npm run test:knowledge       # 28 checks — Business Knowledge, SEO, prompt-injection defense
@@ -235,6 +244,7 @@ npm run test:loyalty         # 22 checks — Phase 3: Separate ledgers, point-to
 npm run test:staff           # 20 checks — Phase 4: Floor calls, spam guard, PIN gate, visit cooldown
 npm run test:templates       # 33 checks — Upgrade I: 5 templates, 1-tap presets, order->chef flow
 npm run test:staff-roster    # 30 checks — Upgrade II: Individual staff PINs, per-waiter audit, monthly stock/expenses
+npm run test:barber          # 39 checks — Module 4: Barber/Salon live queue, broadcast delays, BAR-01 PIN, auto +1 Star idempotency & tenant isolation
 
 # 3. Git push (both remotes) & Production Vercel Deploy
 git push origin main

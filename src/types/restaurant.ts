@@ -20,7 +20,12 @@ export type MenuThemeTemplate =
 
 export type RestaurantBusinessMode = 'restaurant' | 'cafe';
 
-export type RestaurantStaffRole = 'waiter' | 'cashier' | 'chef' | 'manager';
+export type RestaurantStaffRole =
+  | 'waiter'
+  | 'cashier'
+  | 'chef'
+  | 'manager'
+  | 'barber';
 
 export type MonthlyInventoryEntryType = 'stock_purchase' | 'monthly_expense';
 

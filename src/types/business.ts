@@ -4,6 +4,7 @@ export type BusinessCategory =
   | 'hotel'
   | 'pg'
   | 'salon'
+  | 'barber'
   | 'clinic'
   | 'gym'
   | 'retail'

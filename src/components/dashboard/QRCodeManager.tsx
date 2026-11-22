@@ -9,6 +9,7 @@ import {
   MessageCircle,
   QrCode,
   RotateCcw,
+  Scissors,
   Share2,
   Upload,
   X,
@@ -20,6 +21,10 @@ import {
   buildWhatsAppMessage,
   getWhatsAppShareLink,
 } from '../../utils/sharing';
+import {
+  getBarberQueueUrl,
+  isBarberOrSalonCategory,
+} from '../../utils/barberQueueValidation';
 import {
   generatePrintablePdfBlobFromCanvas,
   getDefaultQRDesignSettings,
@@ -50,18 +55,71 @@ export function QRCodeManager({ business }: Props) {
   const [copiedMsg, setCopiedMsg] = useState(false);
   const [customPhone, setCustomPhone] = useState('');
 
-  const qrUrl = getCustomerReviewUrl(business.slug, 'qr');
-  const directUrl = getCustomerReviewUrl(business.slug, 'direct');
+  const supportsBarberQueue = isBarberOrSalonCategory(business.category);
+  const [qrMode, setQrMode] = useState<'review' | 'barber_queue'>('review');
+  const [queueHeading, setQueueHeading] = useState('Scan to Join the Live Queue');
+  const [queueInstruction, setQueueInstruction] = useState(
+    'See live wait time, claim your token & track your turn from your phone',
+  );
+
+  const isQueueMode = supportsBarberQueue && qrMode === 'barber_queue';
+  const qrUrl = isQueueMode
+    ? getBarberQueueUrl(business.slug)
+    : getCustomerReviewUrl(business.slug, 'qr');
+  const directUrl = isQueueMode
+    ? getBarberQueueUrl(business.slug)
+    : getCustomerReviewUrl(business.slug, 'direct');
   const whatsAppMsg = buildWhatsAppMessage(business);
   const whatsAppLink = getWhatsAppShareLink(business, customPhone);
+
+  const effectivePosterSettings: QRDesignSettings = isQueueMode
+    ? {
+        ...settings,
+        template: 'table_standee',
+        heading: queueHeading,
+        instruction: queueInstruction,
+      }
+    : settings;
+
+  const effectiveRenderOptions = isQueueMode
+    ? {
+        targetUrl: qrUrl,
+        customSteps: [
+          'Scan QR with phone camera',
+          'Check live wait & select service',
+          'Claim your token & walk in on time',
+        ] as [string, string, string],
+      }
+    : undefined;
 
   // Persist per-business settings & re-render high-resolution live preview canvas
   useEffect(() => {
     saveBusinessQRSettings(business.id, settings);
     if (canvasRef.current) {
-      void renderQrPosterToCanvas(canvasRef.current, business, settings);
+      void renderQrPosterToCanvas(
+        canvasRef.current,
+        business,
+        isQueueMode
+          ? {
+              ...settings,
+              template: 'table_standee',
+              heading: queueHeading,
+              instruction: queueInstruction,
+            }
+          : settings,
+        isQueueMode
+          ? {
+              targetUrl: qrUrl,
+              customSteps: [
+                'Scan QR with phone camera',
+                'Check live wait & select service',
+                'Claim your token & walk in on time',
+              ],
+            }
+          : undefined,
+      );
     }
-  }, [business, settings]);
+  }, [business, settings, isQueueMode, queueHeading, queueInstruction, qrUrl]);
 
   function handleTemplateChange(nextTemplate: QRTemplateId) {
     const prevDefaults = QR_TEMPLATE_DEFAULTS[settings.template];
@@ -107,35 +165,57 @@ export function QRCodeManager({ business }: Props) {
 
   function handleResetDefaults() {
     setLogoError(null);
+    if (isQueueMode) {
+      setQueueHeading('Scan to Join the Live Queue');
+      setQueueInstruction(
+        'See live wait time, claim your token & track your turn from your phone',
+      );
+    }
     setSettings(getDefaultQRDesignSettings(business));
   }
 
   async function handleDownloadPng() {
     if (!canvasRef.current) return;
-    await renderQrPosterToCanvas(canvasRef.current, business, settings);
+    await renderQrPosterToCanvas(
+      canvasRef.current,
+      business,
+      effectivePosterSettings,
+      effectiveRenderOptions,
+    );
     const pngUrl = canvasRef.current.toDataURL('image/png');
+    const filename = isQueueMode
+      ? `${business.slug}-live-queue-qr.png`
+      : `${business.slug}-${settings.template}-qr.png`;
     const link = document.createElement('a');
-    link.download = `${business.slug}-${settings.template}-qr.png`;
+    link.download = filename;
     link.href = pngUrl;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    setExportMessage(`Downloaded high-resolution PNG (${business.slug}-${settings.template}-qr.png).`);
+    setExportMessage(`Downloaded high-resolution PNG (${filename}).`);
   }
 
   async function handleDownloadPdf() {
     if (!canvasRef.current) return;
-    await renderQrPosterToCanvas(canvasRef.current, business, settings);
+    await renderQrPosterToCanvas(
+      canvasRef.current,
+      business,
+      effectivePosterSettings,
+      effectiveRenderOptions,
+    );
     const pdfBlob = generatePrintablePdfBlobFromCanvas(canvasRef.current);
     const blobUrl = URL.createObjectURL(pdfBlob);
+    const filename = isQueueMode
+      ? `${business.slug}-live-queue-qr.pdf`
+      : `${business.slug}-${settings.template}-qr.pdf`;
     const link = document.createElement('a');
-    link.download = `${business.slug}-${settings.template}-qr.pdf`;
+    link.download = filename;
     link.href = blobUrl;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
-    setExportMessage(`Downloaded printable A5 PDF (${business.slug}-${settings.template}-qr.pdf).`);
+    setExportMessage(`Downloaded printable A5 PDF (${filename}).`);
   }
 
   async function handleCopyLink() {
@@ -160,11 +240,46 @@ export function QRCodeManager({ business }: Props) {
 
   return (
     <div className="space-y-8">
+      {/* Salon & Barber Mode Switcher: Google Review QR vs Live Queue Standee */}
+      {supportsBarberQueue && (
+        <div className="inline-flex flex-wrap items-center gap-1.5 rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-2 shadow-2xs">
+          <button
+            type="button"
+            onClick={() => setQrMode('review')}
+            className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
+              !isQueueMode
+                ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
+                : 'text-[#626B65] hover:bg-[#F7F7F2] hover:text-[#252B29]'
+            }`}
+          >
+            <QrCode className="h-4 w-4" aria-hidden />
+            <span>Google Review QR</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setQrMode('barber_queue')}
+            className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
+              isQueueMode
+                ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
+                : 'text-[#626B65] hover:bg-[#F7F7F2] hover:text-[#252B29]'
+            }`}
+          >
+            <Scissors
+              className={`h-4 w-4 ${isQueueMode ? 'text-[#D2DB76]' : ''}`}
+              aria-hidden
+            />
+            <span>Live Queue &amp; Wait-Time QR Standee</span>
+          </button>
+        </div>
+      )}
+
       {/* Action / Share Bar */}
       <div className="flex flex-col gap-4 rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-5 sm:flex-row sm:items-center sm:justify-between shadow-2xs">
         <div className="space-y-1">
           <p className="text-[12px] font-semibold uppercase tracking-wider text-[#626B65]">
-            Business-Specific Customer Review URL (Encoded in QR)
+            {isQueueMode
+              ? 'Live Queue & Wait-Time Standee URL (Encoded in QR)'
+              : 'Business-Specific Customer Review URL (Encoded in QR)'}
           </p>
           <p className="break-all font-mono text-[14px] font-medium text-[#244B40]">{qrUrl}</p>
         </div>
@@ -293,10 +408,17 @@ export function QRCodeManager({ business }: Props) {
                   id="qrHeadingInput"
                   type="text"
                   maxLength={70}
-                  value={settings.heading}
-                  onChange={(e) =>
-                    setSettings((prev) => ({ ...prev, heading: e.target.value }))
-                  }
+                  value={isQueueMode ? queueHeading : settings.heading}
+                  onChange={(e) => {
+                    if (isQueueMode) {
+                      setQueueHeading(e.target.value);
+                    } else {
+                      setSettings((prev) => ({
+                        ...prev,
+                        heading: e.target.value,
+                      }));
+                    }
+                  }}
                   className="block min-h-11 w-full rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-2 text-[14px] text-[#252B29] focus:border-[#244B40] focus:outline-none focus:ring-2 focus:ring-[#244B40]/20"
                 />
               </div>
@@ -312,13 +434,17 @@ export function QRCodeManager({ business }: Props) {
                   id="qrInstructionInput"
                   type="text"
                   maxLength={90}
-                  value={settings.instruction}
-                  onChange={(e) =>
-                    setSettings((prev) => ({
-                      ...prev,
-                      instruction: e.target.value,
-                    }))
-                  }
+                  value={isQueueMode ? queueInstruction : settings.instruction}
+                  onChange={(e) => {
+                    if (isQueueMode) {
+                      setQueueInstruction(e.target.value);
+                    } else {
+                      setSettings((prev) => ({
+                        ...prev,
+                        instruction: e.target.value,
+                      }));
+                    }
+                  }}
                   className="block min-h-11 w-full rounded-xl border border-[#87928A] bg-[#FFFFFF] px-3.5 py-2 text-[14px] text-[#252B29] focus:border-[#244B40] focus:outline-none focus:ring-2 focus:ring-[#244B40]/20"
                 />
               </div>

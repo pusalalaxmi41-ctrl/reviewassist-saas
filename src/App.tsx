@@ -8,6 +8,8 @@ import AuthPage from './pages/AuthPage';
 import CustomerReviewPage from './pages/CustomerReviewPage';
 import CustomerRestaurantMenuPage from './pages/CustomerRestaurantMenuPage';
 import RestaurantStaffVerificationPage from './pages/RestaurantStaffVerificationPage';
+import CustomerBarberQueuePage from './pages/CustomerBarberQueuePage';
+import BarberStaffQueuePage from './pages/BarberStaffQueuePage';
 import BusinessDashboard from './pages/BusinessDashboard';
 import BusinessSetupPage from './pages/BusinessSetupPage';
 import AdminPanelPage from './pages/admin/AdminPanelPage';
@@ -58,6 +60,14 @@ export default function App() {
             <Route
               path="/r/:businessSlug/staff"
               element={<RestaurantStaffVerificationPage />}
+            />
+            <Route
+              path="/r/:businessSlug/queue"
+              element={<CustomerBarberQueuePage />}
+            />
+            <Route
+              path="/r/:businessSlug/barber-staff"
+              element={<BarberStaffQueuePage />}
             />
           </Route>
         </Routes>

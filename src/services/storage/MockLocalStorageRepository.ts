@@ -82,6 +82,27 @@ import {
   type RestaurantVerifiedVisit,
   type VerifiedStaffMemberSession,
 } from '../../types/restaurant';
+import type {
+  AdvanceBarberQueueTicketResult,
+  BarberQueueConfig,
+  BarberQueueConfigInput,
+  BarberQueueDelayIncrement,
+  BarberQueueTicket,
+  BarberQueueTicketStatus,
+  ExtendBarberQueueTimerResult,
+  JoinBarberQueueInput,
+  JoinBarberQueueResult,
+  PublicBarberQueueStatusPayload,
+} from '../../types/barberQueue';
+import {
+  getTodayQueueDateKey,
+  isBarberOrSalonCategory,
+  normalizeBarberQueueConfig,
+  validateBarberDelayMinutes,
+  validateBarberQueueConfigInput,
+  validateBarberTicketStatus,
+  validateJoinBarberQueueInput,
+} from '../../utils/barberQueueValidation';
 import { MENU_PRESET_PACKS } from '../../config/menuPresets';
 import {
   buildServerSeedAndClientChallenge,
@@ -138,6 +159,8 @@ const STORAGE_KEYS = {
   RESTAURANT_STAFF_MEMBERS: 'reviewassist_mock_restaurant_staff_members_v1',
   RESTAURANT_MONTHLY_INVENTORY:
     'reviewassist_mock_restaurant_monthly_inventory_v1',
+  BARBER_QUEUE_CONFIGS: 'reviewassist_mock_barber_queue_configs_v1',
+  BARBER_QUEUE_TICKETS: 'reviewassist_mock_barber_queue_tickets_v1',
 };
 
 // Initial seed businesses for development & preview
@@ -167,6 +190,19 @@ const INITIAL_BUSINESSES: Business[] = [
     status: 'pending',
     accountState: 'active',
     createdAt: '2026-11-02T11:00:00.000Z',
+  },
+  {
+    id: 'biz-crown-cuts-3',
+    ownerId: 'owner-crown-cuts-3',
+    slug: 'crown-cuts-barber',
+    name: 'Crown Cuts Barbershop',
+    category: 'barber',
+    city: 'Bengaluru',
+    googleReviewUrl: PLACEHOLDER_GOOGLE_REVIEW_URL,
+    googleReviewUrlIsPlaceholder: true,
+    status: 'active',
+    accountState: 'active',
+    createdAt: '2026-11-03T09:30:00.000Z',
   },
 ];
 
@@ -2750,8 +2786,15 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       throw new Error('Restaurant is not active.');
     }
     const profile = await this.getRestaurantProfile(business.id);
-    if (!profile.isEnabled) {
-      throw new Error('Restaurant Suite is not enabled.');
+    const queueConfigStore = this.read<Record<string, BarberQueueConfig>>(
+      STORAGE_KEYS.BARBER_QUEUE_CONFIGS,
+      {},
+    );
+    const hasQueueAccess =
+      Boolean(queueConfigStore[business.id]) ||
+      isBarberOrSalonCategory(business.category);
+    if (!profile.isEnabled && !hasQueueAccess) {
+      throw new Error('Staff floor mode is not enabled for this business.');
     }
 
     if (params.options?.actorOwnerId) {
@@ -3783,7 +3826,14 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       profileStore[business.id],
       'local',
     );
-    if (!profile.isEnabled) {
+    const queueConfigStore = this.read<Record<string, BarberQueueConfig>>(
+      STORAGE_KEYS.BARBER_QUEUE_CONFIGS,
+      {},
+    );
+    const hasQueueAccess =
+      Boolean(queueConfigStore[business.id]) ||
+      isBarberOrSalonCategory(business.category);
+    if (!profile.isEnabled && !hasQueueAccess) {
       return [];
     }
     const store = this.read<Record<string, RestaurantStaffMember[]>>(
@@ -3824,8 +3874,15 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       profileStore[business.id],
       'local',
     );
-    if (!profile.isEnabled) {
-      throw new Error('Restaurant Suite is not enabled.');
+    const queueConfigStore = this.read<Record<string, BarberQueueConfig>>(
+      STORAGE_KEYS.BARBER_QUEUE_CONFIGS,
+      {},
+    );
+    const hasQueueAccess =
+      Boolean(queueConfigStore[business.id]) ||
+      isBarberOrSalonCategory(business.category);
+    if (!profile.isEnabled && !hasQueueAccess) {
+      throw new Error('Staff floor mode is not enabled for this business.');
     }
 
     if (params.options?.actorOwnerId) {
@@ -4041,6 +4098,632 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     }
     store[cleanId] = list.filter((i) => i.id !== itemId);
     this.write(STORAGE_KEYS.RESTAURANT_MONTHLY_INVENTORY, store);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Module 4: Barber & Salon Live Queue Timer, Broadcast Delays & Loyalty
+  // ---------------------------------------------------------------------------
+
+  private computeInChairRemainingMinutes(
+    ticket: BarberQueueTicket | null,
+  ): number {
+    if (!ticket) return 0;
+    const startedMs = new Date(ticket.startedAt ?? ticket.createdAt).getTime();
+    const elapsedMins = Math.max(
+      0,
+      Math.floor((Date.now() - startedMs) / 60000),
+    );
+    return Math.max(1, ticket.durationMinutes - elapsedMins);
+  }
+
+  async getBarberQueueConfig(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<BarberQueueConfig> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    const store = this.read<Record<string, BarberQueueConfig>>(
+      STORAGE_KEYS.BARBER_QUEUE_CONFIGS,
+      {},
+    );
+    return normalizeBarberQueueConfig(cleanId, store[cleanId]);
+  }
+
+  async updateBarberQueueConfig(
+    businessId: string,
+    input: BarberQueueConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<BarberQueueConfig> {
+    const validation = validateBarberQueueConfigInput(businessId, input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    const store = this.read<Record<string, BarberQueueConfig>>(
+      STORAGE_KEYS.BARBER_QUEUE_CONFIGS,
+      {},
+    );
+    const now = new Date().toISOString();
+    const existing = store[cleanId];
+    const updated: BarberQueueConfig = {
+      businessId: cleanId,
+      isQueueOpen: validation.value.isQueueOpen,
+      avgServiceMinutes: validation.value.avgServiceMinutes,
+      maxQueueSize: validation.value.maxQueueSize,
+      awardStarOnCompletion: validation.value.awardStarOnCompletion,
+      services: validation.value.services,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    store[cleanId] = updated;
+    this.write(STORAGE_KEYS.BARBER_QUEUE_CONFIGS, store);
+    return updated;
+  }
+
+  async getPublicBarberQueueStatus(
+    businessSlug: string,
+  ): Promise<PublicBarberQueueStatusPayload | null> {
+    const cleanSlug = (businessSlug ?? '').trim().toLowerCase();
+    if (!/^[a-z0-9-]{3,80}$/.test(cleanSlug)) {
+      return null;
+    }
+    const business = await this.getBusinessBySlug(cleanSlug);
+    if (
+      !business ||
+      business.status !== 'active' ||
+      business.accountState !== 'active'
+    ) {
+      return null;
+    }
+
+    const cfgStore = this.read<Record<string, BarberQueueConfig>>(
+      STORAGE_KEYS.BARBER_QUEUE_CONFIGS,
+      {},
+    );
+    const config = normalizeBarberQueueConfig(business.id, cfgStore[business.id]);
+
+    const todayKey = getTodayQueueDateKey();
+    const allTickets = this.read<BarberQueueTicket[]>(
+      STORAGE_KEYS.BARBER_QUEUE_TICKETS,
+      [],
+    ).filter((t) => t.businessId === business.id && t.queueDate === todayKey);
+
+    const inChairRaw =
+      allTickets
+        .filter((t) => t.status === 'in_chair')
+        .sort((a, b) => a.tokenNumber - b.tokenNumber)[0] ?? null;
+
+    const inChairRemaining = this.computeInChairRemainingMinutes(inChairRaw);
+    const nowServing: BarberQueueTicket | null = inChairRaw
+      ? {
+          ...inChairRaw,
+          estimatedWaitMinutes: 0,
+          remainingMinutes: inChairRemaining,
+        }
+      : null;
+
+    const waitingRaw = allTickets
+      .filter((t) => t.status === 'waiting')
+      .sort((a, b) => a.tokenNumber - b.tokenNumber);
+
+    let runningAhead = 0;
+    const waitingTickets: BarberQueueTicket[] = waitingRaw.map((t, idx) => {
+      const estimatedWaitMinutes = Math.max(
+        0,
+        inChairRemaining + runningAhead + t.extraDelayMinutes,
+      );
+      runningAhead += t.durationMinutes;
+      return {
+        ...t,
+        position: idx + 1,
+        estimatedWaitMinutes,
+      };
+    });
+
+    const completedTodayCount = allTickets.filter(
+      (t) => t.status === 'completed',
+    ).length;
+
+    const rewardStore = this.read<Record<string, RestaurantReward[]>>(
+      STORAGE_KEYS.RESTAURANT_REWARDS,
+      {},
+    );
+    const rewards = (rewardStore[business.id] ?? [])
+      .filter((r) => r.isActive)
+      .sort(
+        (a, b) =>
+          a.displayOrder - b.displayOrder || a.starsRequired - b.starsRequired,
+      );
+
+    return {
+      business: {
+        id: business.id,
+        slug: business.slug,
+        name: business.name,
+        category: business.category,
+        city: business.city,
+        googleReviewUrl: business.googleReviewUrl,
+      },
+      config,
+      nowServing,
+      waitingTickets,
+      waitingCount: waitingTickets.length,
+      estimatedWaitForNewGuestMinutes: Math.max(
+        0,
+        inChairRemaining + runningAhead,
+      ),
+      completedTodayCount,
+      rewards,
+    };
+  }
+
+  async joinBarberQueue(
+    input: JoinBarberQueueInput,
+  ): Promise<JoinBarberQueueResult> {
+    const validation = validateJoinBarberQueueInput(input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
+    const business = await this.getBusinessBySlug(validation.value.businessSlug);
+    if (
+      !business ||
+      business.status !== 'active' ||
+      business.accountState !== 'active'
+    ) {
+      throw new Error('Shop is not active.');
+    }
+
+    const cfgStore = this.read<Record<string, BarberQueueConfig>>(
+      STORAGE_KEYS.BARBER_QUEUE_CONFIGS,
+      {},
+    );
+    const config = normalizeBarberQueueConfig(business.id, cfgStore[business.id]);
+    if (!cfgStore[business.id]) {
+      cfgStore[business.id] = config;
+      this.write(STORAGE_KEYS.BARBER_QUEUE_CONFIGS, cfgStore);
+    }
+
+    if (!config.isQueueOpen) {
+      throw new Error(
+        'Walk-in queue is currently paused. Please check with the barber.',
+      );
+    }
+
+    const todayKey = getTodayQueueDateKey();
+    const allTickets = this.read<BarberQueueTicket[]>(
+      STORAGE_KEYS.BARBER_QUEUE_TICKETS,
+      [],
+    );
+    const todayTickets = allTickets.filter(
+      (t) => t.businessId === business.id && t.queueDate === todayKey,
+    );
+    const waitingTickets = todayTickets.filter((t) => t.status === 'waiting');
+
+    if (waitingTickets.length >= config.maxQueueSize) {
+      throw new Error(
+        `Walk-in queue is currently full (${config.maxQueueSize} people waiting). Please try again shortly.`,
+      );
+    }
+
+    // Match canonical service name & duration from config.services
+    const matchedSvc = config.services.find(
+      (s) =>
+        s.name.toLowerCase() === validation.value.serviceName.toLowerCase() ||
+        s.id.toLowerCase() === validation.value.serviceName.toLowerCase(),
+    );
+    const serviceName = matchedSvc?.name ?? validation.value.serviceName;
+    const durationMinutes =
+      matchedSvc?.durationMinutes ?? config.avgServiceMinutes;
+
+    // Auto-create / resume shared Loyalty customer when phone is provided
+    let customerId: string | null = null;
+    let loyaltyStarsBalance = 0;
+    if (validation.value.phone) {
+      const normPhone = validation.value.phone.toLowerCase();
+      const customers = this.read<RestaurantCustomer[]>(
+        STORAGE_KEYS.RESTAURANT_CUSTOMERS,
+        [],
+      );
+      let existing = customers.find(
+        (c) => c.phoneOrEmail && c.phoneOrEmail.toLowerCase() === normPhone,
+      );
+      if (!existing) {
+        existing = {
+          id: `cust-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          displayName: validation.value.guestName,
+          phoneOrEmail: normPhone,
+          guestTokenHash: null,
+          createdAt: new Date().toISOString(),
+        };
+        customers.push(existing);
+        this.write(STORAGE_KEYS.RESTAURANT_CUSTOMERS, customers);
+      }
+      customerId = existing.id;
+
+      const starTxs = this.read<RestaurantLoyaltyStarTransaction[]>(
+        STORAGE_KEYS.RESTAURANT_LOYALTY_STAR_TXS,
+        [],
+      )
+        .filter(
+          (tx) => tx.businessId === business.id && tx.customerId === customerId,
+        )
+        .reverse();
+      loyaltyStarsBalance = starTxs.length > 0 ? starTxs[0].balanceAfter : 0;
+    }
+
+    const inChairRaw =
+      todayTickets
+        .filter((t) => t.status === 'in_chair')
+        .sort((a, b) => a.tokenNumber - b.tokenNumber)[0] ?? null;
+    const inChairRemaining = this.computeInChairRemainingMinutes(inChairRaw);
+    const aheadDuration = waitingTickets.reduce(
+      (sum, t) => sum + t.durationMinutes,
+      0,
+    );
+    const estimatedWaitMinutes = Math.max(0, inChairRemaining + aheadDuration);
+
+    const maxToken = todayTickets.reduce(
+      (max, t) => Math.max(max, t.tokenNumber),
+      0,
+    );
+    const nextToken = maxToken + 1;
+    const position = waitingTickets.length + 1;
+    const now = new Date().toISOString();
+
+    const created: BarberQueueTicket = {
+      id: `bqt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      businessId: business.id,
+      customerId,
+      queueDate: todayKey,
+      tokenNumber: nextToken,
+      guestName: validation.value.guestName,
+      phone: validation.value.phone,
+      serviceName,
+      durationMinutes,
+      status: 'waiting',
+      extraDelayMinutes: 0,
+      assignedBarberLabel: null,
+      createdAt: now,
+      startedAt: null,
+      completedAt: null,
+    };
+
+    allTickets.push(created);
+    this.write(STORAGE_KEYS.BARBER_QUEUE_TICKETS, allTickets);
+
+    return {
+      ticket: {
+        ...created,
+        position,
+        estimatedWaitMinutes,
+      },
+      estimatedWaitMinutes,
+      position,
+      loyaltyStarsBalance,
+    };
+  }
+
+  async leaveBarberQueueTicket(params: {
+    businessSlug: string;
+    ticketId: string;
+  }): Promise<{
+    id: string;
+    status: BarberQueueTicketStatus;
+    tokenNumber: number;
+  }> {
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (
+      !business ||
+      business.status !== 'active' ||
+      business.accountState !== 'active'
+    ) {
+      throw new Error('Shop not found.');
+    }
+
+    const todayKey = getTodayQueueDateKey();
+    const tickets = this.read<BarberQueueTicket[]>(
+      STORAGE_KEYS.BARBER_QUEUE_TICKETS,
+      [],
+    );
+    const idx = tickets.findIndex(
+      (t) =>
+        t.id === params.ticketId &&
+        t.businessId === business.id &&
+        t.queueDate === todayKey &&
+        t.status === 'waiting',
+    );
+    if (idx === -1) {
+      throw new Error('Waiting ticket not found or already in chair.');
+    }
+
+    tickets[idx] = {
+      ...tickets[idx],
+      status: 'cancelled',
+    };
+    this.write(STORAGE_KEYS.BARBER_QUEUE_TICKETS, tickets);
+
+    return {
+      id: tickets[idx].id,
+      status: 'cancelled',
+      tokenNumber: tickets[idx].tokenNumber,
+    };
+  }
+
+  async barberExtendQueueTimer(params: {
+    businessSlug: string;
+    addMinutes: BarberQueueDelayIncrement;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<ExtendBarberQueueTimerResult> {
+    const delayCheck = validateBarberDelayMinutes(params.addMinutes);
+    if (!delayCheck.ok) {
+      throw new Error(delayCheck.error);
+    }
+
+    const list = await this.getBusinesses();
+    const business =
+      list.find(
+        (b) => b.slug.toLowerCase() === params.businessSlug.trim().toLowerCase(),
+      ) ?? null;
+    if (!business) {
+      throw new Error('Shop not found.');
+    }
+
+    const profileStore = this.read<Record<string, RestaurantProfile>>(
+      STORAGE_KEYS.RESTAURANT_PROFILES,
+      {},
+    );
+    const profile = normalizeRestaurantProfile(
+      business.id,
+      profileStore[business.id],
+      'local',
+    );
+    this.assertOwnerOrStaffPin(
+      business,
+      profile,
+      params.staffPinHash,
+      params.options,
+    );
+
+    const staffLabel = this.resolveAuditStaffLabel(
+      business.id,
+      params.staffPinHash,
+      'Owner',
+    );
+
+    const todayKey = getTodayQueueDateKey();
+    const tickets = this.read<BarberQueueTicket[]>(
+      STORAGE_KEYS.BARBER_QUEUE_TICKETS,
+      [],
+    );
+    let updatedCount = 0;
+    for (let i = 0; i < tickets.length; i++) {
+      const t = tickets[i];
+      if (
+        t.businessId === business.id &&
+        t.queueDate === todayKey &&
+        t.status === 'waiting'
+      ) {
+        tickets[i] = {
+          ...t,
+          extraDelayMinutes: Math.min(
+            600,
+            t.extraDelayMinutes + delayCheck.value,
+          ),
+        };
+        updatedCount++;
+      }
+    }
+    this.write(STORAGE_KEYS.BARBER_QUEUE_TICKETS, tickets);
+
+    return {
+      updatedCount,
+      addedMinutes: delayCheck.value,
+      staffLabel,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  async barberAdvanceQueueTicket(params: {
+    businessSlug: string;
+    ticketId: string;
+    status: BarberQueueTicketStatus;
+    staffLabel?: string;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<AdvanceBarberQueueTicketResult> {
+    const statusCheck = validateBarberTicketStatus(params.status);
+    if (!statusCheck.ok) {
+      throw new Error(statusCheck.error);
+    }
+
+    const list = await this.getBusinesses();
+    const business =
+      list.find(
+        (b) => b.slug.toLowerCase() === params.businessSlug.trim().toLowerCase(),
+      ) ?? null;
+    if (!business) {
+      throw new Error('Shop not found.');
+    }
+
+    const profileStore = this.read<Record<string, RestaurantProfile>>(
+      STORAGE_KEYS.RESTAURANT_PROFILES,
+      {},
+    );
+    const profile = normalizeRestaurantProfile(
+      business.id,
+      profileStore[business.id],
+      'local',
+    );
+    this.assertOwnerOrStaffPin(
+      business,
+      profile,
+      params.staffPinHash,
+      params.options,
+    );
+
+    const resolvedLabel = this.resolveAuditStaffLabel(
+      business.id,
+      params.staffPinHash,
+      params.staffLabel ?? 'Barber',
+    );
+
+    const tickets = this.read<BarberQueueTicket[]>(
+      STORAGE_KEYS.BARBER_QUEUE_TICKETS,
+      [],
+    );
+    const idx = tickets.findIndex(
+      (t) => t.id === params.ticketId && t.businessId === business.id,
+    );
+    if (idx === -1) {
+      throw new Error('Queue ticket not found for this shop.');
+    }
+
+    const now = new Date().toISOString();
+    const existing = tickets[idx];
+    const nextStatus = statusCheck.value;
+
+    const updatedTicket: BarberQueueTicket = {
+      ...existing,
+      status: nextStatus,
+      assignedBarberLabel:
+        nextStatus === 'in_chair' || nextStatus === 'completed'
+          ? resolvedLabel
+          : existing.assignedBarberLabel,
+      startedAt:
+        nextStatus === 'in_chair' ? (existing.startedAt ?? now) : existing.startedAt,
+      completedAt:
+        nextStatus === 'completed'
+          ? (existing.completedAt ?? now)
+          : existing.completedAt,
+    };
+    tickets[idx] = updatedTicket;
+    this.write(STORAGE_KEYS.BARBER_QUEUE_TICKETS, tickets);
+
+    let starAwarded = false;
+    let starsAwarded = 0;
+    let newLoyaltyStarsBalance = 0;
+    let alreadyAwarded = false;
+
+    if (nextStatus === 'completed' && updatedTicket.customerId) {
+      const cfgStore = this.read<Record<string, BarberQueueConfig>>(
+        STORAGE_KEYS.BARBER_QUEUE_CONFIGS,
+        {},
+      );
+      const config = normalizeBarberQueueConfig(
+        business.id,
+        cfgStore[business.id],
+      );
+
+      if (config.awardStarOnCompletion) {
+        const idemKey = `barber-ticket-${updatedTicket.id}`;
+        const starTxs = this.read<RestaurantLoyaltyStarTransaction[]>(
+          STORAGE_KEYS.RESTAURANT_LOYALTY_STAR_TXS,
+          [],
+        );
+        const existingTx = starTxs.find(
+          (tx) =>
+            tx.businessId === business.id && tx.idempotencyKey === idemKey,
+        );
+
+        const customerStarTxs = starTxs
+          .filter(
+            (tx) =>
+              tx.businessId === business.id &&
+              tx.customerId === updatedTicket.customerId,
+          )
+          .reverse();
+        const currentStars =
+          customerStarTxs.length > 0 ? customerStarTxs[0].balanceAfter : 0;
+
+        if (existingTx) {
+          alreadyAwarded = true;
+          starsAwarded = existingTx.starsDelta;
+          newLoyaltyStarsBalance = currentStars;
+        } else {
+          const rulesStore = this.read<Record<string, RestaurantLoyaltyRules>>(
+            STORAGE_KEYS.RESTAURANT_LOYALTY_RULES,
+            {},
+          );
+          const rules = normalizeRestaurantLoyaltyRules(
+            business.id,
+            rulesStore[business.id],
+          );
+          const delta = rules.starsPerVerifiedVisit;
+          newLoyaltyStarsBalance = currentStars + delta;
+
+          const visits = this.read<RestaurantVerifiedVisit[]>(
+            STORAGE_KEYS.RESTAURANT_VERIFIED_VISITS,
+            [],
+          );
+          if (
+            !visits.some(
+              (v) =>
+                v.businessId === business.id && v.idempotencyKey === idemKey,
+            )
+          ) {
+            visits.push({
+              id: `vvisit-barber-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              businessId: business.id,
+              tableId: null,
+              customerId: updatedTicket.customerId,
+              customerName: updatedTicket.guestName,
+              starsAwarded: delta,
+              verifiedByLabel: resolvedLabel,
+              idempotencyKey: idemKey,
+              createdAt: now,
+            });
+            this.write(STORAGE_KEYS.RESTAURANT_VERIFIED_VISITS, visits);
+          }
+
+          starTxs.push({
+            id: `lstx-barber-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            businessId: business.id,
+            customerId: updatedTicket.customerId,
+            txType: 'verified_visit',
+            starsDelta: delta,
+            balanceAfter: newLoyaltyStarsBalance,
+            idempotencyKey: idemKey,
+            verifiedByStaffLabel: resolvedLabel,
+            metadata: {
+              source: 'barber_queue_completion',
+              ticketId: updatedTicket.id,
+              tokenNumber: updatedTicket.tokenNumber,
+              serviceName: updatedTicket.serviceName,
+            },
+            createdAt: now,
+          });
+          this.write(STORAGE_KEYS.RESTAURANT_LOYALTY_STAR_TXS, starTxs);
+
+          starAwarded = true;
+          starsAwarded = delta;
+        }
+      }
+    }
+
+    return {
+      ticket: updatedTicket,
+      starAwarded,
+      starsAwarded,
+      newLoyaltyStarsBalance,
+      alreadyAwarded,
+    };
   }
 }
 

@@ -77,6 +77,25 @@ import type {
   RestaurantTriviaQuestion,
   VerifiedStaffMemberSession,
 } from '../../types/restaurant';
+import type {
+  AdvanceBarberQueueTicketResult,
+  BarberQueueConfig,
+  BarberQueueConfigInput,
+  BarberQueueDelayIncrement,
+  BarberQueueService,
+  BarberQueueTicketStatus,
+  ExtendBarberQueueTimerResult,
+  JoinBarberQueueInput,
+  JoinBarberQueueResult,
+  PublicBarberQueueStatusPayload,
+} from '../../types/barberQueue';
+import {
+  normalizeBarberQueueConfig,
+  validateBarberDelayMinutes,
+  validateBarberQueueConfigInput,
+  validateBarberTicketStatus,
+  validateJoinBarberQueueInput,
+} from '../../utils/barberQueueValidation';
 import { MENU_PRESET_PACKS } from '../../config/menuPresets';
 import {
   normalizeBusinessAIConfig,
@@ -3761,5 +3780,270 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         options,
       );
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Module 4: Barber & Salon Live Queue Timer, Broadcast Delays & Loyalty
+  // ---------------------------------------------------------------------------
+
+  async getBarberQueueConfig(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<BarberQueueConfig> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('barber_queue_configs')
+      .select(
+        'business_id, is_queue_open, avg_service_minutes, max_queue_size, award_star_on_completion, services, created_at, updated_at',
+      )
+      .eq('business_id', cleanId)
+      .maybeSingle();
+
+    if (!error && data) {
+      const row = data as {
+        business_id: string;
+        is_queue_open: boolean;
+        avg_service_minutes: number;
+        max_queue_size: number;
+        award_star_on_completion: boolean;
+        services: BarberQueueService[];
+        created_at: string;
+        updated_at: string;
+      };
+      return normalizeBarberQueueConfig(cleanId, {
+        isQueueOpen: row.is_queue_open,
+        avgServiceMinutes: row.avg_service_minutes,
+        maxQueueSize: row.max_queue_size,
+        awardStarOnCompletion: row.award_star_on_completion,
+        services: row.services,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      });
+    }
+
+    if (!error && !data) {
+      return normalizeBarberQueueConfig(cleanId, null);
+    }
+
+    return mockBusinessRepository.getBarberQueueConfig(cleanId, options);
+  }
+
+  async updateBarberQueueConfig(
+    businessId: string,
+    input: BarberQueueConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<BarberQueueConfig> {
+    const validation = validateBarberQueueConfigInput(businessId, input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+    const now = new Date().toISOString();
+
+    const { data, error } = await client
+      .from('barber_queue_configs')
+      .upsert(
+        {
+          business_id: cleanId,
+          is_queue_open: validation.value.isQueueOpen,
+          avg_service_minutes: validation.value.avgServiceMinutes,
+          max_queue_size: validation.value.maxQueueSize,
+          award_star_on_completion: validation.value.awardStarOnCompletion,
+          services: validation.value.services,
+          updated_at: now,
+        },
+        { onConflict: 'business_id' },
+      )
+      .select(
+        'business_id, is_queue_open, avg_service_minutes, max_queue_size, award_star_on_completion, services, created_at, updated_at',
+      )
+      .single();
+
+    if (!error && data) {
+      const row = data as {
+        business_id: string;
+        is_queue_open: boolean;
+        avg_service_minutes: number;
+        max_queue_size: number;
+        award_star_on_completion: boolean;
+        services: BarberQueueService[];
+        created_at: string;
+        updated_at: string;
+      };
+      return normalizeBarberQueueConfig(cleanId, {
+        isQueueOpen: row.is_queue_open,
+        avgServiceMinutes: row.avg_service_minutes,
+        maxQueueSize: row.max_queue_size,
+        awardStarOnCompletion: row.award_star_on_completion,
+        services: row.services,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      });
+    }
+
+    return mockBusinessRepository.updateBarberQueueConfig(
+      cleanId,
+      validation.value,
+      options,
+    );
+  }
+
+  async getPublicBarberQueueStatus(
+    businessSlug: string,
+  ): Promise<PublicBarberQueueStatusPayload | null> {
+    const cleanSlug = (businessSlug ?? '').trim().toLowerCase();
+    if (!/^[a-z0-9-]{3,80}$/.test(cleanSlug)) {
+      return null;
+    }
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('get_public_barber_queue_status', {
+      p_slug: cleanSlug,
+    });
+
+    if (!error) {
+      return (data as PublicBarberQueueStatusPayload | null) ?? null;
+    }
+
+    return mockBusinessRepository.getPublicBarberQueueStatus(cleanSlug);
+  }
+
+  async joinBarberQueue(
+    input: JoinBarberQueueInput,
+  ): Promise<JoinBarberQueueResult> {
+    const validation = validateJoinBarberQueueInput(input);
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('join_barber_queue', {
+      p_slug: validation.value.businessSlug,
+      p_guest_name: validation.value.guestName,
+      p_phone: validation.value.phone,
+      p_service_name: validation.value.serviceName,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as JoinBarberQueueResult;
+    }
+
+    if (
+      error &&
+      (error.message.includes('paused') ||
+        error.message.includes('full') ||
+        error.message.includes('not active'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.joinBarberQueue(input);
+  }
+
+  async leaveBarberQueueTicket(params: {
+    businessSlug: string;
+    ticketId: string;
+  }): Promise<{
+    id: string;
+    status: BarberQueueTicketStatus;
+    tokenNumber: number;
+  }> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('leave_barber_queue_ticket', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_ticket_id: params.ticketId,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as {
+        id: string;
+        status: BarberQueueTicketStatus;
+        tokenNumber: number;
+      };
+    }
+
+    if (error && error.message.includes('not found')) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.leaveBarberQueueTicket(params);
+  }
+
+  async barberExtendQueueTimer(params: {
+    businessSlug: string;
+    addMinutes: BarberQueueDelayIncrement;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<ExtendBarberQueueTimerResult> {
+    const delayCheck = validateBarberDelayMinutes(params.addMinutes);
+    if (!delayCheck.ok) {
+      throw new Error(delayCheck.error);
+    }
+
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('barber_extend_queue_timer', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_add_minutes: delayCheck.value,
+      p_staff_pin_hash: params.staffPinHash ?? null,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as ExtendBarberQueueTimerResult;
+    }
+
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('Extension minutes'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.barberExtendQueueTimer(params);
+  }
+
+  async barberAdvanceQueueTicket(params: {
+    businessSlug: string;
+    ticketId: string;
+    status: BarberQueueTicketStatus;
+    staffLabel?: string;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<AdvanceBarberQueueTicketResult> {
+    const statusCheck = validateBarberTicketStatus(params.status);
+    if (!statusCheck.ok) {
+      throw new Error(statusCheck.error);
+    }
+
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('barber_advance_queue_ticket', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_ticket_id: params.ticketId,
+      p_new_status: statusCheck.value,
+      p_staff_label: params.staffLabel ?? 'Barber',
+      p_staff_pin_hash: params.staffPinHash ?? null,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as AdvanceBarberQueueTicketResult;
+    }
+
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('not found'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.barberAdvanceQueueTicket(params);
   }
 }

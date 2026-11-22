@@ -78,6 +78,7 @@ export const ALLOWED_STAFF_ROLES: ReadonlyArray<RestaurantStaffRole> = [
   'cashier',
   'chef',
   'manager',
+  'barber',
 ];
 
 export const STAFF_ROLE_METADATA: Record<
@@ -107,6 +108,12 @@ export const STAFF_ROLE_METADATA: Record<
     codePrefix: 'MGR',
     badgeBg: 'bg-slate-900',
     badgeText: 'text-[#D2DB76]',
+  },
+  barber: {
+    label: 'Barber / Stylist',
+    codePrefix: 'BAR',
+    badgeBg: 'bg-violet-50',
+    badgeText: 'text-violet-900',
   },
 };
 

@@ -19,6 +19,7 @@ import {
   UserCheck,
   Users,
   Package,
+  Scissors,
 } from 'lucide-react';
 import type {
   Business,
@@ -39,8 +40,11 @@ import {
   RestaurantManagerView,
   type RestaurantWorkspaceSection,
 } from '../components/dashboard/RestaurantManagerView';
+import { BarberQueueManagerView } from '../components/dashboard/BarberQueueManagerView';
+import { isBarberOrSalonCategory } from '../utils/barberQueueValidation';
 
 type PrimaryDestination =
+  | 'barber_queue'
   | 'overview'
   | 'menu'
   | 'staff'
@@ -57,6 +61,9 @@ function parseDestinationFromParam(param: string | null): {
   aiSubTab?: AiReviewSubTab;
 } {
   switch (param) {
+    case 'queue':
+    case 'barber_queue':
+      return { destination: 'barber_queue' };
     case 'menu':
       return { destination: 'menu' };
     case 'staff':
@@ -134,13 +141,22 @@ export default function BusinessDashboard() {
       setBusinesses(list);
 
       const paramSlug = searchParams.get('slug');
+      const paramTab = searchParams.get('tab');
       if (paramSlug) {
         const match = list.find((b) => b.slug === paramSlug);
-        if (match) setSelectedSlug(match.slug);
+        if (match) {
+          setSelectedSlug(match.slug);
+          if (!paramTab && isBarberOrSalonCategory(match.category)) {
+            setDestination('barber_queue');
+          }
+        }
       } else if (list.length > 0) {
         setSelectedSlug((prev) =>
           list.some((b) => b.slug === prev) ? prev : list[0].slug,
         );
+        if (!paramTab && isBarberOrSalonCategory(list[0].category)) {
+          setDestination('barber_queue');
+        }
       }
       setLoading(false);
     }
@@ -169,7 +185,24 @@ export default function BusinessDashboard() {
 
   function handleSelectBusiness(newSlug: string) {
     setSelectedSlug(newSlug);
-    setSearchParams({ slug: newSlug, tab: destination });
+    const nextBiz = businesses.find((b) => b.slug === newSlug);
+    let nextDest = destination;
+    if (
+      nextBiz &&
+      isBarberOrSalonCategory(nextBiz.category) &&
+      destination === 'overview'
+    ) {
+      nextDest = 'barber_queue';
+      setDestination('barber_queue');
+    } else if (
+      nextBiz &&
+      !isBarberOrSalonCategory(nextBiz.category) &&
+      destination === 'barber_queue'
+    ) {
+      nextDest = 'overview';
+      setDestination('overview');
+    }
+    setSearchParams({ slug: newSlug, tab: nextDest });
   }
 
   function handleDestinationChange(next: PrimaryDestination) {
@@ -250,6 +283,8 @@ export default function BusinessDashboard() {
   const currentPill = statusPillConfig[currentStatus];
   const StatusIcon = currentPill.Icon;
 
+  const isBarberVenue = isBarberOrSalonCategory(currentBusiness.category);
+
   const navDestinations: {
     id: PrimaryDestination;
     label: string;
@@ -257,6 +292,16 @@ export default function BusinessDashboard() {
     Icon: typeof LayoutDashboard;
     badge?: number;
   }[] = [
+    ...(isBarberVenue || destination === 'barber_queue'
+      ? [
+          {
+            id: 'barber_queue' as PrimaryDestination,
+            label: 'Live Queue',
+            shortLabel: 'Queue',
+            Icon: Scissors,
+          },
+        ]
+      : []),
     {
       id: 'overview',
       label: 'Live Overview',
@@ -316,7 +361,7 @@ export default function BusinessDashboard() {
           <div className="space-y-2 border-b border-[#1E1B4B]/10 pb-4">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] font-bold uppercase tracking-wider text-[#6B7280]">
-                Active Restaurant
+                {isBarberVenue ? 'Active Salon / Barber' : 'Active Restaurant'}
               </span>
               <Link
                 to="/setup"
@@ -414,11 +459,16 @@ export default function BusinessDashboard() {
             </span>
             {isBusinessLive && (
               <Link
-                to={`/r/${currentBusiness.slug}/menu`}
+                to={
+                  isBarberVenue
+                    ? `/r/${currentBusiness.slug}/queue`
+                    : `/r/${currentBusiness.slug}/menu`
+                }
                 target="_blank"
                 className="inline-flex items-center gap-1 text-[12px] font-semibold text-[#1E1B4B] hover:underline"
               >
-                Guest Hub <ExternalLink className="h-3 w-3" aria-hidden />
+                {isBarberVenue ? 'Live Queue' : 'Guest Hub'}{' '}
+                <ExternalLink className="h-3 w-3" aria-hidden />
               </Link>
             )}
           </div>
@@ -504,6 +554,16 @@ export default function BusinessDashboard() {
               )}
             </button>
           </div>
+        )}
+
+        {/* MODULE 4: BARBER & SALON LIVE QUEUE CONTROLLER */}
+        {destination === 'barber_queue' && (
+          <BarberQueueManagerView
+            key={`barber-queue-mgmt-${currentBusiness.id}`}
+            business={currentBusiness}
+            isBusinessLive={isBusinessLive}
+            mode="owner"
+          />
         )}
 
         {/* DESTINATIONS 1–6 (Restaurant Workspace) */}
