@@ -66,6 +66,7 @@ import type {
   BarberQueueConfigInput,
   BarberQueueDelayIncrement,
   BarberQueueTicketStatus,
+  BarberRevenueSummary,
   ExtendBarberQueueTimerResult,
   JoinBarberQueueInput,
   JoinBarberQueueResult,
@@ -670,6 +671,13 @@ export interface IBusinessRepository {
     staffPinHash?: string | null;
     options?: AIConfigAccessOptions;
   }): Promise<AdvanceBarberQueueTicketResult>;
+
+  /** Daily & monthly completed haircut counts and ₹ revenue breakdown by service type. */
+  getBarberRevenueAndServiceSummary(
+    businessId: string,
+    monthKey?: string | null,
+    options?: AIConfigAccessOptions,
+  ): Promise<BarberRevenueSummary>;
 
   // ---------------------------------------------------------------------------
   // Module 5: GymOS — Membership, Payment Approvals & 3-Day Renewal Radar

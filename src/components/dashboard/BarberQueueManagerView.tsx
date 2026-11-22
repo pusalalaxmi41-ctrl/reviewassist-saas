@@ -22,19 +22,28 @@ import {
   Plus,
   Trash2,
   ScanLine,
+  CalendarClock,
+  IndianRupee,
+  TrendingUp,
 } from 'lucide-react';
 import type { Business } from '../../types/business';
 import type {
+  BarberBookingType,
   BarberQueueDelayIncrement,
   BarberQueueService,
   BarberQueueTicketStatus,
+  BarberRevenueSummary,
   PublicBarberQueueStatusPayload,
 } from '../../types/barberQueue';
 import { businessRepository } from '../../services/storage';
 import {
   ALLOWED_QUEUE_DELAY_INCREMENTS,
+  formatTicketDisplayCode,
+  formatTimeSlot12h,
+  generateBookableTimeSlots,
   getBarberQueueUrl,
   getBarberStaffUrl,
+  getTodayQueueDateKey,
   parseBarberQueueTicketQr,
 } from '../../utils/barberQueueValidation';
 import { formatPriceFromPaise } from '../../utils/restaurantValidation';
@@ -45,6 +54,8 @@ import {
 } from '../../services/qr/qrGenerator';
 import { copyText } from '../../utils/clipboard';
 import { Button } from '../common/Button';
+
+const BOOKABLE_TIME_SLOTS = generateBookableTimeSlots();
 
 interface Props {
   business: Business;
@@ -74,12 +85,23 @@ export function BarberQueueManagerView({
   const [busyTicketId, setBusyTicketId] = useState<string | null>(null);
   const [togglingOpen, setTogglingOpen] = useState(false);
 
-  // Quick Walk-In Entry (for guests without a phone)
-  const [showWalkInForm, setShowWalkInForm] = useState(false);
+  // Quick Walk-In & Phone/Online Appointment Entry
+  const [entryFormMode, setEntryFormMode] = useState<
+    null | BarberBookingType
+  >(null);
   const [walkInName, setWalkInName] = useState('');
   const [walkInPhone, setWalkInPhone] = useState('');
   const [walkInService, setWalkInService] = useState('Classic Haircut');
+  const [apptSlotTime, setApptSlotTime] = useState('16:30');
   const [addingWalkIn, setAddingWalkIn] = useState(false);
+
+  // Daily & Monthly Haircut & Service Revenue Ledger (Owner mode)
+  const [revenueSummary, setRevenueSummary] =
+    useState<BarberRevenueSummary | null>(null);
+  const [revenueRange, setRevenueRange] = useState<'today' | 'month'>('today');
+  const [selectedMonthKey, setSelectedMonthKey] = useState<string>(() =>
+    getTodayQueueDateKey().slice(0, 7),
+  );
 
   // Owner Settings & Services Editor
   const [showSettings, setShowSettings] = useState(false);
@@ -165,8 +187,20 @@ export function BarberQueueManagerView({
       } finally {
         setLoading(false);
       }
+      if (mode === 'owner') {
+        try {
+          const rev =
+            await businessRepository.getBarberRevenueAndServiceSummary(
+              business.id,
+              selectedMonthKey,
+            );
+          setRevenueSummary(rev);
+        } catch {
+          // non-blocking ledger refresh
+        }
+      }
     },
-    [business, mode],
+    [business, mode, selectedMonthKey],
   );
 
   useEffect(() => {
@@ -297,8 +331,9 @@ export function BarberQueueManagerView({
     }
   }
 
-  async function handleAddWalkIn(e: React.FormEvent) {
+  async function handleAddEntry(e: React.FormEvent) {
     e.preventDefault();
+    const bookingType: BarberBookingType = entryFormMode ?? 'walk_in';
     setAddingWalkIn(true);
     setErrorMessage(null);
     try {
@@ -307,13 +342,18 @@ export function BarberQueueManagerView({
         guestName: walkInName.trim(),
         phone: walkInPhone.trim() || null,
         serviceName: walkInService,
+        bookingType,
+        scheduledTime: bookingType === 'appointment' ? apptSlotTime : null,
       });
+      const code = formatTicketDisplayCode(res.ticket);
       setWalkInName('');
       setWalkInPhone('');
-      setShowWalkInForm(false);
+      setEntryFormMode(null);
       await refreshQueue(false);
       notifyStatus(
-        `Added ${res.ticket.guestName} as Token #${res.ticket.tokenNumber} (~${res.estimatedWaitMinutes} mins wait).`,
+        bookingType === 'appointment'
+          ? `Booked ${res.ticket.guestName} as ${code} for ${formatTimeSlot12h(res.ticket.scheduledTime)} (merged fairly into queue).`
+          : `Added ${res.ticket.guestName} as Walk-In ${code} (~${res.estimatedWaitMinutes} mins wait).`,
       );
     } catch (err) {
       setErrorMessage((err as Error).message);
@@ -515,17 +555,17 @@ export function BarberQueueManagerView({
         </div>
       )}
 
-      {/* 1-TAP BROADCAST TIMER CONTROLS (Fast 1-Handed Taps Between Cuts) */}
-      <div className="rounded-3xl border border-[#111318]/12 bg-[#FAF8F5] p-5 shadow-xs space-y-3.5">
+      {/* ==================== ZONE 1: COMPACT TOP DELAY & STATUS STRIP ==================== */}
+      <div className="rounded-3xl border border-[#111318]/12 bg-[#FAF8F5] p-4 sm:p-5 shadow-xs space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#5C6068] flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5 text-[#C89B3C]" aria-hidden />
-              1-Tap Timer Broadcast to All Waiting Customers
+          <div className="flex flex-wrap items-center gap-2">
+            <Clock className="h-4 w-4 text-[#C89B3C]" aria-hidden />
+            <p className="text-[12px] font-extrabold uppercase tracking-[0.14em] text-[#111318]">
+              1-Tap Timer Broadcast
             </p>
-            <p className="text-[12.5px] text-[#5C6068] mt-0.5">
-              Tap once to extend every waiting customer&apos;s live phone countdown automatically.
-            </p>
+            <span className="text-[12px] text-[#5C6068] hidden sm:inline">
+              — Updates all waiting customer phones live
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <span className="rounded-full border border-[#C89B3C]/40 bg-[#F3E3B8]/70 px-3 py-1 text-[12px] font-extrabold text-[#111318] tabular-nums">
@@ -542,20 +582,20 @@ export function BarberQueueManagerView({
           </div>
         </div>
 
-        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5">
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
           {ALLOWED_QUEUE_DELAY_INCREMENTS.map((mins) => (
             <button
               key={mins}
               type="button"
               disabled={extendingMins !== null}
               onClick={() => void handleBroadcastDelay(mins)}
-              className="flex min-h-14 flex-col items-center justify-center rounded-2xl border border-[#C89B3C]/35 bg-[#111318] px-3 py-2.5 text-[#FFFFFF] shadow-sm hover:bg-[#1F232C] active:scale-[0.97] transition-all disabled:opacity-50 cursor-pointer"
+              className="flex h-12 items-center justify-center gap-1.5 rounded-2xl border border-[#C89B3C]/35 bg-[#111318] px-3 text-[#FFFFFF] shadow-2xs hover:bg-[#1F232C] active:scale-[0.97] transition-all disabled:opacity-50 cursor-pointer"
             >
-              <span className="text-[17px] font-black text-[#F3E3B8] tabular-nums">
+              <span className="text-[15px] font-black text-[#F3E3B8] tabular-nums">
                 +{mins}m
               </span>
-              <span className="text-[10px] font-semibold text-[#A3A8B3]">
-                {extendingMins === mins ? 'Sending…' : 'Broadcast'}
+              <span className="text-[10px] font-semibold text-[#A3A8B3] hidden sm:inline">
+                {extendingMins === mins ? '…' : 'Send'}
               </span>
             </button>
           ))}
@@ -615,44 +655,50 @@ export function BarberQueueManagerView({
         </div>
       )}
 
-      {/* ACTIVE CHAIR & WAITING QUEUE (2-Column on Desktop, Stacked on Mobile) */}
-      <div
-        className={`grid gap-5 ${mode === 'owner' ? 'lg:grid-cols-12' : ''} items-start`}
+      {/* ==================== ZONE 2: FULL-WIDTH "CURRENTLY IN CHAIR" HERO BAR ==================== */}
+      <section
+        aria-label="Currently In Chair"
+        className="overflow-hidden rounded-3xl border border-[#C89B3C]/45 bg-[#111318] text-[#FAF8F5] shadow-md"
       >
-        {/* CURRENTLY IN CHAIR CARD */}
-        <section
-          aria-label="Currently In Chair"
-          className={`${mode === 'owner' ? 'lg:col-span-5' : ''} overflow-hidden rounded-3xl border border-[#C89B3C]/40 bg-[#111318] text-[#FAF8F5] shadow-md`}
-        >
-          <div className="h-1.5 w-full bg-gradient-to-r from-[#C89B3C] via-[#F3E3B8] to-[#C89B3C]" />
-          <div className="p-6 space-y-4">
-          <div className="flex items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#C89B3C] px-3 py-1 text-[11px] font-black uppercase tracking-wider text-[#111318]">
-              <Scissors className="h-3.5 w-3.5" aria-hidden />
-              Currently In Chair
-            </span>
-            {nowServing && (
-              <span className="text-[12px] font-bold text-[#F3E3B8] tabular-nums">
-                ~{nowServing.remainingMinutes ?? nowServing.durationMinutes}m left
-              </span>
-            )}
-          </div>
-
+        <div className="h-1.5 w-full bg-gradient-to-r from-[#C89B3C] via-[#F3E3B8] to-[#C89B3C]" />
+        <div className="p-5 sm:p-6">
           {nowServing ? (
-            <div className="space-y-4">
-              <div>
-                <p className="text-[44px] leading-none font-black text-[#F3E3B8] tabular-nums">
-                  Token #{nowServing.tokenNumber}
-                </p>
-                <p className="mt-2 text-[20px] font-extrabold text-[#FFFFFF]">
-                  {nowServing.guestName}
-                </p>
-                <p className="text-[13px] font-medium text-[#A3A8B3]">
-                  {nowServing.serviceName} • {nowServing.durationMinutes} mins
-                  {nowServing.assignedBarberLabel
-                    ? ` • ${nowServing.assignedBarberLabel}`
-                    : ''}
-                </p>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-start gap-4 min-w-0">
+                <span className="flex h-16 min-w-16 px-3 shrink-0 items-center justify-center rounded-2xl border border-[#C89B3C]/50 bg-[#1B1F27] text-[22px] font-black text-[#F3E3B8] tabular-nums">
+                  {formatTicketDisplayCode(nowServing)}
+                </span>
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[#C89B3C] px-2.5 py-0.5 text-[10.5px] font-black uppercase tracking-wider text-[#111318]">
+                      <Scissors className="h-3 w-3" aria-hidden />
+                      Currently In Chair
+                    </span>
+                    <span className="rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[11px] font-bold text-[#F3E3B8] tabular-nums">
+                      ~{nowServing.remainingMinutes ?? nowServing.durationMinutes}m left
+                    </span>
+                    {nowServing.bookingType === 'appointment' &&
+                      nowServing.scheduledTime && (
+                        <span className="rounded-full bg-[#F3E3B8]/20 px-2.5 py-0.5 text-[11px] font-bold text-[#F3E3B8]">
+                          Booked {formatTimeSlot12h(nowServing.scheduledTime)}
+                        </span>
+                      )}
+                  </div>
+                  <p className="text-[22px] leading-tight font-black text-[#FFFFFF] truncate">
+                    {nowServing.guestName}
+                  </p>
+                  <p className="text-[13px] font-semibold text-[#A3A8B3]">
+                    {nowServing.serviceName}
+                    {typeof nowServing.pricePaise === 'number' &&
+                    nowServing.pricePaise > 0
+                      ? ` • ${formatPriceFromPaise(nowServing.pricePaise, 'INR')}`
+                      : ''}{' '}
+                    • {nowServing.durationMinutes}m
+                    {nowServing.assignedBarberLabel
+                      ? ` • ${nowServing.assignedBarberLabel}`
+                      : ''}
+                  </p>
+                </div>
               </div>
 
               <button
@@ -661,273 +707,544 @@ export function BarberQueueManagerView({
                 onClick={() =>
                   void handleAdvanceTicket(nowServing.id, 'completed')
                 }
-                className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#10B981] px-5 py-3.5 text-[15px] font-extrabold text-[#FFFFFF] shadow-lg hover:bg-emerald-600 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
+                className="flex min-h-14 shrink-0 items-center justify-center gap-2 rounded-2xl bg-[#10B981] px-6 py-3.5 text-[15px] font-black text-[#FFFFFF] shadow-lg hover:bg-emerald-600 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
               >
                 <CheckCircle2 className="h-5 w-5" aria-hidden />
                 {busyTicketId === nowServing.id
                   ? 'Completing…'
-                  : config?.awardStarOnCompletion && nowServing.customerId
-                    ? 'Complete Cut (+1 Star) ✓'
-                    : 'Complete Cut ✓'}
+                  : `Complete Cut${
+                      typeof nowServing.pricePaise === 'number' &&
+                      nowServing.pricePaise > 0
+                        ? ` & Log ${formatPriceFromPaise(nowServing.pricePaise, 'INR')}`
+                        : ''
+                    }${
+                      config?.awardStarOnCompletion && nowServing.customerId
+                        ? ' (+1 ★)'
+                        : ''
+                    } ✓`}
               </button>
             </div>
           ) : (
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center space-y-2">
-              <Scissors
-                className="mx-auto h-8 w-8 text-[#C89B3C]"
-                aria-hidden
-              />
-              <p className="text-[16px] font-extrabold text-[#FFFFFF]">
-                Barber Chair is Ready
-              </p>
-              <p className="text-[12.5px] text-[#A3A8B3]">
-                Tap &ldquo;Call to Chair →&rdquo; on the next waiting token or check in a guest&apos;s Personal Token QR.
-              </p>
-            </div>
-          )}
-          </div>
-        </section>
-
-        {/* WAITING QUEUE LIST */}
-        <section
-          aria-label="Waiting Queue"
-          className={`${mode === 'owner' ? 'lg:col-span-7' : ''} rounded-3xl border border-[#111318]/12 bg-[#FAF8F5] p-5 sm:p-6 shadow-xs space-y-4`}
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5">
-              <h2 className="text-[18px] font-extrabold text-[#111318] flex items-center gap-2">
-                <Users className="h-5 w-5 text-[#C89B3C]" aria-hidden />
-                Waiting Line
-              </h2>
-              <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[#111318] px-2 text-[12px] font-bold text-[#F3E3B8] tabular-nums">
-                {waitingTickets.length}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3.5">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#C89B3C]/35 bg-[#1B1F27] text-[#C89B3C]">
+                  <Scissors className="h-6 w-6" aria-hidden />
+                </span>
+                <div>
+                  <p className="text-[17px] font-black text-[#FFFFFF]">
+                    Barber Chair is Open &amp; Ready
+                  </p>
+                  <p className="text-[12.5px] text-[#A3A8B3]">
+                    Tap &ldquo;Call to Chair →&rdquo; on the next waiting guest or add a walk-in / phone appointment below.
+                  </p>
+                </div>
+              </div>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/15 px-3 py-1 text-[11.5px] font-extrabold text-emerald-300">
+                Daily tokens reset cleanly to #1 every morning
               </span>
             </div>
+          )}
+        </div>
+      </section>
+
+      {/* ==================== ZONE 3: FULL-WIDTH UNIFIED HYBRID QUEUE ==================== */}
+      <section
+        aria-label="Unified Walk-In and Appointment Queue"
+        className="rounded-3xl border border-[#111318]/12 bg-[#FAF8F5] p-5 sm:p-6 shadow-xs space-y-4"
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-[19px] font-black text-[#111318] flex items-center gap-2">
+              <Users className="h-5 w-5 text-[#C89B3C]" aria-hidden />
+              Unified Queue (Walk-Ins + Booked Slots)
+            </h2>
+            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[#111318] px-2 text-[12px] font-bold text-[#F3E3B8] tabular-nums">
+              {waitingTickets.length}
+            </span>
+          </div>
+
+          {/* Two Prominent Action Buttons Side-by-Side */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setEntryFormMode((prev) =>
+                  prev === 'walk_in' ? null : 'walk_in',
+                )
+              }
+              className={`inline-flex h-10 items-center gap-1.5 rounded-xl px-4 text-[13px] font-extrabold transition-all cursor-pointer ${
+                entryFormMode === 'walk_in'
+                  ? 'bg-[#111318] text-[#F3E3B8]'
+                  : 'bg-[#111318] text-[#FAF8F5] hover:bg-[#1F232C]'
+              }`}
+            >
+              <UserPlus className="h-4 w-4 text-[#F3E3B8]" aria-hidden />
+              + Add Walk-In
+            </button>
 
             <button
               type="button"
-              onClick={() => setShowWalkInForm((v) => !v)}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#111318]/15 bg-[#FFFFFF] px-3.5 text-[12.5px] font-extrabold text-[#111318] hover:bg-[#111318] hover:text-[#FAF8F5] transition-colors cursor-pointer"
+              onClick={() =>
+                setEntryFormMode((prev) =>
+                  prev === 'appointment' ? null : 'appointment',
+                )
+              }
+              className={`inline-flex h-10 items-center gap-1.5 rounded-xl border-2 px-4 text-[13px] font-extrabold transition-all cursor-pointer ${
+                entryFormMode === 'appointment'
+                  ? 'border-[#111318] bg-[#C89B3C] text-[#111318]'
+                  : 'border-[#C89B3C] bg-[#F3E3B8]/60 text-[#111318] hover:bg-[#C89B3C]'
+              }`}
             >
-              <UserPlus className="h-3.5 w-3.5" aria-hidden />
-              + Add Walk-In
+              <CalendarClock className="h-4 w-4" aria-hidden />
+              + Phone / Online Slot
             </button>
           </div>
+        </div>
 
-          {/* Quick Walk-In Entry Form */}
-          {showWalkInForm && (
-            <form
-              onSubmit={(e) => void handleAddWalkIn(e)}
-              className="rounded-2xl border border-[#1E1B4B]/15 bg-[#F8F9FA] p-4 space-y-3 animate-fadeSlideUp"
+        {/* Walk-In OR Phone/Online Appointment Entry Drawer */}
+        {entryFormMode && (
+          <form
+            onSubmit={(e) => void handleAddEntry(e)}
+            className={`rounded-2xl border-2 p-4 space-y-3 animate-fadeSlideUp ${
+              entryFormMode === 'appointment'
+                ? 'border-[#C89B3C] bg-[#F3E3B8]/25'
+                : 'border-[#111318]/20 bg-[#FFFFFF]'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[13.5px] font-black text-[#111318]">
+                {entryFormMode === 'appointment'
+                  ? '📅 Book Phone / Online Time Slot (B-XX — Fairly Merged Into Queue)'
+                  : '🚶 Issue Instant Walk-In Token (W-XX)'}
+              </p>
+            </div>
+            <div
+              className={`grid gap-3 ${
+                entryFormMode === 'appointment'
+                  ? 'sm:grid-cols-2 lg:grid-cols-4'
+                  : 'sm:grid-cols-3'
+              }`}
             >
-              <div className="grid gap-3 sm:grid-cols-3">
+              <input
+                type="text"
+                required
+                maxLength={80}
+                placeholder="Customer Name (e.g. Suresh)"
+                value={walkInName}
+                onChange={(e) => setWalkInName(e.target.value)}
+                className="h-10 rounded-xl border border-[#111318]/20 bg-[#FFFFFF] px-3 text-[13px] font-semibold text-[#111318] focus:border-[#111318] focus:outline-none"
+              />
+              <input
+                type="tel"
+                maxLength={40}
+                placeholder="Phone (Optional, for ★)"
+                value={walkInPhone}
+                onChange={(e) => setWalkInPhone(e.target.value)}
+                className="h-10 rounded-xl border border-[#111318]/20 bg-[#FFFFFF] px-3 text-[13px] font-semibold text-[#111318] focus:border-[#111318] focus:outline-none"
+              />
+              <select
+                value={walkInService}
+                onChange={(e) => setWalkInService(e.target.value)}
+                className="h-10 rounded-xl border border-[#111318]/20 bg-[#FFFFFF] px-3 text-[13px] font-semibold text-[#111318] focus:border-[#111318] focus:outline-none"
+              >
+                {(config?.services ?? []).map((svc) => (
+                  <option key={svc.id} value={svc.name}>
+                    {svc.name} ({svc.durationMinutes}m ·{' '}
+                    {formatPriceFromPaise(svc.pricePaise, 'INR')})
+                  </option>
+                ))}
+              </select>
+              {entryFormMode === 'appointment' && (
+                <select
+                  aria-label="Appointment Time Slot"
+                  value={apptSlotTime}
+                  onChange={(e) => setApptSlotTime(e.target.value)}
+                  className="h-10 rounded-xl border border-[#C89B3C] bg-[#FFFFFF] px-3 text-[13px] font-extrabold text-[#111318] focus:border-[#111318] focus:outline-none"
+                >
+                  {BOOKABLE_TIME_SLOTS.map((slot) => {
+                    const taken = (queueData?.bookedSlotsToday ?? []).includes(
+                      slot.value,
+                    );
+                    return (
+                      <option
+                        key={slot.value}
+                        value={slot.value}
+                        disabled={taken}
+                      >
+                        {slot.label} {taken ? '(Booked)' : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setEntryFormMode(null)}
+              >
+                Cancel
+              </Button>
+              <button
+                type="submit"
+                disabled={addingWalkIn}
+                className="inline-flex h-10 items-center justify-center rounded-xl bg-[#111318] px-5 text-[13px] font-extrabold text-[#F3E3B8] hover:bg-[#1F232C] disabled:opacity-60 cursor-pointer"
+              >
+                {addingWalkIn
+                  ? 'Saving…'
+                  : entryFormMode === 'appointment'
+                    ? `Reserve ${formatTimeSlot12h(apptSlotTime)} Slot`
+                    : 'Issue Walk-In Token'}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Customer Personal Token QR / #Number Quick Check-In */}
+        {(waitingTickets.length > 0 || nowServing) && (() => {
+          const parsed = parseBarberQueueTicketQr(tokenLookupInput);
+          const allActive = [...(nowServing ? [nowServing] : []), ...waitingTickets];
+          const matched = parsed
+            ? allActive.find(
+                (t) =>
+                  (parsed.ticketId && t.id === parsed.ticketId) ||
+                  (parsed.tokenNumber !== undefined &&
+                    t.tokenNumber === parsed.tokenNumber),
+              ) ?? null
+            : null;
+          return (
+            <div className="rounded-2xl border border-[#111318]/12 bg-[#FFFFFF] p-3 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <ScanLine
+                  className="h-4 w-4 shrink-0 text-[#C89B3C]"
+                  aria-hidden
+                />
                 <input
                   type="text"
-                  required
-                  maxLength={80}
-                  placeholder="Guest Name (e.g. Suresh)"
-                  value={walkInName}
-                  onChange={(e) => setWalkInName(e.target.value)}
-                  className="h-10 rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-3 text-[13px] font-semibold text-[#111827] focus:border-[#1E1B4B] focus:outline-none"
+                  value={tokenLookupInput}
+                  onChange={(e) => setTokenLookupInput(e.target.value)}
+                  placeholder="Check in Personal Token QR or enter #Token (e.g. #2)…"
+                  aria-label="Scan or enter customer Token QR"
+                  className="w-full bg-transparent text-[13px] font-semibold text-[#111318] placeholder:text-[#8E939D] focus:outline-none"
                 />
-                <input
-                  type="tel"
-                  maxLength={40}
-                  placeholder="Phone (Optional, for ★)"
-                  value={walkInPhone}
-                  onChange={(e) => setWalkInPhone(e.target.value)}
-                  className="h-10 rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-3 text-[13px] font-semibold text-[#111827] focus:border-[#1E1B4B] focus:outline-none"
-                />
-                <select
-                  value={walkInService}
-                  onChange={(e) => setWalkInService(e.target.value)}
-                  className="h-10 rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-3 text-[13px] font-semibold text-[#111827] focus:border-[#1E1B4B] focus:outline-none"
-                >
-                  {(config?.services ?? []).map((svc) => (
-                    <option key={svc.id} value={svc.name}>
-                      {svc.name} ({svc.durationMinutes}m)
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setShowWalkInForm(false)}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" variant="primary" loading={addingWalkIn}>
-                  Issue Queue Token
-                </Button>
-              </div>
-            </form>
-          )}
-
-          {/* Customer Personal Token QR / #Number Quick Check-In */}
-          {(waitingTickets.length > 0 || nowServing) && (() => {
-            const parsed = parseBarberQueueTicketQr(tokenLookupInput);
-            const allActive = [...(nowServing ? [nowServing] : []), ...waitingTickets];
-            const matched = parsed
-              ? allActive.find(
-                  (t) =>
-                    (parsed.ticketId && t.id === parsed.ticketId) ||
-                    (parsed.tokenNumber !== undefined &&
-                      t.tokenNumber === parsed.tokenNumber),
-                ) ?? null
-              : null;
-            return (
-              <div className="rounded-2xl border border-[#111318]/12 bg-[#FFFFFF] p-3 space-y-2.5">
-                <div className="flex items-center gap-2">
-                  <ScanLine
-                    className="h-4 w-4 shrink-0 text-[#C89B3C]"
-                    aria-hidden
-                  />
-                  <input
-                    type="text"
-                    value={tokenLookupInput}
-                    onChange={(e) => setTokenLookupInput(e.target.value)}
-                    placeholder="Check in Personal Token QR or enter #Token (e.g. #2)…"
-                    aria-label="Scan or enter customer Token QR"
-                    className="w-full bg-transparent text-[13px] font-semibold text-[#111318] placeholder:text-[#8E939D] focus:outline-none"
-                  />
-                  {tokenLookupInput && (
-                    <button
-                      type="button"
-                      onClick={() => setTokenLookupInput('')}
-                      className="text-[11px] font-bold text-[#5C6068] hover:text-[#111318] cursor-pointer"
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-                {tokenLookupInput.trim() && (
-                  matched ? (
-                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#C89B3C]/50 bg-[#F3E3B8]/40 px-3 py-2">
-                      <div className="text-[12.5px] font-bold text-[#111318]">
-                        Verified Token #{matched.tokenNumber} · {matched.guestName} ({matched.serviceName})
-                      </div>
-                      <button
-                        type="button"
-                        disabled={busyTicketId === matched.id}
-                        onClick={() => {
-                          void handleAdvanceTicket(
-                            matched.id,
-                            matched.status === 'in_chair' ? 'completed' : 'in_chair',
-                          );
-                          setTokenLookupInput('');
-                        }}
-                        className="inline-flex h-8 items-center gap-1 rounded-lg bg-[#111318] px-3 text-[11.5px] font-extrabold text-[#F3E3B8] hover:bg-[#1F232C] cursor-pointer"
-                      >
-                        {matched.status === 'in_chair'
-                          ? 'Complete Cut ✓'
-                          : 'Seat in Chair →'}
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="text-[12px] font-semibold text-amber-800">
-                      No active waiting or in-chair token matched &ldquo;{tokenLookupInput.trim()}&rdquo;.
-                    </p>
-                  )
+                {tokenLookupInput && (
+                  <button
+                    type="button"
+                    onClick={() => setTokenLookupInput('')}
+                    className="text-[11px] font-bold text-[#5C6068] hover:text-[#111318] cursor-pointer"
+                  >
+                    Clear
+                  </button>
                 )}
               </div>
-            );
-          })()}
-
-          {waitingTickets.length === 0 ? (
-            <div className="rounded-2xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-8 text-center space-y-1.5">
-              <Sparkles
-                className="mx-auto h-7 w-7 text-[#1E1B4B]/50"
-                aria-hidden
-              />
-              <p className="text-[15px] font-bold text-[#111827]">
-                No one waiting in line right now
-              </p>
-              <p className="text-[12.5px] text-[#6B7280]">
-                Walk-ins who scan your Live Queue QR standee appear here in exact token order.
-              </p>
+              {tokenLookupInput.trim() && (
+                matched ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#C89B3C]/50 bg-[#F3E3B8]/40 px-3 py-2">
+                    <div className="text-[12.5px] font-bold text-[#111318]">
+                      Verified {formatTicketDisplayCode(matched)} · {matched.guestName} ({matched.serviceName})
+                    </div>
+                    <button
+                      type="button"
+                      disabled={busyTicketId === matched.id}
+                      onClick={() => {
+                        void handleAdvanceTicket(
+                          matched.id,
+                          matched.status === 'in_chair' ? 'completed' : 'in_chair',
+                        );
+                        setTokenLookupInput('');
+                      }}
+                      className="inline-flex h-8 items-center gap-1 rounded-lg bg-[#111318] px-3 text-[11.5px] font-extrabold text-[#F3E3B8] hover:bg-[#1F232C] cursor-pointer"
+                    >
+                      {matched.status === 'in_chair'
+                        ? 'Complete Cut ✓'
+                        : 'Seat in Chair →'}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-[12px] font-semibold text-amber-800">
+                    No active waiting or in-chair token matched &ldquo;{tokenLookupInput.trim()}&rdquo;.
+                  </p>
+                )
+              )}
             </div>
-          ) : (
-            <div className="space-y-2.5">
-              {waitingTickets.map((ticket, idx) => {
-                const isBusy = busyTicketId === ticket.id;
-                const isUpNext = idx === 0;
-                return (
-                  <div
-                    key={ticket.id}
-                    className={`rounded-2xl border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                      isUpNext
-                        ? 'border-[#C89B3C] bg-[#F3E3B8]/35'
+          );
+        })()}
+
+        {waitingTickets.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-[#111318]/15 bg-[#FFFFFF] p-8 text-center space-y-1.5">
+            <Sparkles
+              className="mx-auto h-7 w-7 text-[#C89B3C]"
+              aria-hidden
+            />
+            <p className="text-[15px] font-extrabold text-[#111318]">
+              No one waiting in line right now
+            </p>
+            <p className="text-[12.5px] text-[#5C6068]">
+              Offline walk-ins (W-01) and booked phone/online time slots (B-01) weave together here in fair chronological order.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {waitingTickets.map((ticket, idx) => {
+              const isBusy = busyTicketId === ticket.id;
+              const isUpNext = idx === 0;
+              const isAppt = ticket.bookingType === 'appointment';
+              const displayCode = formatTicketDisplayCode(ticket);
+              return (
+                <div
+                  key={ticket.id}
+                  className={`rounded-2xl border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                    isAppt
+                      ? 'border-[#C89B3C] bg-[#F3E3B8]/30'
+                      : isUpNext
+                        ? 'border-[#111318]/40 bg-[#FFFFFF] shadow-xs'
                         : 'border-[#111318]/12 bg-[#FFFFFF]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3.5 min-w-0">
-                      <span
-                        className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl font-black text-[18px] tabular-nums ${
-                          isUpNext
+                  }`}
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <span
+                      className={`flex h-12 min-w-14 px-2 shrink-0 items-center justify-center rounded-2xl font-black text-[15px] tabular-nums ${
+                        isAppt
+                          ? 'bg-[#C89B3C] text-[#111318]'
+                          : isUpNext
                             ? 'bg-[#111318] text-[#F3E3B8]'
                             : 'bg-[#FAF8F5] border border-[#111318]/15 text-[#111318]'
-                        }`}
-                      >
-                        #{ticket.tokenNumber}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-[15px] font-extrabold text-[#111318] truncate">
-                            {ticket.guestName}
-                          </p>
-                          {isUpNext && (
-                            <span className="rounded-full bg-[#111318] px-2 py-0.5 text-[10px] font-extrabold uppercase text-[#F3E3B8]">
-                              Up Next
-                            </span>
-                          )}
-                          {ticket.extraDelayMinutes > 0 && (
-                            <span className="rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[10px] font-extrabold text-[#D97706]">
-                              +{ticket.extraDelayMinutes}m delay
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[12.5px] font-semibold text-[#5C6068] tabular-nums">
-                          {ticket.serviceName} ({ticket.durationMinutes}m) • Est. wait:{' '}
-                          <strong className="text-[#111318]">
-                            ~{ticket.estimatedWaitMinutes ?? 0} mins
-                          </strong>
+                      }`}
+                    >
+                      {displayCode}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-[15px] font-extrabold text-[#111318] truncate">
+                          {ticket.guestName}
                         </p>
+                        {isAppt ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-[#C89B3C] px-2.5 py-0.5 text-[10.5px] font-black uppercase text-[#111318]">
+                            Booked{' '}
+                            {formatTimeSlot12h(ticket.scheduledTime) || 'Slot'} ·{' '}
+                            {displayCode}
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-[#111318] px-2.5 py-0.5 text-[10.5px] font-extrabold uppercase text-[#F3E3B8]">
+                            Walk-In · {displayCode}
+                          </span>
+                        )}
+                        {isUpNext && (
+                          <span className="rounded-full bg-emerald-100 border border-emerald-300 px-2 py-0.5 text-[10px] font-extrabold uppercase text-emerald-900">
+                            Up Next
+                          </span>
+                        )}
+                        {ticket.extraDelayMinutes > 0 && (
+                          <span className="rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[10px] font-extrabold text-[#D97706]">
+                            +{ticket.extraDelayMinutes}m delay
+                          </span>
+                        )}
                       </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        disabled={isBusy}
-                        onClick={() =>
-                          void handleAdvanceTicket(ticket.id, 'in_chair')
-                        }
-                        className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#111318] px-4 text-[12.5px] font-extrabold text-[#FAF8F5] hover:bg-[#1F232C] active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
-                      >
-                        <Play className="h-3.5 w-3.5 text-[#F3E3B8]" aria-hidden />
-                        Call to Chair →
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isBusy}
-                        onClick={() =>
-                          void handleAdvanceTicket(ticket.id, 'no_show')
-                        }
-                        className="inline-flex h-10 items-center gap-1 rounded-xl border border-red-200 bg-red-50 px-3 text-[12px] font-bold text-red-700 hover:bg-red-100 cursor-pointer"
-                      >
-                        <UserX className="h-3.5 w-3.5" aria-hidden />
-                        No-Show
-                      </button>
+                      <p className="text-[12.5px] font-semibold text-[#5C6068] tabular-nums mt-0.5">
+                        {ticket.serviceName} ({ticket.durationMinutes}m
+                        {typeof ticket.pricePaise === 'number' &&
+                        ticket.pricePaise > 0
+                          ? ` · ${formatPriceFromPaise(ticket.pricePaise, 'INR')}`
+                          : ''}
+                        ) • Est. wait:{' '}
+                        <strong className="text-[#111318]">
+                          ~{ticket.estimatedWaitMinutes ?? 0} mins
+                        </strong>
+                      </p>
                     </div>
                   </div>
-                );
-              })}
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() =>
+                        void handleAdvanceTicket(ticket.id, 'in_chair')
+                      }
+                      className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#111318] px-4 text-[12.5px] font-extrabold text-[#FAF8F5] hover:bg-[#1F232C] active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
+                    >
+                      <Play className="h-3.5 w-3.5 text-[#F3E3B8]" aria-hidden />
+                      Call to Chair →
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() =>
+                        void handleAdvanceTicket(ticket.id, 'no_show')
+                      }
+                      className="inline-flex h-10 items-center gap-1 rounded-xl border border-red-200 bg-red-50 px-3 text-[12px] font-bold text-red-700 hover:bg-red-100 cursor-pointer"
+                    >
+                      <UserX className="h-3.5 w-3.5" aria-hidden />
+                      No-Show
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* ==================== DAILY & MONTHLY HAIRCUT & SERVICE REVENUE REPORT ==================== */}
+      {mode === 'owner' && (
+        <section
+          aria-label="Daily and Monthly Haircut and Revenue Report"
+          className="rounded-3xl border border-[#111318]/12 bg-[#FFFFFF] p-5 sm:p-6 shadow-xs space-y-5"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-[19px] font-black text-[#111318] flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-[#C89B3C]" aria-hidden />
+                Daily &amp; Monthly Haircut &amp; Revenue Ledger
+              </h2>
+              <p className="text-[12.5px] text-[#5C6068] mt-0.5">
+                Every completed cut logs its exact service type &amp; fixed price automatically. Tokens reset cleanly to #1 tomorrow morning.
+              </p>
             </div>
-          )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-xl border border-[#111318]/15 bg-[#FAF8F5] p-1">
+                <button
+                  type="button"
+                  onClick={() => setRevenueRange('today')}
+                  className={`h-8 rounded-lg px-3 text-[12px] font-extrabold transition-all cursor-pointer ${
+                    revenueRange === 'today'
+                      ? 'bg-[#111318] text-[#F3E3B8]'
+                      : 'text-[#5C6068] hover:text-[#111318]'
+                  }`}
+                >
+                  Today
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRevenueRange('month')}
+                  className={`h-8 rounded-lg px-3 text-[12px] font-extrabold transition-all cursor-pointer ${
+                    revenueRange === 'month'
+                      ? 'bg-[#111318] text-[#F3E3B8]'
+                      : 'text-[#5C6068] hover:text-[#111318]'
+                  }`}
+                >
+                  This Month
+                </button>
+              </div>
+
+              {revenueRange === 'month' && (
+                <input
+                  type="month"
+                  aria-label="Select ledger month"
+                  value={selectedMonthKey}
+                  onChange={(e) => setSelectedMonthKey(e.target.value)}
+                  className="h-10 rounded-xl border border-[#111318]/15 bg-[#FAF8F5] px-3 text-[12.5px] font-bold text-[#111318]"
+                />
+              )}
+            </div>
+          </div>
+
+          {(() => {
+            const totalCuts =
+              revenueRange === 'today'
+                ? (revenueSummary?.todayTotalCuts ?? 0)
+                : (revenueSummary?.monthTotalCuts ?? 0);
+            const totalRevenuePaise =
+              revenueRange === 'today'
+                ? (revenueSummary?.todayRevenuePaise ?? 0)
+                : (revenueSummary?.monthRevenuePaise ?? 0);
+            const walkInsCount =
+              revenueRange === 'today'
+                ? (revenueSummary?.todayWalkIns ?? 0)
+                : (revenueSummary?.monthWalkIns ?? 0);
+            const apptsCount =
+              revenueRange === 'today'
+                ? (revenueSummary?.todayAppointments ?? 0)
+                : (revenueSummary?.monthAppointments ?? 0);
+            const breakdownRows = (revenueSummary?.serviceBreakdown ?? []).filter(
+              (row) =>
+                revenueRange === 'today'
+                  ? row.countToday > 0
+                  : row.countMonth > 0,
+            );
+
+            return (
+              <>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-[#111318]/10 bg-[#FAF8F5] p-4">
+                    <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#5C6068]">
+                      {revenueRange === 'today'
+                        ? 'Cuts Completed Today'
+                        : `Cuts in ${selectedMonthKey}`}
+                    </p>
+                    <p className="mt-1 text-[28px] leading-none font-black text-[#111318] tabular-nums">
+                      {totalCuts}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-[#C89B3C]/40 bg-[#111318] p-4 text-[#FAF8F5]">
+                    <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#F3E3B8] flex items-center gap-1">
+                      <IndianRupee className="h-3 w-3" aria-hidden />
+                      {revenueRange === 'today'
+                        ? "Today's Service Revenue"
+                        : `Monthly Revenue (${selectedMonthKey})`}
+                    </p>
+                    <p className="mt-1 text-[28px] leading-none font-black text-[#FFFFFF] tabular-nums">
+                      {formatPriceFromPaise(totalRevenuePaise, 'INR')}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-[#111318]/10 bg-[#FAF8F5] p-4">
+                    <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#5C6068]">
+                      Walk-Ins vs. Booked Slots
+                    </p>
+                    <p className="mt-1 text-[20px] leading-tight font-black text-[#111318] tabular-nums">
+                      {walkInsCount} Walk-In · {apptsCount} Booked
+                    </p>
+                  </div>
+                </div>
+
+                {breakdownRows.length === 0 ? (
+                  <p className="rounded-2xl border border-dashed border-[#111318]/15 bg-[#FAF8F5] p-5 text-center text-[13px] font-semibold text-[#5C6068]">
+                    Complete cuts above to see your live breakdown by service type (Classic Haircut, Beard Trim, Combo).
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-2xl border border-[#111318]/10">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-[#FAF8F5] border-b border-[#111318]/10 text-[11px] font-extrabold uppercase tracking-wider text-[#5C6068]">
+                          <th className="px-4 py-3">Service Type</th>
+                          <th className="px-4 py-3 text-right">Cuts Done</th>
+                          <th className="px-4 py-3 text-right">Revenue Earned</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#111318]/10 text-[13.5px]">
+                        {breakdownRows.map((row) => (
+                          <tr key={row.serviceName} className="bg-[#FFFFFF]">
+                            <td className="px-4 py-3 font-extrabold text-[#111318]">
+                              {row.serviceName}
+                            </td>
+                            <td className="px-4 py-3 text-right font-bold text-[#5C6068] tabular-nums">
+                              {revenueRange === 'today'
+                                ? row.countToday
+                                : row.countMonth}
+                            </td>
+                            <td className="px-4 py-3 text-right font-black text-[#111318] tabular-nums">
+                              {formatPriceFromPaise(
+                                revenueRange === 'today'
+                                  ? row.revenueTodayPaise
+                                  : row.revenueMonthPaise,
+                                'INR',
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </section>
-      </div>
+      )}
 
       {/* Owner Collapsible Services & Queue Rules Settings */}
       {mode === 'owner' && !hideConfigSection && (

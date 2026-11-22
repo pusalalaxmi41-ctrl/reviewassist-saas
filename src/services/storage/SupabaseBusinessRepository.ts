@@ -84,6 +84,7 @@ import type {
   BarberQueueDelayIncrement,
   BarberQueueService,
   BarberQueueTicketStatus,
+  BarberRevenueSummary,
   ExtendBarberQueueTimerResult,
   JoinBarberQueueInput,
   JoinBarberQueueResult,
@@ -3989,6 +3990,8 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       p_guest_name: validation.value.guestName,
       p_phone: validation.value.phone,
       p_service_name: validation.value.serviceName,
+      p_booking_type: validation.value.bookingType,
+      p_scheduled_time: validation.value.scheduledTime,
     });
 
     if (!error && data && typeof data === 'object') {
@@ -3997,7 +4000,10 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
 
     if (
       error &&
-      (error.message.includes('paused') || error.message.includes('full'))
+      (error.message.includes('paused') ||
+        error.message.includes('full') ||
+        error.message.includes('already reserved') ||
+        error.message.includes('valid appointment'))
     ) {
       throw new Error(error.message);
     }
@@ -4116,6 +4122,36 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     }
 
     return mockBusinessRepository.barberAdvanceQueueTicket(params);
+  }
+
+  async getBarberRevenueAndServiceSummary(
+    businessId: string,
+    monthKey?: string | null,
+    options?: AIConfigAccessOptions,
+  ): Promise<BarberRevenueSummary> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc(
+      'get_barber_revenue_and_service_summary',
+      {
+        p_business_id: cleanId,
+        p_month_key: monthKey ?? null,
+      },
+    );
+
+    if (!error && data && typeof data === 'object') {
+      return data as BarberRevenueSummary;
+    }
+
+    return mockBusinessRepository.getBarberRevenueAndServiceSummary(
+      cleanId,
+      monthKey,
+      options,
+    );
   }
 
   // ---------------------------------------------------------------------------

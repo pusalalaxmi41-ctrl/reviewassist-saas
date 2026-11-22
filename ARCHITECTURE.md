@@ -9,7 +9,7 @@
 **Vitaran AI Reviews / BistroOS** is a multi-tenant SaaS platform combining:
 1. **AI Google Reviews & Reputation Suite** (5-step guest review flow, AI business reply drafting with Business Knowledge & Local SEO context, sentiment tagging, non-gating compliance, printable QR posters & WhatsApp links).
 2. **Restaurant & Cafe Operating Suite (BistroOS)** (`/dashboard` — 5 cultural digital menu templates + 1-tap preset menus, table-specific QR standees, optional phone-to-chef table ordering, server-validated table mini-games with anti-cheat ledger, dual-currency Game Points vs. Loyalty Stars wallet, personal Loyalty QR passes, 6-char reward claim tickets, individual Staff & Waiter Roster with personal PINs, Cafe/Restaurant Monthly Stock & Expenses tracker, and a Mobile Waiter Floor App).
-3. **Barber & Salon Live Queue Suite (BarberOS — Module 4)** (Dedicated Obsidian & Brass studio at `/barber/dashboard` + automatic smart routing from `/dashboard`, zero-hardware walk-in queue at `/r/:slug/queue` with 5s live countdown + Personal Customer Token QR Pass, 1-tap `+5 / +10 / +15 / +20 / +30 Min` broadcast delays, Customer Token QR Check-In, standalone Barber Staff Mobile Floor Mode at `/r/:slug/barber-staff`, Shop Entrance QR Standees, and automatic idempotent +1 Loyalty Star crediting upon haircut completion).
+3. **Barber & Salon Live Queue Suite (BarberOS — Module 4 + 4B Upgrade)** (Dedicated Obsidian & Brass studio at `/barber/dashboard` + automatic smart routing from `/dashboard`, cleaner 3-Zone Live Chair & Timer layout, zero-hardware **Hybrid Walk-In (`W-01`) + Online/Phone Appointment (`B-01`) Queue** at `/r/:slug/queue` with Fair Slot-Weaving merge, 15-min double-booking guard, automatic Daily `#1` Token Reset, Personal Customer Token QR Pass, 1-tap `+5 / +10 / +15 / +20 / +30 Min` broadcast delays, Customer Token QR Check-In, standalone Barber Staff Mobile Floor Mode at `/r/:slug/barber-staff`, Daily & Monthly Haircut & Service Revenue Ledger, Shop Entrance QR Standees, and automatic idempotent +1 Loyalty Star crediting upon haircut completion).
 4. **Gym Membership & 3-Day Expiry Suite (GymOS — Module 5)** (Dedicated Slate & Volt studio at `/gym/dashboard` + automatic smart routing from `/dashboard`, Front-Desk Member QR Portal at `/r/:slug/gym` for 10-second signups + live Digital Gym Pass with Days Remaining & 1-tap Daily Check-In, Owner Payment Approvals, automatic 3-Day Renewal Radar with 1-tap `+30d Renew` & WhatsApp reminders, and Expired Member check-in lockout).
 5. **Multi-Industry Platform Admin Console** (`/admin`) with dedicated separate approval queues (`🍽️ Restaurants & Cafes`, `✂️ Barbers & Salons`, `🏋️ Gyms & Fitness`, and `All Businesses`), bold Industry Module Badges, and 1-click approval & account lifecycle controls.
 
@@ -32,7 +32,7 @@ flowchart TB
 
     subgraph Backend["Supabase Cloud Backend (jwgofsrubthumuymhzva)"]
         Auth["Supabase Auth (JWT + auth.uid)"]
-        DB["PostgreSQL 15+ (Migrations 001–014)\nFORCE RLS + SECURITY DEFINER RPCs"]
+        DB["PostgreSQL 15+ (Migrations 001–017)\nFORCE RLS + SECURITY DEFINER RPCs"]
         Edge["Supabase Edge Functions (Deno)\nAI Drafts, Public Lookup, Event Tracking, Account Deletion"]
     end
 
@@ -105,9 +105,9 @@ Every feature MUST work identically in **both** modes via `src/services/storage/
 
 ---
 
-## 4. Complete Database Schema & Migrations (`001` – `014`)
+## 4. Complete Database Schema & Migrations (`001` – `017`)
 
-Migrations `001` – `013` are applied in Supabase (`jwgofsrubthumuymhzva`), with Migration `014` adding Module 4 (Barber & Salon Live Queue Timer):
+Migrations `001` – `015` are live on Supabase Cloud (`jwgofsrubthumuymhzva`), with Migration `017` upgrading Module 4 (BarberOS Hybrid Walk-In + Appointments, Daily `#1` Token Reset & Service Revenue Ledger):
 
 | Migration | Scope & Tables / Columns Added |
 | :--- | :--- |
@@ -124,6 +124,7 @@ Migrations `001` – `013` are applied in Supabase (`jwgofsrubthumuymhzva`), wit
 | `013` | Master Upgrade II: `business_mode` (`restaurant`/`cafe`), `restaurant_staff_members`, `restaurant_monthly_inventory`, `verify_staff_member_pin`, `get_public_staff_roster_for_login`, per-waiter audit labeling |
 | `014` | Module 4 (Barber & Salon Live Queue): `'barber'` category & staff role, `barber_queue_configs`, `barber_queue_tickets`, plus 5 hardened RPCs (`get_public_barber_queue_status`, `join_barber_queue`, `barber_extend_queue_timer`, `barber_advance_queue_ticket`, `leave_barber_queue_ticket`) |
 | `015` | Module 5 (GymOS Membership & 3-Day Expiry Tracker): `'gym'` category constraint update, `gym_configs`, `gym_members`, `gym_check_ins`, plus 6 hardened RPCs (`get_public_gym_portal`, `submit_gym_member_registration`, `lookup_gym_member_pass`, `gym_member_daily_check_in`, `get_gym_owner_dashboard`, `owner_approve_or_renew_gym_member`) |
+| `017` | Module 4B (BarberOS Hybrid Queue & Revenue Ledger): `booking_type` (`walk_in`/`appointment`), `display_code` (`W-01`/`B-01`), `scheduled_time`, `scheduled_at`, `price_paise` on `barber_queue_tickets`; Fair Slot-Weaving merge + `bookedSlotsToday` in `get_public_barber_queue_status`; 6-arg `join_barber_queue` with daily `#1` reset & 15-min collision guard; `get_barber_revenue_and_service_summary(p_business_id, p_month_key)` |
 
 ### Core Entity Relationships (Restaurant & Cafe Suite)
 
@@ -238,7 +239,7 @@ Run these commands from `C:\work\review-saas` after every change:
 npm run lint
 npm run build
 
-# 2. All 12 automated Deno verification suites (353 checks total)
+# 2. All 13 automated Deno verification suites (383 checks total)
 npm run test:qr              # 45 checks — QR URLs, scan tracking, poster rendering
 npm run test:ai-config       # 34 checks — AI tone/length/language config & tenant isolation
 npm run test:knowledge       # 28 checks — Business Knowledge, SEO, prompt-injection defense
@@ -251,6 +252,7 @@ npm run test:templates       # 33 checks — Upgrade I: 5 templates, 1-tap prese
 npm run test:staff-roster    # 30 checks — Upgrade II: Individual staff PINs, per-waiter audit, monthly stock/expenses
 npm run test:barber          # 39 checks — Module 4: Barber/Salon live queue, broadcast delays, BAR-01 PIN, auto +1 Star idempotency & tenant isolation
 npm run test:gym             # 27 checks — Module 5 & Multi-Industry Router: Industry locking, Barber Token QR, GymOS signup, payment approval, 3-day expiry radar, daily check-in idempotency & tenant isolation
+npm run test:barber-hybrid   # 30 checks — Module 4B: Daily #1 token reset, W-XX/B-XX hybrid slot-weaving merge, double-booking guard, broadcast delay sync, daily & monthly service revenue ledger & tenant isolation
 
 # 3. Git push (both remotes) & Production Vercel Deploy
 git push origin main

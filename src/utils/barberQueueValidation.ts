@@ -1,9 +1,11 @@
 import type { BusinessCategory } from '../types/business';
 import type {
+  BarberBookingType,
   BarberQueueConfig,
   BarberQueueConfigInput,
   BarberQueueDelayIncrement,
   BarberQueueService,
+  BarberQueueTicket,
   BarberQueueTicketStatus,
 } from '../types/barberQueue';
 import { validateBusinessId } from './aiConfigValidation';
@@ -258,6 +260,10 @@ export function validateJoinBarberQueueInput(
         guestName: string;
         phone: string | null;
         serviceName: string;
+        bookingType: BarberBookingType;
+        scheduledTime: string | null;
+        scheduledAtOverride: string | null;
+        queueDateOverride: string | null;
       };
     }
   | { ok: false; error: string } {
@@ -302,6 +308,45 @@ export function validateJoinBarberQueueInput(
       : '';
   const serviceName = rawService.slice(0, 100) || 'Classic Haircut';
 
+  const rawBookingType =
+    typeof rec.bookingType === 'string'
+      ? stripControlChars(rec.bookingType).toLowerCase()
+      : 'walk_in';
+  if (rawBookingType !== 'walk_in' && rawBookingType !== 'appointment') {
+    return {
+      ok: false,
+      error: 'Booking type must be walk_in or appointment.',
+    };
+  }
+  const bookingType: BarberBookingType = rawBookingType;
+
+  let scheduledTime: string | null = null;
+  if (bookingType === 'appointment') {
+    const cleanTime =
+      typeof rec.scheduledTime === 'string'
+        ? stripControlChars(rec.scheduledTime)
+        : '';
+    if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(cleanTime)) {
+      return {
+        ok: false,
+        error: 'Please select a valid appointment time slot (HH:MM).',
+      };
+    }
+    scheduledTime = cleanTime;
+  }
+
+  const scheduledAtOverride =
+    typeof rec.scheduledAtOverride === 'string' &&
+    rec.scheduledAtOverride.trim().length > 0
+      ? rec.scheduledAtOverride.trim()
+      : null;
+
+  const queueDateOverride =
+    typeof rec.queueDateOverride === 'string' &&
+    /^\d{4}-\d{2}-\d{2}$/.test(rec.queueDateOverride.trim())
+      ? rec.queueDateOverride.trim()
+      : null;
+
   return {
     ok: true,
     value: {
@@ -309,6 +354,10 @@ export function validateJoinBarberQueueInput(
       guestName,
       phone,
       serviceName,
+      bookingType,
+      scheduledTime,
+      scheduledAtOverride,
+      queueDateOverride,
     },
   };
 }
@@ -388,8 +437,8 @@ export function parseBarberQueueTicketQr(
     };
   }
 
-  // 2. Simple manual token number: "#4" or "4" or "Token 4"
-  const numMatch = /^(?:token\s*)?#?(\d{1,5})$/i.exec(cleaned);
+  // 2. Simple manual token number or display code: "#4", "4", "Token 4", "W-04", "B-02"
+  const numMatch = /^(?:token\s*|[wb]-)?#?(\d{1,5})$/i.exec(cleaned);
   if (numMatch) {
     return {
       tokenNumber: Number.parseInt(numMatch[1], 10),
@@ -402,4 +451,132 @@ export function parseBarberQueueTicketQr(
   }
 
   return null;
+}
+
+/** Formats a 24-hour HH:MM slot (e.g. '16:30') into friendly 12-hour format ('4:30 PM'). */
+export function formatTimeSlot12h(hhmm: string | null | undefined): string {
+  if (!hhmm || !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(hhmm.trim())) {
+    return '';
+  }
+  const [hStr, mStr] = hhmm.trim().split(':');
+  const h24 = Number.parseInt(hStr, 10);
+  const period = h24 >= 12 ? 'PM' : 'AM';
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${mStr} ${period}`;
+}
+
+/** Returns clean daily display badge code: 'W-01' for walk-ins or 'B-01' for appointments. */
+export function formatTicketDisplayCode(ticket: {
+  bookingType?: BarberBookingType;
+  displayCode?: string;
+  tokenNumber: number;
+}): string {
+  if (ticket.displayCode && ticket.displayCode.trim().length > 0) {
+    return ticket.displayCode.trim().toUpperCase();
+  }
+  const prefix = ticket.bookingType === 'appointment' ? 'B' : 'W';
+  return `${prefix}-${String(ticket.tokenNumber).padStart(2, '0')}`;
+}
+
+/** Generates 30-minute bookable appointment slots from 09:00 AM to 09:30 PM. */
+export function generateBookableTimeSlots(): Array<{
+  value: string;
+  label: string;
+}> {
+  const slots: Array<{ value: string; label: string }> = [];
+  for (let hour = 9; hour <= 21; hour++) {
+    for (const min of [0, 30]) {
+      const value = `${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+      slots.push({ value, label: formatTimeSlot12h(value) });
+    }
+  }
+  return slots;
+}
+
+/**
+ * Resolves a local today HH:MM time string into an ISO timestamp for fair queue sorting.
+ */
+export function resolveScheduledAtForDate(
+  queueDate: string,
+  scheduledTime: string,
+): string {
+  const [y, m, d] = queueDate.split('-').map((n) => Number.parseInt(n, 10));
+  const [hh, mm] = scheduledTime.split(':').map((n) => Number.parseInt(n, 10));
+  const dt = new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0, 0);
+  return dt.toISOString();
+}
+
+/**
+ * Fair Hybrid Slot-Weaving Merge Algorithm (identical to PostgreSQL RPC 1):
+ * Merges offline walk-ins (FIFO) and reserved time-slot appointments (chronological)
+ * so walk-ins fill open gaps before reserved slots and never get unfairly bumped.
+ */
+export function mergeHybridBarberQueue(
+  inChairRemainingMinutes: number,
+  rawWaitingTickets: ReadonlyArray<BarberQueueTicket>,
+  nowMs: number = Date.now(),
+): {
+  mergedTickets: BarberQueueTicket[];
+  estimatedWaitForNewGuestMinutes: number;
+} {
+  const walkIns = rawWaitingTickets
+    .filter((t) => (t.bookingType ?? 'walk_in') === 'walk_in')
+    .sort((a, b) => a.tokenNumber - b.tokenNumber);
+
+  const appointments = rawWaitingTickets
+    .filter((t) => t.bookingType === 'appointment')
+    .sort((a, b) => {
+      const ta = new Date(a.scheduledAt ?? a.createdAt).getTime();
+      const tb = new Date(b.scheduledAt ?? b.createdAt).getTime();
+      if (ta !== tb) return ta - tb;
+      return a.tokenNumber - b.tokenNumber;
+    });
+
+  let wIdx = 0;
+  let aIdx = 0;
+  let cursor = Math.max(0, inChairRemainingMinutes);
+  const mergedTickets: BarberQueueTicket[] = [];
+
+  while (wIdx < walkIns.length || aIdx < appointments.length) {
+    let apptOffset = Number.POSITIVE_INFINITY;
+    if (aIdx < appointments.length) {
+      const a = appointments[aIdx];
+      const schedMs = new Date(a.scheduledAt ?? a.createdAt).getTime();
+      apptOffset = Math.max(0, Math.round((schedMs - nowMs) / 60_000));
+    }
+
+    if (
+      wIdx < walkIns.length &&
+      (aIdx >= appointments.length ||
+        cursor + walkIns[wIdx].durationMinutes <= apptOffset)
+    ) {
+      const w = walkIns[wIdx];
+      mergedTickets.push({
+        ...w,
+        bookingType: 'walk_in',
+        displayCode: formatTicketDisplayCode(w),
+        position: mergedTickets.length + 1,
+        estimatedWaitMinutes: Math.max(0, cursor + w.extraDelayMinutes),
+      });
+      cursor += w.durationMinutes;
+      wIdx++;
+    } else {
+      const a = appointments[aIdx];
+      const apptStart = Math.max(cursor, apptOffset);
+      mergedTickets.push({
+        ...a,
+        bookingType: 'appointment',
+        displayCode: formatTicketDisplayCode(a),
+        position: mergedTickets.length + 1,
+        estimatedWaitMinutes: Math.max(0, apptStart + a.extraDelayMinutes),
+      });
+      cursor = apptStart + a.durationMinutes;
+      aIdx++;
+    }
+  }
+
+  return {
+    mergedTickets,
+    estimatedWaitForNewGuestMinutes: Math.max(0, cursor),
+  };
 }

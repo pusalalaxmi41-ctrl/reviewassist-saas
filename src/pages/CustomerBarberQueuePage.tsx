@@ -18,21 +18,31 @@ import {
   Phone,
   User,
   QrCode,
+  CalendarClock,
 } from 'lucide-react';
 import type {
+  BarberBookingType,
   BarberQueueTicket,
   PublicBarberQueueStatusPayload,
 } from '../types/barberQueue';
 import { businessRepository } from '../services/storage';
 import {
   encodeBarberQueueTicketQr,
+  formatTicketDisplayCode,
+  formatTimeSlot12h,
+  generateBookableTimeSlots,
   getTodayQueueDateKey,
 } from '../utils/barberQueueValidation';
 import { formatPriceFromPaise } from '../utils/restaurantValidation';
 
+const BOOKABLE_TIME_SLOTS = generateBookableTimeSlots();
+
 interface StoredQueueTicketRef {
   ticketId: string;
   tokenNumber: number;
+  displayCode?: string;
+  bookingType?: BarberBookingType;
+  scheduledTime?: string | null;
   guestName: string;
   phone: string | null;
   serviceName: string;
@@ -90,7 +100,9 @@ export default function CustomerBarberQueuePage() {
     () => storedTicket?.loyaltyStarsBalance ?? 0,
   );
 
-  // Join Queue Form state
+  // Join Queue Form state (Hybrid Walk-In vs Booked Time Slot)
+  const [bookingMode, setBookingMode] = useState<BarberBookingType>('walk_in');
+  const [selectedSlotTime, setSelectedSlotTime] = useState<string>('16:30');
   const [guestName, setGuestName] = useState('');
   const [phone, setPhone] = useState('');
   const [selectedServiceName, setSelectedServiceName] = useState<string>('');
@@ -207,6 +219,12 @@ export default function CustomerBarberQueuePage() {
     });
   }, [businessSlug, storedTicket, queueData?.waitingCount, queueData?.nowServing?.id]);
 
+  const bookedSlotsSet = new Set(queueData?.bookedSlotsToday ?? []);
+  const effectiveSlotTime = bookedSlotsSet.has(selectedSlotTime)
+    ? (BOOKABLE_TIME_SLOTS.find((s) => !bookedSlotsSet.has(s.value))?.value ??
+      selectedSlotTime)
+    : selectedSlotTime;
+
   async function handleJoinQueue(e: React.FormEvent) {
     e.preventDefault();
     if (!businessSlug) return;
@@ -218,10 +236,15 @@ export default function CustomerBarberQueuePage() {
         guestName: guestName.trim(),
         phone: phone.trim() || null,
         serviceName: selectedServiceName || 'Classic Haircut',
+        bookingType: bookingMode,
+        scheduledTime: bookingMode === 'appointment' ? effectiveSlotTime : null,
       });
       const ref: StoredQueueTicketRef = {
         ticketId: res.ticket.id,
         tokenNumber: res.ticket.tokenNumber,
+        displayCode: formatTicketDisplayCode(res.ticket),
+        bookingType: res.ticket.bookingType ?? bookingMode,
+        scheduledTime: res.ticket.scheduledTime ?? null,
         guestName: res.ticket.guestName,
         phone: res.ticket.phone ?? (phone.trim() || null),
         serviceName: res.ticket.serviceName,
@@ -412,7 +435,7 @@ export default function CustomerBarberQueuePage() {
                   }`}
                 />
               </span>
-              {config.isQueueOpen ? 'OPEN • Walk-Ins Live' : 'PAUSED'}
+              {config.isQueueOpen ? 'OPEN • Walk-Ins & Slots Live' : 'PAUSED'}
             </span>
 
             <span className="text-[11px] font-semibold text-[#A3A8B3]">
@@ -427,11 +450,16 @@ export default function CustomerBarberQueuePage() {
                 Now In Chair
               </p>
               <p className="mt-1 text-[23px] leading-tight font-black tabular-nums text-[#FFFFFF]">
-                {nowServing ? `Token #${nowServing.tokenNumber}` : 'Open'}
+                {nowServing ? formatTicketDisplayCode(nowServing) : 'Open'}
               </p>
               <p className="mt-0.5 truncate text-[11.5px] text-[#A3A8B3]">
                 {nowServing
-                  ? `~${nowServing.remainingMinutes ?? nowServing.durationMinutes}m remaining`
+                  ? `~${nowServing.remainingMinutes ?? nowServing.durationMinutes}m left${
+                      nowServing.bookingType === 'appointment' &&
+                      nowServing.scheduledTime
+                        ? ` · ${formatTimeSlot12h(nowServing.scheduledTime)}`
+                        : ''
+                    }`
                   : 'Chair ready now'}
               </p>
             </div>
@@ -491,21 +519,33 @@ export default function CustomerBarberQueuePage() {
 
           {/* Giant Token Badge + Live Countdown Timer */}
           <div className="flex items-center justify-between gap-4">
-            <div>
-              <span
-                className={`text-[10.5px] font-extrabold uppercase tracking-[0.16em] ${
-                  isAlmostUp ? 'text-[#111318]/80' : 'text-[#5C6068]'
-                }`}
-              >
-                Your Digital Token
-              </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {myActiveTicket.bookingType === 'appointment' ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#111318] px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-[#F3E3B8]">
+                    <CalendarClock className="h-3 w-3" aria-hidden />
+                    Booked{' '}
+                    {formatTimeSlot12h(myActiveTicket.scheduledTime) || 'Slot'}
+                  </span>
+                ) : (
+                  <span
+                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider ${
+                      isAlmostUp
+                        ? 'bg-[#111318]/12 text-[#111318]'
+                        : 'bg-[#111318]/8 text-[#5C6068]'
+                    }`}
+                  >
+                    Walk-In Token
+                  </span>
+                )}
+              </div>
               <p
                 data-testid="active-queue-token"
-                className="text-[54px] leading-none font-black tracking-tight tabular-nums text-[#111318] mt-1"
+                className="text-[50px] leading-none font-black tracking-tight tabular-nums text-[#111318] mt-1.5"
               >
-                #{myActiveTicket.tokenNumber}
+                {formatTicketDisplayCode(myActiveTicket)}
               </p>
-              <p className="mt-1.5 text-[14px] font-bold text-[#111318]">
+              <p className="mt-1.5 text-[14px] font-bold text-[#111318] truncate">
                 {myActiveTicket.guestName} • {myActiveTicket.serviceName}
               </p>
             </div>
@@ -564,7 +604,12 @@ export default function CustomerBarberQueuePage() {
               />
             </div>
             <p className="font-mono text-[11px] font-bold text-[#5C6068]">
-              TOKEN #{myActiveTicket.tokenNumber} · {myActiveTicket.guestName.toUpperCase()}
+              {formatTicketDisplayCode(myActiveTicket)} ·{' '}
+              {myActiveTicket.guestName.toUpperCase()}
+              {myActiveTicket.bookingType === 'appointment' &&
+              myActiveTicket.scheduledTime
+                ? ` · ${formatTimeSlot12h(myActiveTicket.scheduledTime)}`
+                : ''}
             </p>
             <p className="text-[12px] text-[#5C6068] leading-snug">
               Show this QR pass to your barber when your timer reaches zero to check in &amp; earn your Loyalty Star.
@@ -604,7 +649,7 @@ export default function CustomerBarberQueuePage() {
               ) : (
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-red-50 border border-red-200 p-3 text-red-900">
                   <span className="text-[12px] font-bold">
-                    Give up Token #{myActiveTicket.tokenNumber}?
+                    Give up {formatTicketDisplayCode(myActiveTicket)}?
                   </span>
                   <div className="flex items-center gap-2">
                     <button
@@ -641,7 +686,7 @@ export default function CustomerBarberQueuePage() {
               Looking Fresh, {storedTicket.guestName}!
             </h2>
             <p className="text-[13px] font-medium text-[#065F46]">
-              Token #{storedTicket.tokenNumber} ({storedTicket.serviceName}) is complete.
+              Token {formatTicketDisplayCode(storedTicket)} ({storedTicket.serviceName}) is complete.
               {config.awardStarOnCompletion && storedTicket.phone
                 ? ' Your Loyalty Star has been credited!'
                 : ''}
@@ -689,12 +734,120 @@ export default function CustomerBarberQueuePage() {
             >
               <div>
                 <h2 className="text-[19px] font-black text-[#111318]">
-                  Claim Your Live Token &amp; QR Pass
+                  Claim Your Live Token or Book a Slot
                 </h2>
                 <p className="mt-0.5 text-[13px] text-[#5C6068]">
-                  Get your personal Token QR code and live countdown timer right on your phone.
+                  Join the instant walk-in line or reserve an exact time slot today — both give you a live Token QR pass.
                 </p>
               </div>
+
+              {/* 2-OPTION HYBRID QUEUE SWITCHER: Walk-In vs Booked Time Slot */}
+              <div
+                role="tablist"
+                aria-label="Choose walk-in or time slot booking"
+                className="grid grid-cols-2 gap-2 rounded-2xl border border-[#111318]/12 bg-[#FFFFFF] p-1.5"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={bookingMode === 'walk_in'}
+                  onClick={() => {
+                    setBookingMode('walk_in');
+                    setFormError(null);
+                  }}
+                  className={`rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer ${
+                    bookingMode === 'walk_in'
+                      ? 'bg-[#111318] text-[#FAF8F5] shadow-sm'
+                      : 'text-[#5C6068] hover:bg-[#FAF8F5] hover:text-[#111318]'
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5 text-[12.5px] font-extrabold">
+                    <Users className="h-3.5 w-3.5 text-[#C89B3C]" aria-hidden />
+                    Join Walk-In
+                  </span>
+                  <span
+                    className={`mt-0.5 block text-[10.5px] font-semibold ${
+                      bookingMode === 'walk_in'
+                        ? 'text-[#F3E3B8]'
+                        : 'text-[#5C6068]'
+                    }`}
+                  >
+                    Next open (~{estimatedWaitForNewGuestMinutes}m)
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={bookingMode === 'appointment'}
+                  onClick={() => {
+                    setBookingMode('appointment');
+                    setFormError(null);
+                  }}
+                  className={`rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer ${
+                    bookingMode === 'appointment'
+                      ? 'bg-[#111318] text-[#FAF8F5] shadow-sm'
+                      : 'text-[#5C6068] hover:bg-[#FAF8F5] hover:text-[#111318]'
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5 text-[12.5px] font-extrabold">
+                    <CalendarClock
+                      className="h-3.5 w-3.5 text-[#C89B3C]"
+                      aria-hidden
+                    />
+                    Book Time Slot
+                  </span>
+                  <span
+                    className={`mt-0.5 block text-[10.5px] font-semibold ${
+                      bookingMode === 'appointment'
+                        ? 'text-[#F3E3B8]'
+                        : 'text-[#5C6068]'
+                    }`}
+                  >
+                    Reserve today&apos;s slot
+                  </span>
+                </button>
+              </div>
+
+              {/* TIME SLOT PICKER (Only when Booking a Specific Time Slot Today) */}
+              {bookingMode === 'appointment' && (
+                <div className="rounded-2xl border border-[#C89B3C]/40 bg-[#FFFFFF] p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#111318]">
+                      Select Today&apos;s Appointment Slot
+                    </span>
+                    <span className="text-[11px] font-bold text-[#9A7420]">
+                      {formatTimeSlot12h(effectiveSlotTime)}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5 max-h-44 overflow-y-auto pr-1">
+                    {BOOKABLE_TIME_SLOTS.map((slot) => {
+                      const isTaken = bookedSlotsSet.has(slot.value);
+                      const isSelected = effectiveSlotTime === slot.value;
+                      return (
+                        <button
+                          key={slot.value}
+                          type="button"
+                          disabled={isTaken}
+                          onClick={() => setSelectedSlotTime(slot.value)}
+                          className={`rounded-xl border px-2 py-2 text-center text-[11.5px] font-extrabold tabular-nums transition-all ${
+                            isTaken
+                              ? 'border-[#111318]/10 bg-[#F3EFE8] text-[#9CA3AF] line-through cursor-not-allowed'
+                              : isSelected
+                                ? 'border-2 border-[#C89B3C] bg-[#111318] text-[#F3E3B8] shadow-xs cursor-pointer'
+                                : 'border-[#111318]/15 bg-[#FAF8F5] text-[#111318] hover:border-[#C89B3C] cursor-pointer'
+                          }`}
+                        >
+                          {slot.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[11px] font-medium text-[#5C6068] leading-snug">
+                    Fair Queue Guarantee: Your slot is reserved automatically — walk-in guests see honest wait times up front.
+                  </p>
+                </div>
+              )}
 
               <div className="space-y-3">
                 <div className="space-y-1">
@@ -798,11 +951,28 @@ export default function CustomerBarberQueuePage() {
 
               <button
                 type="submit"
-                disabled={joining}
+                disabled={
+                  joining ||
+                  (bookingMode === 'appointment' &&
+                    bookedSlotsSet.has(effectiveSlotTime))
+                }
                 className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#111318] px-5 py-3 text-[15px] font-extrabold text-[#FAF8F5] shadow-md hover:bg-[#1F232C] active:scale-[0.98] disabled:opacity-60 transition-all cursor-pointer"
               >
-                <Sparkles className="h-4 w-4 text-[#F3E3B8]" aria-hidden />
-                {joining ? 'Issuing Your Token QR…' : 'Get My Live Token & QR Pass'}
+                {bookingMode === 'appointment' ? (
+                  <CalendarClock
+                    className="h-4 w-4 text-[#F3E3B8]"
+                    aria-hidden
+                  />
+                ) : (
+                  <Sparkles className="h-4 w-4 text-[#F3E3B8]" aria-hidden />
+                )}
+                {joining
+                  ? bookingMode === 'appointment'
+                    ? 'Reserving Your Time Slot…'
+                    : 'Issuing Your Token QR…'
+                  : bookingMode === 'appointment'
+                    ? `Book ${formatTimeSlot12h(effectiveSlotTime)} Slot & Get QR Pass`
+                    : 'Get Walk-In Token & QR Pass'}
               </button>
             </form>
           )}

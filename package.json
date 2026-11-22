@@ -19,6 +19,7 @@
     "test:templates": "deno run tests/verify-restaurant-templates-and-orders.ts",
     "test:staff-roster": "deno run tests/verify-staff-roster-and-inventory.ts",
     "test:barber": "deno run --allow-read --allow-env tests/verify-barber-queue.ts",
+    "test:barber-hybrid": "deno run --allow-read --allow-env tests/verify-barber-hybrid-and-revenue.ts",
     "test:gym": "deno run --allow-read --allow-env tests/verify-gym-membership.ts",
     "preview": "vite preview"
   },

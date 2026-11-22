@@ -8,6 +8,8 @@ export type BarberQueueTicketStatus =
   | 'no_show'
   | 'cancelled';
 
+export type BarberBookingType = 'walk_in' | 'appointment';
+
 export type BarberQueueDelayIncrement = 5 | 10 | 15 | 20 | 30;
 
 export interface BarberQueueService {
@@ -42,6 +44,15 @@ export interface BarberQueueTicket {
   customerId: string | null;
   queueDate: string;
   tokenNumber: number;
+  bookingType?: BarberBookingType;
+  /** Human-friendly daily code: W-01, W-02 for walk-ins; B-01, B-02 for booked slots. */
+  displayCode?: string;
+  /** HH:MM (24-hr) reserved time slot for appointments, null for immediate walk-ins. */
+  scheduledTime?: string | null;
+  /** ISO timestamp used for fair chronological merging of walk-ins and appointments. */
+  scheduledAt?: string;
+  /** Immutable price snapshot in paise recorded at booking/completion for daily & monthly revenue ledgers. */
+  pricePaise?: number;
   guestName: string;
   phone?: string | null;
   serviceName: string;
@@ -71,6 +82,8 @@ export interface PublicBarberQueueStatusPayload {
   waitingCount: number;
   estimatedWaitForNewGuestMinutes: number;
   completedTodayCount: number;
+  /** Booked HH:MM slots today (used to dim taken slots on the customer appointment picker). */
+  bookedSlotsToday?: string[];
   rewards: RestaurantReward[];
 }
 
@@ -79,6 +92,36 @@ export interface JoinBarberQueueInput {
   guestName: string;
   phone?: string | null;
   serviceName?: string;
+  bookingType?: BarberBookingType;
+  /** Required when bookingType === 'appointment' (24-hr HH:MM format, e.g. '16:30'). */
+  scheduledTime?: string | null;
+  /** Optional explicit ISO timestamp (used in deterministic tests for slot offsets). */
+  scheduledAtOverride?: string | null;
+  /** Optional explicit YYYY-MM-DD queue date (used in deterministic daily-reset tests). */
+  queueDateOverride?: string | null;
+}
+
+export interface BarberServiceBreakdownRow {
+  serviceName: string;
+  countToday: number;
+  revenueTodayPaise: number;
+  countMonth: number;
+  revenueMonthPaise: number;
+}
+
+export interface BarberRevenueSummary {
+  businessId: string;
+  monthKey: string;
+  todayDate: string;
+  todayTotalCuts: number;
+  todayRevenuePaise: number;
+  todayWalkIns: number;
+  todayAppointments: number;
+  monthTotalCuts: number;
+  monthRevenuePaise: number;
+  monthWalkIns: number;
+  monthAppointments: number;
+  serviceBreakdown: BarberServiceBreakdownRow[];
 }
 
 export interface JoinBarberQueueResult {

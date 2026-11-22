@@ -89,15 +89,20 @@ import type {
   BarberQueueDelayIncrement,
   BarberQueueTicket,
   BarberQueueTicketStatus,
+  BarberRevenueSummary,
+  BarberServiceBreakdownRow,
   ExtendBarberQueueTimerResult,
   JoinBarberQueueInput,
   JoinBarberQueueResult,
   PublicBarberQueueStatusPayload,
 } from '../../types/barberQueue';
 import {
+  formatTicketDisplayCode,
   getTodayQueueDateKey,
   isBarberOrSalonCategory,
+  mergeHybridBarberQueue,
   normalizeBarberQueueConfig,
+  resolveScheduledAtForDate,
   validateBarberDelayMinutes,
   validateBarberQueueConfigInput,
   validateBarberTicketStatus,
@@ -4249,28 +4254,31 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     const nowServing: BarberQueueTicket | null = inChairRaw
       ? {
           ...inChairRaw,
+          bookingType: inChairRaw.bookingType ?? 'walk_in',
+          displayCode: formatTicketDisplayCode(inChairRaw),
           estimatedWaitMinutes: 0,
           remainingMinutes: inChairRemaining,
         }
       : null;
 
-    const waitingRaw = allTickets
-      .filter((t) => t.status === 'waiting')
-      .sort((a, b) => a.tokenNumber - b.tokenNumber);
+    const waitingRaw = allTickets.filter((t) => t.status === 'waiting');
+    const {
+      mergedTickets: waitingTickets,
+      estimatedWaitForNewGuestMinutes,
+    } = mergeHybridBarberQueue(inChairRemaining, waitingRaw);
 
-    let runningAhead = 0;
-    const waitingTickets: BarberQueueTicket[] = waitingRaw.map((t, idx) => {
-      const estimatedWaitMinutes = Math.max(
-        0,
-        inChairRemaining + runningAhead + t.extraDelayMinutes,
-      );
-      runningAhead += t.durationMinutes;
-      return {
-        ...t,
-        position: idx + 1,
-        estimatedWaitMinutes,
-      };
-    });
+    const bookedSlotsToday = Array.from(
+      new Set(
+        allTickets
+          .filter(
+            (t) =>
+              t.bookingType === 'appointment' &&
+              Boolean(t.scheduledTime) &&
+              (t.status === 'waiting' || t.status === 'in_chair'),
+          )
+          .map((t) => t.scheduledTime as string),
+      ),
+    ).sort();
 
     const completedTodayCount = allTickets.filter(
       (t) => t.status === 'completed',
@@ -4300,11 +4308,9 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       nowServing,
       waitingTickets,
       waitingCount: waitingTickets.length,
-      estimatedWaitForNewGuestMinutes: Math.max(
-        0,
-        inChairRemaining + runningAhead,
-      ),
+      estimatedWaitForNewGuestMinutes,
       completedTodayCount,
+      bookedSlotsToday,
       rewards,
     };
   }
@@ -4342,15 +4348,16 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       );
     }
 
-    const todayKey = getTodayQueueDateKey();
+    const queueDateKey =
+      validation.value.queueDateOverride ?? getTodayQueueDateKey();
     const allTickets = this.read<BarberQueueTicket[]>(
       STORAGE_KEYS.BARBER_QUEUE_TICKETS,
       [],
     );
-    const todayTickets = allTickets.filter(
-      (t) => t.businessId === business.id && t.queueDate === todayKey,
+    const dayTickets = allTickets.filter(
+      (t) => t.businessId === business.id && t.queueDate === queueDateKey,
     );
-    const waitingTickets = todayTickets.filter((t) => t.status === 'waiting');
+    const waitingTickets = dayTickets.filter((t) => t.status === 'waiting');
 
     if (waitingTickets.length >= config.maxQueueSize) {
       throw new Error(
@@ -4358,7 +4365,33 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       );
     }
 
-    // Match canonical service name & duration from config.services
+    const nowIso = new Date().toISOString();
+    const bookingType = validation.value.bookingType;
+    const scheduledTime = validation.value.scheduledTime;
+    const scheduledAt =
+      validation.value.scheduledAtOverride ??
+      (bookingType === 'appointment' && scheduledTime
+        ? resolveScheduledAtForDate(queueDateKey, scheduledTime)
+        : nowIso);
+
+    // Prevent double-booking the exact same 15-minute appointment slot on the same day
+    if (bookingType === 'appointment') {
+      const targetMs = new Date(scheduledAt).getTime();
+      const collision = dayTickets.find(
+        (t) =>
+          t.bookingType === 'appointment' &&
+          (t.status === 'waiting' || t.status === 'in_chair') &&
+          Math.abs(new Date(t.scheduledAt ?? t.createdAt).getTime() - targetMs) <
+            900_000,
+      );
+      if (collision) {
+        throw new Error(
+          `That time slot (${scheduledTime}) is already reserved. Please pick another available slot.`,
+        );
+      }
+    }
+
+    // Match canonical service name, duration & price snapshot from config.services
     const matchedSvc = config.services.find(
       (s) =>
         s.name.toLowerCase() === validation.value.serviceName.toLowerCase() ||
@@ -4367,6 +4400,7 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     const serviceName = matchedSvc?.name ?? validation.value.serviceName;
     const durationMinutes =
       matchedSvc?.durationMinutes ?? config.avgServiceMinutes;
+    const pricePaise = matchedSvc?.pricePaise ?? 20000;
 
     // Auto-create / resume shared Loyalty customer when phone is provided
     let customerId: string | null = null;
@@ -4386,7 +4420,7 @@ export class MockLocalStorageRepository implements IBusinessRepository {
           displayName: validation.value.guestName,
           phoneOrEmail: normPhone,
           guestTokenHash: null,
-          createdAt: new Date().toISOString(),
+          createdAt: nowIso,
         };
         customers.push(existing);
         this.write(STORAGE_KEYS.RESTAURANT_CUSTOMERS, customers);
@@ -4404,31 +4438,28 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       loyaltyStarsBalance = starTxs.length > 0 ? starTxs[0].balanceAfter : 0;
     }
 
-    const inChairRaw =
-      todayTickets
-        .filter((t) => t.status === 'in_chair')
-        .sort((a, b) => a.tokenNumber - b.tokenNumber)[0] ?? null;
-    const inChairRemaining = this.computeInChairRemainingMinutes(inChairRaw);
-    const aheadDuration = waitingTickets.reduce(
-      (sum, t) => sum + t.durationMinutes,
-      0,
-    );
-    const estimatedWaitMinutes = Math.max(0, inChairRemaining + aheadDuration);
-
-    const maxToken = todayTickets.reduce(
+    // Daily #1 Reset per queueDateKey
+    const maxToken = dayTickets.reduce(
       (max, t) => Math.max(max, t.tokenNumber),
       0,
     );
     const nextToken = maxToken + 1;
-    const position = waitingTickets.length + 1;
-    const now = new Date().toISOString();
+    const typeSeq =
+      dayTickets.filter((t) => (t.bookingType ?? 'walk_in') === bookingType)
+        .length + 1;
+    const displayCode = `${bookingType === 'appointment' ? 'B' : 'W'}-${String(typeSeq).padStart(2, '0')}`;
 
     const created: BarberQueueTicket = {
       id: `bqt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       businessId: business.id,
       customerId,
-      queueDate: todayKey,
+      queueDate: queueDateKey,
       tokenNumber: nextToken,
+      bookingType,
+      displayCode,
+      scheduledTime,
+      scheduledAt,
+      pricePaise,
       guestName: validation.value.guestName,
       phone: validation.value.phone,
       serviceName,
@@ -4436,13 +4467,26 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       status: 'waiting',
       extraDelayMinutes: 0,
       assignedBarberLabel: null,
-      createdAt: now,
+      createdAt: nowIso,
       startedAt: null,
       completedAt: null,
     };
 
     allTickets.push(created);
     this.write(STORAGE_KEYS.BARBER_QUEUE_TICKETS, allTickets);
+
+    const inChairRaw =
+      dayTickets
+        .filter((t) => t.status === 'in_chair')
+        .sort((a, b) => a.tokenNumber - b.tokenNumber)[0] ?? null;
+    const inChairRemaining = this.computeInChairRemainingMinutes(inChairRaw);
+    const { mergedTickets } = mergeHybridBarberQueue(inChairRemaining, [
+      ...waitingTickets,
+      created,
+    ]);
+    const matchedMerged = mergedTickets.find((t) => t.id === created.id);
+    const position = matchedMerged?.position ?? waitingTickets.length + 1;
+    const estimatedWaitMinutes = matchedMerged?.estimatedWaitMinutes ?? 0;
 
     return {
       ticket: {
@@ -4760,6 +4804,103 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       starsAwarded,
       newLoyaltyStarsBalance,
       alreadyAwarded,
+    };
+  }
+
+  async getBarberRevenueAndServiceSummary(
+    businessId: string,
+    monthKey?: string | null,
+    options?: AIConfigAccessOptions,
+  ): Promise<BarberRevenueSummary> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    const todayDate = getTodayQueueDateKey();
+    const targetMonth =
+      monthKey && /^\d{4}-(0[1-9]|1[0-2])$/.test(monthKey.trim())
+        ? monthKey.trim()
+        : todayDate.slice(0, 7);
+
+    const completed = this.read<BarberQueueTicket[]>(
+      STORAGE_KEYS.BARBER_QUEUE_TICKETS,
+      [],
+    ).filter((t) => t.businessId === cleanId && t.status === 'completed');
+
+    let todayTotalCuts = 0;
+    let todayRevenuePaise = 0;
+    let todayWalkIns = 0;
+    let todayAppointments = 0;
+    let monthTotalCuts = 0;
+    let monthRevenuePaise = 0;
+    let monthWalkIns = 0;
+    let monthAppointments = 0;
+
+    const byService = new Map<string, BarberServiceBreakdownRow>();
+
+    for (const t of completed) {
+      const isToday = t.queueDate === todayDate;
+      const isMonth = t.queueDate.slice(0, 7) === targetMonth;
+      if (!isToday && !isMonth) continue;
+
+      const price = t.pricePaise ?? 0;
+      const isAppt = t.bookingType === 'appointment';
+      const svcName = t.serviceName || 'Classic Haircut';
+
+      const row = byService.get(svcName) ?? {
+        serviceName: svcName,
+        countToday: 0,
+        revenueTodayPaise: 0,
+        countMonth: 0,
+        revenueMonthPaise: 0,
+      };
+
+      if (isToday) {
+        todayTotalCuts++;
+        todayRevenuePaise += price;
+        if (isAppt) todayAppointments++;
+        else todayWalkIns++;
+        row.countToday++;
+        row.revenueTodayPaise += price;
+      }
+
+      if (isMonth) {
+        monthTotalCuts++;
+        monthRevenuePaise += price;
+        if (isAppt) monthAppointments++;
+        else monthWalkIns++;
+        row.countMonth++;
+        row.revenueMonthPaise += price;
+      }
+
+      byService.set(svcName, row);
+    }
+
+    const serviceBreakdown = Array.from(byService.values()).sort(
+      (a, b) =>
+        b.revenueMonthPaise - a.revenueMonthPaise ||
+        b.countMonth - a.countMonth ||
+        a.serviceName.localeCompare(b.serviceName),
+    );
+
+    return {
+      businessId: cleanId,
+      monthKey: targetMonth,
+      todayDate,
+      todayTotalCuts,
+      todayRevenuePaise,
+      todayWalkIns,
+      todayAppointments,
+      monthTotalCuts,
+      monthRevenuePaise,
+      monthWalkIns,
+      monthAppointments,
+      serviceBreakdown,
     };
   }
 
