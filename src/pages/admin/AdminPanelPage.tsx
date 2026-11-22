@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Dumbbell,
   ExternalLink,
   KeyRound,
   LayoutDashboard,
@@ -16,6 +17,7 @@ import {
   Menu,
   RefreshCw,
   RotateCcw,
+  Scissors,
   Search,
   Settings,
   Shield,
@@ -23,6 +25,7 @@ import {
   ShieldOff,
   Trash2,
   Users,
+  UtensilsCrossed,
   X,
   XCircle,
 } from 'lucide-react';
@@ -51,6 +54,10 @@ import {
 } from './AdminComponents';
 
 import { categoryLabels as CATEGORY_LABELS } from '../../config/reviewExperience';
+import {
+  getIndustryBadgeMeta,
+  getIndustryWorkspaceType,
+} from '../../utils/gymValidation';
 
 function formatShortDate(iso: string | null | undefined): string {
   if (!iso) return 'Never';
@@ -86,6 +93,9 @@ function getDaysRemaining(scheduledIso: string | null): number | null {
 
 type AdminNavSection =
   | 'dashboard'
+  | 'restaurants'
+  | 'barbers'
+  | 'gyms'
   | 'clients'
   | 'accounts'
   | 'activity'
@@ -222,10 +232,49 @@ export default function AdminPanelPage() {
     [clients, selectedClientId],
   );
 
-  // Filtered Clients for the Clients page
+  // Separate industry slices so Admin approves Restaurants, Barbers, and Gyms cleanly
+  const restaurantClients = useMemo(
+    () =>
+      clients.filter(
+        (c) => getIndustryWorkspaceType(c.category) === 'restaurant',
+      ),
+    [clients],
+  );
+  const barberClients = useMemo(
+    () =>
+      clients.filter((c) => getIndustryWorkspaceType(c.category) === 'barber'),
+    [clients],
+  );
+  const gymClients = useMemo(
+    () => clients.filter((c) => getIndustryWorkspaceType(c.category) === 'gym'),
+    [clients],
+  );
+
+  const pendingRestaurantsCount = useMemo(
+    () => restaurantClients.filter((c) => c.status === 'pending').length,
+    [restaurantClients],
+  );
+  const pendingBarbersCount = useMemo(
+    () => barberClients.filter((c) => c.status === 'pending').length,
+    [barberClients],
+  );
+  const pendingGymsCount = useMemo(
+    () => gymClients.filter((c) => c.status === 'pending').length,
+    [gymClients],
+  );
+
+  // Scoped list for the active directory tab ('restaurants' | 'barbers' | 'gyms' | 'clients')
+  const scopedClientsForDirectory = useMemo(() => {
+    if (activeNav === 'restaurants') return restaurantClients;
+    if (activeNav === 'barbers') return barberClients;
+    if (activeNav === 'gyms') return gymClients;
+    return clients;
+  }, [activeNav, clients, restaurantClients, barberClients, gymClients]);
+
+  // Filtered Clients for the active directory view
   const filteredClients = useMemo(() => {
     const q = clientSearch.trim().toLowerCase();
-    return clients.filter((item) => {
+    return scopedClientsForDirectory.filter((item) => {
       if (clientStatusTab !== 'all' && item.status !== clientStatusTab) {
         return false;
       }
@@ -237,7 +286,7 @@ export default function AdminPanelPage() {
         item.slug.toLowerCase().includes(q)
       );
     });
-  }, [clients, clientSearch, clientStatusTab]);
+  }, [scopedClientsForDirectory, clientSearch, clientStatusTab]);
 
   // Filtered Accounts for the Accounts page
   const filteredAccounts = useMemo(() => {
@@ -518,8 +567,26 @@ export default function AdminPanelPage() {
   }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     {
+      id: 'restaurants',
+      label: 'Restaurants & Cafes',
+      icon: UtensilsCrossed,
+      badge: pendingRestaurantsCount || undefined,
+    },
+    {
+      id: 'barbers',
+      label: 'Barbers & Salons',
+      icon: Scissors,
+      badge: pendingBarbersCount || undefined,
+    },
+    {
+      id: 'gyms',
+      label: 'Gyms & Fitness',
+      icon: Dumbbell,
+      badge: pendingGymsCount || undefined,
+    },
+    {
       id: 'clients',
-      label: 'Clients',
+      label: 'All Businesses',
       icon: Building2,
       badge: counts?.pending || undefined,
     },
@@ -683,8 +750,18 @@ export default function AdminPanelPage() {
             >
               <Menu className="h-4 w-4" />
             </button>
-            <h1 className="text-sm font-semibold text-slate-900 capitalize">
-              {activeNav === 'activity' ? 'Activity Log' : activeNav}
+            <h1 className="text-sm font-semibold text-slate-900">
+              {activeNav === 'activity'
+                ? 'Activity Log'
+                : activeNav === 'restaurants'
+                  ? '🍽️ Restaurant & Cafe Approvals (BistroOS)'
+                  : activeNav === 'barbers'
+                    ? '✂️ Barber & Salon Approvals (BarberOS)'
+                    : activeNav === 'gyms'
+                      ? '🏋️ Gym & Fitness Approvals (GymOS)'
+                      : activeNav === 'clients'
+                        ? 'All Businesses'
+                        : activeNav.charAt(0).toUpperCase() + activeNav.slice(1)}
             </h1>
             <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-medium text-slate-600">
               <span
@@ -850,13 +927,23 @@ export default function AdminPanelPage() {
                               setSelectedClientId(biz.id);
                             }}
                           >
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               <span className="text-xs font-semibold text-slate-900 hover:text-indigo-600">
                                 {biz.name}
                               </span>
-                              <span className="rounded bg-slate-100 px-1.5 py-0.2 text-[10px] font-medium text-slate-600">
-                                {CATEGORY_LABELS[biz.category]}
-                              </span>
+                              {(() => {
+                                const badge = getIndustryBadgeMeta(biz.category);
+                                return (
+                                  <span
+                                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${badge.badgeClass}`}
+                                  >
+                                    <span>{badge.emoji}</span>
+                                    <span>
+                                      {badge.label} · {badge.moduleName}
+                                    </span>
+                                  </span>
+                                );
+                              })()}
                               <span className="text-[11px] text-slate-400">
                                 · {biz.city}
                               </span>
@@ -921,30 +1008,67 @@ export default function AdminPanelPage() {
             </div>
           )}
 
-          {/* ==================== 2. CLIENTS VIEW ==================== */}
-          {activeNav === 'clients' && (
+          {/* ==================== 2. SEPARATE INDUSTRY & ALL BUSINESSES APPROVAL VIEWS ==================== */}
+          {(activeNav === 'clients' ||
+            activeNav === 'restaurants' ||
+            activeNav === 'barbers' ||
+            activeNav === 'gyms') && (
             <div className="rounded-lg border border-slate-200 bg-white shadow-2xs">
+              {/* Industry Banner when viewing a dedicated vertical */}
+              {activeNav !== 'clients' && (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/80 px-5 py-3">
+                  <div>
+                    <p className="text-xs font-bold text-slate-900">
+                      {activeNav === 'restaurants'
+                        ? '🍽️ Restaurant & Cafe Approval Queue — Unlocks BistroOS (Menu, Tables, Waiters, Loyalty)'
+                        : activeNav === 'barbers'
+                          ? '✂️ Barber & Salon Approval Queue — Unlocks BarberOS (Live Queue Timer, Broadcast Delays, Token QRs)'
+                          : '🏋️ Gym & Fitness Approval Queue — Unlocks GymOS (Member Signup QR, 3-Day Renewal Radar, Daily Check-In)'}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-white border border-slate-200 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
+                    {scopedClientsForDirectory.length} total registered
+                  </span>
+                </div>
+              )}
+
               {/* Filter Tabs & Search Header */}
               <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-wrap items-center gap-1">
                   {(
                     [
-                      { id: 'all', label: 'All', count: counts?.total },
+                      {
+                        id: 'all',
+                        label: 'All',
+                        count: scopedClientsForDirectory.length,
+                      },
                       {
                         id: 'pending',
                         label: 'Pending',
-                        count: counts?.pending,
+                        count: scopedClientsForDirectory.filter(
+                          (c) => c.status === 'pending',
+                        ).length,
                       },
-                      { id: 'active', label: 'Active', count: counts?.active },
+                      {
+                        id: 'active',
+                        label: 'Active',
+                        count: scopedClientsForDirectory.filter(
+                          (c) => c.status === 'active',
+                        ).length,
+                      },
                       {
                         id: 'suspended',
                         label: 'Suspended',
-                        count: counts?.suspended,
+                        count: scopedClientsForDirectory.filter(
+                          (c) => c.status === 'suspended',
+                        ).length,
                       },
                       {
                         id: 'rejected',
                         label: 'Rejected',
-                        count: counts?.rejected,
+                        count: scopedClientsForDirectory.filter(
+                          (c) => c.status === 'rejected',
+                        ).length,
                       },
                     ] as {
                       id: ClientFilterTab;
@@ -991,7 +1115,7 @@ export default function AdminPanelPage() {
                 <div className="p-12 text-center">
                   <Building2 className="mx-auto h-8 w-8 text-slate-300" />
                   <p className="mt-2 text-xs font-semibold text-slate-800">
-                    No matching clients found
+                    No matching businesses in this section
                   </p>
                   <p className="mt-0.5 text-xs text-slate-500">
                     Try clearing your search filter or switching status tabs.
@@ -1002,55 +1126,96 @@ export default function AdminPanelPage() {
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="border-b border-slate-200 bg-slate-50/60 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                        <th className="px-5 py-3">Business name</th>
-                        <th className="px-4 py-3">Category</th>
+                        <th className="px-5 py-3">Business &amp; Customer Route</th>
+                        <th className="px-4 py-3">Industry Module</th>
                         <th className="px-4 py-3">City</th>
                         <th className="px-4 py-3">Status</th>
-                        <th className="px-4 py-3">Signed up</th>
-                        <th className="px-5 py-3">Owner email</th>
+                        <th className="px-4 py-3">Owner email</th>
+                        <th className="px-5 py-3 text-right">Quick Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-xs">
-                      {filteredClients.map((biz) => (
-                        <tr
-                          key={biz.id}
-                          onClick={() => {
-                            setDrawerContext('clients');
-                            setSelectedClientId(biz.id);
-                          }}
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
+                      {filteredClients.map((biz) => {
+                        const badge = getIndustryBadgeMeta(biz.category);
+                        const routeSuffix =
+                          badge.workspace === 'gym'
+                            ? '/gym'
+                            : badge.workspace === 'barber'
+                              ? '/queue'
+                              : '/menu';
+                        return (
+                          <tr
+                            key={biz.id}
+                            onClick={() => {
                               setDrawerContext('clients');
                               setSelectedClientId(biz.id);
-                            }
-                          }}
-                          className="hover:bg-slate-50/90 transition-colors cursor-pointer focus:outline-none focus:bg-indigo-50/40"
-                        >
-                          <td className="px-5 py-3.5 font-medium text-slate-900">
-                            <div>{biz.name}</div>
-                            <div className="text-[11px] font-mono text-slate-400">
-                              /r/{biz.slug}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3.5 text-slate-600">
-                            {CATEGORY_LABELS[biz.category]}
-                          </td>
-                          <td className="px-4 py-3.5 text-slate-600">
-                            {biz.city}
-                          </td>
-                          <td className="px-4 py-3.5">
-                            <BusinessStatusBadge status={biz.status} />
-                          </td>
-                          <td className="px-4 py-3.5 text-slate-500 whitespace-nowrap">
-                            {formatShortDate(biz.createdAt)}
-                          </td>
-                          <td className="px-5 py-3.5 text-slate-600 font-mono text-[11px]">
-                            {biz.ownerEmail}
-                          </td>
-                        </tr>
-                      ))}
+                            }}
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setDrawerContext('clients');
+                                setSelectedClientId(biz.id);
+                              }
+                            }}
+                            className="hover:bg-slate-50/90 transition-colors cursor-pointer focus:outline-none focus:bg-indigo-50/40"
+                          >
+                            <td className="px-5 py-3.5 font-medium text-slate-900">
+                              <div>{biz.name}</div>
+                              <div className="text-[11px] font-mono text-slate-400">
+                                /r/{biz.slug}
+                                {routeSuffix}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3.5">
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-bold whitespace-nowrap ${badge.badgeClass}`}
+                              >
+                                <span>{badge.emoji}</span>
+                                <span>
+                                  {CATEGORY_LABELS[biz.category]} · {badge.moduleName}
+                                </span>
+                              </span>
+                            </td>
+                            <td className="px-4 py-3.5 text-slate-600">
+                              {biz.city}
+                            </td>
+                            <td className="px-4 py-3.5">
+                              <BusinessStatusBadge status={biz.status} />
+                            </td>
+                            <td className="px-4 py-3.5 text-slate-600 font-mono text-[11px]">
+                              {biz.ownerEmail}
+                            </td>
+                            <td
+                              className="px-5 py-3.5 text-right whitespace-nowrap"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {biz.status === 'pending' ? (
+                                <button
+                                  type="button"
+                                  disabled={actionBusy}
+                                  onClick={() => void handleApproveBusiness(biz)}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-[11px] font-bold text-white shadow-2xs hover:bg-indigo-700 disabled:opacity-50 cursor-pointer"
+                                >
+                                  <Check className="h-3 w-3" />
+                                  Approve {badge.moduleName}
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setDrawerContext('clients');
+                                    setSelectedClientId(biz.id);
+                                  }}
+                                  className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                                >
+                                  Manage →
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

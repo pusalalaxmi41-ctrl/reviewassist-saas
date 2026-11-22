@@ -21,6 +21,7 @@ import {
   Sparkles,
   Plus,
   Trash2,
+  ScanLine,
 } from 'lucide-react';
 import type { Business } from '../../types/business';
 import type {
@@ -31,8 +32,10 @@ import type {
 } from '../../types/barberQueue';
 import { businessRepository } from '../../services/storage';
 import {
+  ALLOWED_QUEUE_DELAY_INCREMENTS,
   getBarberQueueUrl,
   getBarberStaffUrl,
+  parseBarberQueueTicketQr,
 } from '../../utils/barberQueueValidation';
 import { formatPriceFromPaise } from '../../utils/restaurantValidation';
 import {
@@ -49,6 +52,7 @@ interface Props {
   mode: 'owner' | 'barber_staff';
   staffPinHash?: string | null;
   staffLabel?: string;
+  hideConfigSection?: boolean;
 }
 
 export function BarberQueueManagerView({
@@ -57,6 +61,7 @@ export function BarberQueueManagerView({
   mode,
   staffPinHash = null,
   staffLabel = 'Owner',
+  hideConfigSection = false,
 }: Props) {
   const [queueData, setQueueData] =
     useState<PublicBarberQueueStatusPayload | null>(null);
@@ -91,6 +96,9 @@ export function BarberQueueManagerView({
   const [showQrStudio, setShowQrStudio] = useState(false);
   const [copiedQueueUrl, setCopiedQueueUrl] = useState(false);
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Customer Personal Token QR Check-In lookup (scans or accepts vitaran-queue://... or #token)
+  const [tokenLookupInput, setTokenLookupInput] = useState('');
 
   const queueUrl = getBarberQueueUrl(business.slug);
   const barberStaffUrl = getBarberStaffUrl(business.slug);
@@ -508,45 +516,45 @@ export function BarberQueueManagerView({
       )}
 
       {/* 1-TAP BROADCAST TIMER CONTROLS (Fast 1-Handed Taps Between Cuts) */}
-      <div className="bistro-card p-5 space-y-3.5">
+      <div className="rounded-3xl border border-[#111318]/12 bg-[#FAF8F5] p-5 shadow-xs space-y-3.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#6B7280] flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5 text-[#1E1B4B]" aria-hidden />
-              1-Tap Broadcast Delay to All Waiting Phones
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#5C6068] flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 text-[#C89B3C]" aria-hidden />
+              1-Tap Timer Broadcast to All Waiting Customers
             </p>
-            <p className="text-[12.5px] text-[#6B7280] mt-0.5">
-              Running behind on a tricky fade? Tap once to update every waiting customer&apos;s live countdown.
+            <p className="text-[12.5px] text-[#5C6068] mt-0.5">
+              Tap once to extend every waiting customer&apos;s live phone countdown automatically.
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="rounded-full bg-[#D2DB76]/55 px-3 py-1 text-[12px] font-extrabold text-[#1E1B4B] tabular-nums">
+            <span className="rounded-full border border-[#C89B3C]/40 bg-[#F3E3B8]/70 px-3 py-1 text-[12px] font-extrabold text-[#111318] tabular-nums">
               {completedTodayCount} Cuts Done Today
             </span>
             <button
               type="button"
               onClick={() => void refreshQueue(false)}
               aria-label="Sync queue"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[#1E1B4B]/15 bg-[#F8F9FA] text-[#1E1B4B] hover:bg-[#1E1B4B]/10 cursor-pointer"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[#111318]/15 bg-[#FFFFFF] text-[#111318] hover:bg-[#111318]/5 cursor-pointer"
             >
               <RefreshCw className="h-4 w-4" aria-hidden />
             </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
-          {([5, 10, 15] as const).map((mins) => (
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5">
+          {ALLOWED_QUEUE_DELAY_INCREMENTS.map((mins) => (
             <button
               key={mins}
               type="button"
               disabled={extendingMins !== null}
               onClick={() => void handleBroadcastDelay(mins)}
-              className="flex min-h-14 flex-col items-center justify-center rounded-2xl border-2 border-[#1E1B4B]/15 bg-[#1E1B4B] px-3 py-2.5 text-[#FFFFFF] shadow-sm hover:bg-[#2E2A6E] active:scale-[0.97] transition-all disabled:opacity-50 cursor-pointer"
+              className="flex min-h-14 flex-col items-center justify-center rounded-2xl border border-[#C89B3C]/35 bg-[#111318] px-3 py-2.5 text-[#FFFFFF] shadow-sm hover:bg-[#1F232C] active:scale-[0.97] transition-all disabled:opacity-50 cursor-pointer"
             >
-              <span className="text-[18px] font-black text-[#D2DB76] tabular-nums">
-                +{mins} Mins
+              <span className="text-[17px] font-black text-[#F3E3B8] tabular-nums">
+                +{mins}m
               </span>
-              <span className="text-[10.5px] font-semibold text-white/80">
+              <span className="text-[10px] font-semibold text-[#A3A8B3]">
                 {extendingMins === mins ? 'Sending…' : 'Broadcast'}
               </span>
             </button>
@@ -614,15 +622,17 @@ export function BarberQueueManagerView({
         {/* CURRENTLY IN CHAIR CARD */}
         <section
           aria-label="Currently In Chair"
-          className={`${mode === 'owner' ? 'lg:col-span-5' : ''} rounded-3xl border-2 border-[#1E1B4B] bg-[#1E1B4B] p-6 text-[#FFFFFF] shadow-md space-y-4`}
+          className={`${mode === 'owner' ? 'lg:col-span-5' : ''} overflow-hidden rounded-3xl border border-[#C89B3C]/40 bg-[#111318] text-[#FAF8F5] shadow-md`}
         >
+          <div className="h-1.5 w-full bg-gradient-to-r from-[#C89B3C] via-[#F3E3B8] to-[#C89B3C]" />
+          <div className="p-6 space-y-4">
           <div className="flex items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#D2DB76] px-3 py-1 text-[11px] font-black uppercase tracking-wider text-[#1E1B4B]">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#C89B3C] px-3 py-1 text-[11px] font-black uppercase tracking-wider text-[#111318]">
               <Scissors className="h-3.5 w-3.5" aria-hidden />
               Currently In Chair
             </span>
             {nowServing && (
-              <span className="text-[12px] font-bold text-[#D2DB76] tabular-nums">
+              <span className="text-[12px] font-bold text-[#F3E3B8] tabular-nums">
                 ~{nowServing.remainingMinutes ?? nowServing.durationMinutes}m left
               </span>
             )}
@@ -631,13 +641,13 @@ export function BarberQueueManagerView({
           {nowServing ? (
             <div className="space-y-4">
               <div>
-                <p className="text-[44px] leading-none font-black text-[#D2DB76] tabular-nums">
+                <p className="text-[44px] leading-none font-black text-[#F3E3B8] tabular-nums">
                   Token #{nowServing.tokenNumber}
                 </p>
                 <p className="mt-2 text-[20px] font-extrabold text-[#FFFFFF]">
                   {nowServing.guestName}
                 </p>
-                <p className="text-[13px] font-medium text-white/75">
+                <p className="text-[13px] font-medium text-[#A3A8B3]">
                   {nowServing.serviceName} • {nowServing.durationMinutes} mins
                   {nowServing.assignedBarberLabel
                     ? ` • ${nowServing.assignedBarberLabel}`
@@ -651,7 +661,7 @@ export function BarberQueueManagerView({
                 onClick={() =>
                   void handleAdvanceTicket(nowServing.id, 'completed')
                 }
-                className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#059669] px-5 py-3.5 text-[15px] font-extrabold text-[#FFFFFF] shadow-lg hover:bg-emerald-600 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
+                className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#10B981] px-5 py-3.5 text-[15px] font-extrabold text-[#FFFFFF] shadow-lg hover:bg-emerald-600 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
               >
                 <CheckCircle2 className="h-5 w-5" aria-hidden />
                 {busyTicketId === nowServing.id
@@ -662,33 +672,34 @@ export function BarberQueueManagerView({
               </button>
             </div>
           ) : (
-            <div className="rounded-2xl border border-white/15 bg-white/5 p-6 text-center space-y-2">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center space-y-2">
               <Scissors
-                className="mx-auto h-8 w-8 text-[#D2DB76]/80"
+                className="mx-auto h-8 w-8 text-[#C89B3C]"
                 aria-hidden
               />
               <p className="text-[16px] font-extrabold text-[#FFFFFF]">
                 Barber Chair is Ready
               </p>
-              <p className="text-[12.5px] text-white/75">
-                Tap &ldquo;Call to Chair →&rdquo; on the next waiting token to begin their session.
+              <p className="text-[12.5px] text-[#A3A8B3]">
+                Tap &ldquo;Call to Chair →&rdquo; on the next waiting token or check in a guest&apos;s Personal Token QR.
               </p>
             </div>
           )}
+          </div>
         </section>
 
         {/* WAITING QUEUE LIST */}
         <section
           aria-label="Waiting Queue"
-          className={`${mode === 'owner' ? 'lg:col-span-7' : ''} bistro-card p-5 sm:p-6 space-y-4`}
+          className={`${mode === 'owner' ? 'lg:col-span-7' : ''} rounded-3xl border border-[#111318]/12 bg-[#FAF8F5] p-5 sm:p-6 shadow-xs space-y-4`}
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2.5">
-              <h2 className="text-[18px] font-extrabold text-[#111827] flex items-center gap-2">
-                <Users className="h-5 w-5 text-[#1E1B4B]" aria-hidden />
+              <h2 className="text-[18px] font-extrabold text-[#111318] flex items-center gap-2">
+                <Users className="h-5 w-5 text-[#C89B3C]" aria-hidden />
                 Waiting Line
               </h2>
-              <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[#1E1B4B] px-2 text-[12px] font-bold text-[#FFFFFF] tabular-nums">
+              <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[#111318] px-2 text-[12px] font-bold text-[#F3E3B8] tabular-nums">
                 {waitingTickets.length}
               </span>
             </div>
@@ -696,7 +707,7 @@ export function BarberQueueManagerView({
             <button
               type="button"
               onClick={() => setShowWalkInForm((v) => !v)}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#1E1B4B]/[0.07] px-3.5 text-[12.5px] font-extrabold text-[#1E1B4B] hover:bg-[#1E1B4B] hover:text-[#FFFFFF] transition-colors cursor-pointer"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#111318]/15 bg-[#FFFFFF] px-3.5 text-[12.5px] font-extrabold text-[#111318] hover:bg-[#111318] hover:text-[#FAF8F5] transition-colors cursor-pointer"
             >
               <UserPlus className="h-3.5 w-3.5" aria-hidden />
               + Add Walk-In
@@ -754,6 +765,76 @@ export function BarberQueueManagerView({
             </form>
           )}
 
+          {/* Customer Personal Token QR / #Number Quick Check-In */}
+          {(waitingTickets.length > 0 || nowServing) && (() => {
+            const parsed = parseBarberQueueTicketQr(tokenLookupInput);
+            const allActive = [...(nowServing ? [nowServing] : []), ...waitingTickets];
+            const matched = parsed
+              ? allActive.find(
+                  (t) =>
+                    (parsed.ticketId && t.id === parsed.ticketId) ||
+                    (parsed.tokenNumber !== undefined &&
+                      t.tokenNumber === parsed.tokenNumber),
+                ) ?? null
+              : null;
+            return (
+              <div className="rounded-2xl border border-[#111318]/12 bg-[#FFFFFF] p-3 space-y-2.5">
+                <div className="flex items-center gap-2">
+                  <ScanLine
+                    className="h-4 w-4 shrink-0 text-[#C89B3C]"
+                    aria-hidden
+                  />
+                  <input
+                    type="text"
+                    value={tokenLookupInput}
+                    onChange={(e) => setTokenLookupInput(e.target.value)}
+                    placeholder="Check in Personal Token QR or enter #Token (e.g. #2)…"
+                    aria-label="Scan or enter customer Token QR"
+                    className="w-full bg-transparent text-[13px] font-semibold text-[#111318] placeholder:text-[#8E939D] focus:outline-none"
+                  />
+                  {tokenLookupInput && (
+                    <button
+                      type="button"
+                      onClick={() => setTokenLookupInput('')}
+                      className="text-[11px] font-bold text-[#5C6068] hover:text-[#111318] cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                {tokenLookupInput.trim() && (
+                  matched ? (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#C89B3C]/50 bg-[#F3E3B8]/40 px-3 py-2">
+                      <div className="text-[12.5px] font-bold text-[#111318]">
+                        Verified Token #{matched.tokenNumber} · {matched.guestName} ({matched.serviceName})
+                      </div>
+                      <button
+                        type="button"
+                        disabled={busyTicketId === matched.id}
+                        onClick={() => {
+                          void handleAdvanceTicket(
+                            matched.id,
+                            matched.status === 'in_chair' ? 'completed' : 'in_chair',
+                          );
+                          setTokenLookupInput('');
+                        }}
+                        className="inline-flex h-8 items-center gap-1 rounded-lg bg-[#111318] px-3 text-[11.5px] font-extrabold text-[#F3E3B8] hover:bg-[#1F232C] cursor-pointer"
+                      >
+                        {matched.status === 'in_chair'
+                          ? 'Complete Cut ✓'
+                          : 'Seat in Chair →'}
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-[12px] font-semibold text-amber-800">
+                      No active waiting or in-chair token matched &ldquo;{tokenLookupInput.trim()}&rdquo;.
+                    </p>
+                  )
+                )}
+              </div>
+            );
+          })()}
+
           {waitingTickets.length === 0 ? (
             <div className="rounded-2xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-8 text-center space-y-1.5">
               <Sparkles
@@ -777,27 +858,27 @@ export function BarberQueueManagerView({
                     key={ticket.id}
                     className={`rounded-2xl border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                       isUpNext
-                        ? 'border-[#1E1B4B]/35 bg-[#D2DB76]/25'
-                        : 'border-[#1E1B4B]/12 bg-[#FFFFFF]'
+                        ? 'border-[#C89B3C] bg-[#F3E3B8]/35'
+                        : 'border-[#111318]/12 bg-[#FFFFFF]'
                     }`}
                   >
                     <div className="flex items-center gap-3.5 min-w-0">
                       <span
                         className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl font-black text-[18px] tabular-nums ${
                           isUpNext
-                            ? 'bg-[#1E1B4B] text-[#D2DB76]'
-                            : 'bg-[#F8F9FA] border border-[#1E1B4B]/15 text-[#1E1B4B]'
+                            ? 'bg-[#111318] text-[#F3E3B8]'
+                            : 'bg-[#FAF8F5] border border-[#111318]/15 text-[#111318]'
                         }`}
                       >
                         #{ticket.tokenNumber}
                       </span>
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-[15px] font-extrabold text-[#111827] truncate">
+                          <p className="text-[15px] font-extrabold text-[#111318] truncate">
                             {ticket.guestName}
                           </p>
                           {isUpNext && (
-                            <span className="rounded-full bg-[#1E1B4B] px-2 py-0.5 text-[10px] font-extrabold uppercase text-[#D2DB76]">
+                            <span className="rounded-full bg-[#111318] px-2 py-0.5 text-[10px] font-extrabold uppercase text-[#F3E3B8]">
                               Up Next
                             </span>
                           )}
@@ -807,9 +888,9 @@ export function BarberQueueManagerView({
                             </span>
                           )}
                         </div>
-                        <p className="text-[12.5px] font-semibold text-[#6B7280] tabular-nums">
+                        <p className="text-[12.5px] font-semibold text-[#5C6068] tabular-nums">
                           {ticket.serviceName} ({ticket.durationMinutes}m) • Est. wait:{' '}
-                          <strong className="text-[#111827]">
+                          <strong className="text-[#111318]">
                             ~{ticket.estimatedWaitMinutes ?? 0} mins
                           </strong>
                         </p>
@@ -823,9 +904,9 @@ export function BarberQueueManagerView({
                         onClick={() =>
                           void handleAdvanceTicket(ticket.id, 'in_chair')
                         }
-                        className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#1E1B4B] px-4 text-[12.5px] font-extrabold text-[#FFFFFF] hover:bg-[#2E2A6E] active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
+                        className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#111318] px-4 text-[12.5px] font-extrabold text-[#FAF8F5] hover:bg-[#1F232C] active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
                       >
-                        <Play className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
+                        <Play className="h-3.5 w-3.5 text-[#F3E3B8]" aria-hidden />
                         Call to Chair →
                       </button>
                       <button
@@ -849,7 +930,7 @@ export function BarberQueueManagerView({
       </div>
 
       {/* Owner Collapsible Services & Queue Rules Settings */}
-      {mode === 'owner' && (
+      {mode === 'owner' && !hideConfigSection && (
         <div className="bistro-card overflow-hidden">
           <button
             type="button"

@@ -19,7 +19,6 @@ import {
   UserCheck,
   Users,
   Package,
-  Scissors,
 } from 'lucide-react';
 import type {
   Business,
@@ -40,11 +39,11 @@ import {
   RestaurantManagerView,
   type RestaurantWorkspaceSection,
 } from '../components/dashboard/RestaurantManagerView';
-import { BarberQueueManagerView } from '../components/dashboard/BarberQueueManagerView';
-import { isBarberOrSalonCategory } from '../utils/barberQueueValidation';
+import { BarberOwnerWorkspace } from '../components/barber/BarberOwnerWorkspace';
+import { GymOwnerWorkspace } from '../components/gym/GymOwnerWorkspace';
+import { getIndustryWorkspaceType } from '../utils/gymValidation';
 
 type PrimaryDestination =
-  | 'barber_queue'
   | 'overview'
   | 'menu'
   | 'staff'
@@ -61,9 +60,6 @@ function parseDestinationFromParam(param: string | null): {
   aiSubTab?: AiReviewSubTab;
 } {
   switch (param) {
-    case 'queue':
-    case 'barber_queue':
-      return { destination: 'barber_queue' };
     case 'menu':
       return { destination: 'menu' };
     case 'staff':
@@ -141,22 +137,25 @@ export default function BusinessDashboard() {
       setBusinesses(list);
 
       const paramSlug = searchParams.get('slug');
-      const paramTab = searchParams.get('tab');
+      const paramView = searchParams.get('view');
       if (paramSlug) {
         const match = list.find((b) => b.slug === paramSlug);
         if (match) {
           setSelectedSlug(match.slug);
-          if (!paramTab && isBarberOrSalonCategory(match.category)) {
-            setDestination('barber_queue');
-          }
+        }
+      } else if (paramView === 'restaurant') {
+        const firstRest = list.find(
+          (b) => getIndustryWorkspaceType(b.category) === 'restaurant',
+        );
+        if (firstRest) {
+          setSelectedSlug(firstRest.slug);
+        } else if (list.length > 0) {
+          setSelectedSlug(list[0].slug);
         }
       } else if (list.length > 0) {
         setSelectedSlug((prev) =>
           list.some((b) => b.slug === prev) ? prev : list[0].slug,
         );
-        if (!paramTab && isBarberOrSalonCategory(list[0].category)) {
-          setDestination('barber_queue');
-        }
       }
       setLoading(false);
     }
@@ -185,24 +184,7 @@ export default function BusinessDashboard() {
 
   function handleSelectBusiness(newSlug: string) {
     setSelectedSlug(newSlug);
-    const nextBiz = businesses.find((b) => b.slug === newSlug);
-    let nextDest = destination;
-    if (
-      nextBiz &&
-      isBarberOrSalonCategory(nextBiz.category) &&
-      destination === 'overview'
-    ) {
-      nextDest = 'barber_queue';
-      setDestination('barber_queue');
-    } else if (
-      nextBiz &&
-      !isBarberOrSalonCategory(nextBiz.category) &&
-      destination === 'barber_queue'
-    ) {
-      nextDest = 'overview';
-      setDestination('overview');
-    }
-    setSearchParams({ slug: newSlug, tab: nextDest });
+    setSearchParams({ slug: newSlug, tab: destination });
   }
 
   function handleDestinationChange(next: PrimaryDestination) {
@@ -249,6 +231,39 @@ export default function BusinessDashboard() {
     );
   }
 
+  // SMART MULTI-INDUSTRY WORKSPACE ROUTER:
+  // Locks each industry into ONLY its own dedicated application UI so a
+  // Barber never sees Chef Kitchen Queues and a Gym never sees Table QRs!
+  const workspaceType = getIndustryWorkspaceType(currentBusiness.category);
+  if (workspaceType === 'barber') {
+    return (
+      <BarberOwnerWorkspace
+        key={currentBusiness.id}
+        business={currentBusiness}
+        barberBusinesses={businesses}
+        hasRestaurantBusinesses={businesses.some(
+          (b) => getIndustryWorkspaceType(b.category) === 'restaurant',
+        )}
+        onSelectBusiness={handleSelectBusiness}
+        onBusinessUpdated={handleBusinessUpdated}
+      />
+    );
+  }
+  if (workspaceType === 'gym') {
+    return (
+      <GymOwnerWorkspace
+        key={currentBusiness.id}
+        business={currentBusiness}
+        gymBusinesses={businesses}
+        hasOtherBusinesses={businesses.some(
+          (b) => getIndustryWorkspaceType(b.category) !== 'gym',
+        )}
+        onSelectBusiness={handleSelectBusiness}
+        onBusinessUpdated={handleBusinessUpdated}
+      />
+    );
+  }
+
   const currentStatus = currentBusiness.status ?? 'pending';
   const currentAccountState = currentBusiness.accountState ?? 'active';
   const isBusinessLive =
@@ -283,8 +298,6 @@ export default function BusinessDashboard() {
   const currentPill = statusPillConfig[currentStatus];
   const StatusIcon = currentPill.Icon;
 
-  const isBarberVenue = isBarberOrSalonCategory(currentBusiness.category);
-
   const navDestinations: {
     id: PrimaryDestination;
     label: string;
@@ -292,16 +305,6 @@ export default function BusinessDashboard() {
     Icon: typeof LayoutDashboard;
     badge?: number;
   }[] = [
-    ...(isBarberVenue || destination === 'barber_queue'
-      ? [
-          {
-            id: 'barber_queue' as PrimaryDestination,
-            label: 'Live Queue',
-            shortLabel: 'Queue',
-            Icon: Scissors,
-          },
-        ]
-      : []),
     {
       id: 'overview',
       label: 'Live Overview',
@@ -361,7 +364,7 @@ export default function BusinessDashboard() {
           <div className="space-y-2 border-b border-[#1E1B4B]/10 pb-4">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] font-bold uppercase tracking-wider text-[#6B7280]">
-                {isBarberVenue ? 'Active Salon / Barber' : 'Active Restaurant'}
+                Active Restaurant
               </span>
               <Link
                 to="/setup"
@@ -459,16 +462,11 @@ export default function BusinessDashboard() {
             </span>
             {isBusinessLive && (
               <Link
-                to={
-                  isBarberVenue
-                    ? `/r/${currentBusiness.slug}/queue`
-                    : `/r/${currentBusiness.slug}/menu`
-                }
+                to={`/r/${currentBusiness.slug}/menu`}
                 target="_blank"
                 className="inline-flex items-center gap-1 text-[12px] font-semibold text-[#1E1B4B] hover:underline"
               >
-                {isBarberVenue ? 'Live Queue' : 'Guest Hub'}{' '}
-                <ExternalLink className="h-3 w-3" aria-hidden />
+                Guest Hub <ExternalLink className="h-3 w-3" aria-hidden />
               </Link>
             )}
           </div>
@@ -554,16 +552,6 @@ export default function BusinessDashboard() {
               )}
             </button>
           </div>
-        )}
-
-        {/* MODULE 4: BARBER & SALON LIVE QUEUE CONTROLLER */}
-        {destination === 'barber_queue' && (
-          <BarberQueueManagerView
-            key={`barber-queue-mgmt-${currentBusiness.id}`}
-            business={currentBusiness}
-            isBusinessLive={isBusinessLive}
-            mode="owner"
-          />
         )}
 
         {/* DESTINATIONS 1–6 (Restaurant Workspace) */}

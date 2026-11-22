@@ -8,9 +8,10 @@
 
 **Vitaran AI Reviews / BistroOS** is a multi-tenant SaaS platform combining:
 1. **AI Google Reviews & Reputation Suite** (5-step guest review flow, AI business reply drafting with Business Knowledge & Local SEO context, sentiment tagging, non-gating compliance, printable QR posters & WhatsApp links).
-2. **Restaurant & Cafe Operating Suite (BistroOS)** (5 cultural digital menu templates + 1-tap preset menus, table-specific QR standees, optional phone-to-chef table ordering, server-validated table mini-games with anti-cheat ledger, dual-currency Game Points vs. Loyalty Stars wallet, personal Loyalty QR passes, 6-char reward claim tickets, individual Staff & Waiter Roster with personal PINs, Cafe/Restaurant Monthly Stock & Expenses tracker, and a Mobile Waiter Floor App).
-3. **Barber & Salon Live Queue Suite (Module 4)** (Zero-hardware walk-in queue at `/r/:slug/queue` with real-time wait countdowns, sequential daily tokens, 1-tap `+5 / +10 / +15 / +20 / +30 Min` barber broadcast delays, standalone Barber Staff Mobile Floor Mode at `/r/:slug/barber-staff` with personal `BAR-01` PINs, Live Queue QR Standees, and automatic idempotent +1 Loyalty Star crediting upon haircut completion).
-4. **Platform Admin Console** (`/admin`) for approving/suspending/rejecting tenant businesses and managing account lifecycle.
+2. **Restaurant & Cafe Operating Suite (BistroOS)** (`/dashboard` — 5 cultural digital menu templates + 1-tap preset menus, table-specific QR standees, optional phone-to-chef table ordering, server-validated table mini-games with anti-cheat ledger, dual-currency Game Points vs. Loyalty Stars wallet, personal Loyalty QR passes, 6-char reward claim tickets, individual Staff & Waiter Roster with personal PINs, Cafe/Restaurant Monthly Stock & Expenses tracker, and a Mobile Waiter Floor App).
+3. **Barber & Salon Live Queue Suite (BarberOS — Module 4)** (Dedicated Obsidian & Brass studio at `/barber/dashboard` + automatic smart routing from `/dashboard`, zero-hardware walk-in queue at `/r/:slug/queue` with 5s live countdown + Personal Customer Token QR Pass, 1-tap `+5 / +10 / +15 / +20 / +30 Min` broadcast delays, Customer Token QR Check-In, standalone Barber Staff Mobile Floor Mode at `/r/:slug/barber-staff`, Shop Entrance QR Standees, and automatic idempotent +1 Loyalty Star crediting upon haircut completion).
+4. **Gym Membership & 3-Day Expiry Suite (GymOS — Module 5)** (Dedicated Slate & Volt studio at `/gym/dashboard` + automatic smart routing from `/dashboard`, Front-Desk Member QR Portal at `/r/:slug/gym` for 10-second signups + live Digital Gym Pass with Days Remaining & 1-tap Daily Check-In, Owner Payment Approvals, automatic 3-Day Renewal Radar with 1-tap `+30d Renew` & WhatsApp reminders, and Expired Member check-in lockout).
+5. **Multi-Industry Platform Admin Console** (`/admin`) with dedicated separate approval queues (`🍽️ Restaurants & Cafes`, `✂️ Barbers & Salons`, `🏋️ Gyms & Fitness`, and `All Businesses`), bold Industry Module Badges, and 1-click approval & account lifecycle controls.
 
 ```mermaid
 flowchart TB
@@ -73,6 +74,9 @@ flowchart TB
 | `/r/:businessSlug/staff` | `CustomerLayout` | Staff PIN Gate | `src/pages/RestaurantStaffVerificationPage.tsx` | Waiter Mobile Floor App (Personal Staff ID + PIN) |
 | `/r/:businessSlug/queue` | `CustomerLayout` | Public | `src/pages/CustomerBarberQueuePage.tsx` | Barber & Salon Customer Live Queue & Countdown Pass |
 | `/r/:businessSlug/barber-staff` | `CustomerLayout` | Barber PIN Gate | `src/pages/BarberStaffQueuePage.tsx` | Standalone Barber Chair Mobile App (Personal `BAR-01` PIN) |
+| `/barber/dashboard` | `MainLayout` | `RequireAuth` | `src/pages/BarberOwnerDashboardPage.tsx` | Dedicated 4-Tab BarberOS Owner Studio (Obsidian & Brass) |
+| `/gym/dashboard` | `MainLayout` | `RequireAuth` | `src/pages/GymOwnerDashboardPage.tsx` | Dedicated 4-Tab GymOS Owner Studio (Slate & Volt Lime) |
+| `/r/:businessSlug/gym` | `CustomerLayout` | Public | `src/pages/CustomerGymPage.tsx` | GymOS Front-Desk Signup, Digital Pass & 1-Tap Daily Check-In |
 
 ### Owner Dashboard Architecture (`src/pages/BusinessDashboard.tsx`)
 URL query params `?tab=...` map cleanly (with full backwards compatibility for legacy query tabs):
@@ -119,6 +123,7 @@ Migrations `001` – `013` are applied in Supabase (`jwgofsrubthumuymhzva`), wit
 | `012` | Master Upgrade I: `table_ordering_enabled`, `menu_theme_template`, `custom_logo_url`, `custom_accent_color`, `restaurant_table_orders`, 1-tap `apply_restaurant_menu_preset` |
 | `013` | Master Upgrade II: `business_mode` (`restaurant`/`cafe`), `restaurant_staff_members`, `restaurant_monthly_inventory`, `verify_staff_member_pin`, `get_public_staff_roster_for_login`, per-waiter audit labeling |
 | `014` | Module 4 (Barber & Salon Live Queue): `'barber'` category & staff role, `barber_queue_configs`, `barber_queue_tickets`, plus 5 hardened RPCs (`get_public_barber_queue_status`, `join_barber_queue`, `barber_extend_queue_timer`, `barber_advance_queue_ticket`, `leave_barber_queue_ticket`) |
+| `015` | Module 5 (GymOS Membership & 3-Day Expiry Tracker): `'gym'` category constraint update, `gym_configs`, `gym_members`, `gym_check_ins`, plus 6 hardened RPCs (`get_public_gym_portal`, `submit_gym_member_registration`, `lookup_gym_member_pass`, `gym_member_daily_check_in`, `get_gym_owner_dashboard`, `owner_approve_or_renew_gym_member`) |
 
 ### Core Entity Relationships (Restaurant & Cafe Suite)
 
@@ -233,7 +238,7 @@ Run these commands from `C:\work\review-saas` after every change:
 npm run lint
 npm run build
 
-# 2. All 11 automated Deno verification suites (326 checks total)
+# 2. All 12 automated Deno verification suites (353 checks total)
 npm run test:qr              # 45 checks — QR URLs, scan tracking, poster rendering
 npm run test:ai-config       # 34 checks — AI tone/length/language config & tenant isolation
 npm run test:knowledge       # 28 checks — Business Knowledge, SEO, prompt-injection defense
@@ -245,6 +250,7 @@ npm run test:staff           # 20 checks — Phase 4: Floor calls, spam guard, P
 npm run test:templates       # 33 checks — Upgrade I: 5 templates, 1-tap presets, order->chef flow
 npm run test:staff-roster    # 30 checks — Upgrade II: Individual staff PINs, per-waiter audit, monthly stock/expenses
 npm run test:barber          # 39 checks — Module 4: Barber/Salon live queue, broadcast delays, BAR-01 PIN, auto +1 Star idempotency & tenant isolation
+npm run test:gym             # 27 checks — Module 5 & Multi-Industry Router: Industry locking, Barber Token QR, GymOS signup, payment approval, 3-day expiry radar, daily check-in idempotency & tenant isolation
 
 # 3. Git push (both remotes) & Production Vercel Deploy
 git push origin main

@@ -71,6 +71,16 @@ import type {
   JoinBarberQueueResult,
   PublicBarberQueueStatusPayload,
 } from '../../types/barberQueue';
+import type {
+  GymConfig,
+  GymConfigInput,
+  GymDailyCheckInResult,
+  GymMember,
+  GymOwnerDashboardPayload,
+  GymOwnerMemberAction,
+  PublicGymPortalPayload,
+  SubmitGymRegistrationInput,
+} from '../../types/gym';
 
 export interface AIConfigAccessOptions {
   /** Optional explicit owner ID used to verify tenant isolation. */
@@ -660,4 +670,61 @@ export interface IBusinessRepository {
     staffPinHash?: string | null;
     options?: AIConfigAccessOptions;
   }): Promise<AdvanceBarberQueueTicketResult>;
+
+  // ---------------------------------------------------------------------------
+  // Module 5: GymOS — Membership, Payment Approvals & 3-Day Renewal Radar
+  // ---------------------------------------------------------------------------
+
+  /** Retrieves the 1:1 GymOS configuration (plans, alert window, registration toggle). */
+  getGymConfig(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymConfig>;
+
+  /** Validates and saves the 1:1 GymOS configuration for a gym owner. */
+  updateGymConfig(
+    businessId: string,
+    input: GymConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymConfig>;
+
+  /** Public front-desk portal payload for `/r/:businessSlug/gym`. */
+  getPublicGymPortal(
+    businessSlug: string,
+  ): Promise<PublicGymPortalPayload | null>;
+
+  /** Submits a new member registration card as 'pending_approval' (awaiting desk payment). */
+  submitGymMemberRegistration(
+    input: SubmitGymRegistrationInput,
+  ): Promise<GymMember>;
+
+  /** Looks up a returning member's live Digital Gym Pass (days remaining, expiry, check-in status) by phone. */
+  lookupGymMemberPass(params: {
+    businessSlug: string;
+    phone: string;
+  }): Promise<GymMember | null>;
+
+  /** Records a 1-tap daily gym check-in (idempotent 1/day, blocked if pending or expired). */
+  gymMemberDailyCheckIn(params: {
+    businessSlug: string;
+    phone: string;
+  }): Promise<GymDailyCheckInResult>;
+
+  /** Owner dashboard view: pending payment approvals, <=3-day urgent renewals, expired & active members. */
+  getGymOwnerDashboard(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymOwnerDashboardPayload>;
+
+  /** Owner action: approve payment & start plan, renew plan (+N days), reject, or suspend member. */
+  ownerApproveOrRenewGymMember(params: {
+    businessId: string;
+    memberId: string;
+    action: GymOwnerMemberAction;
+    planId?: string | null;
+    durationDays?: number | null;
+    feePaise?: number | null;
+    staffLabel?: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMember>;
 }

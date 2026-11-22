@@ -10,7 +10,10 @@ import CustomerRestaurantMenuPage from './pages/CustomerRestaurantMenuPage';
 import RestaurantStaffVerificationPage from './pages/RestaurantStaffVerificationPage';
 import CustomerBarberQueuePage from './pages/CustomerBarberQueuePage';
 import BarberStaffQueuePage from './pages/BarberStaffQueuePage';
+import CustomerGymPage from './pages/CustomerGymPage';
 import BusinessDashboard from './pages/BusinessDashboard';
+import BarberOwnerDashboardPage from './pages/BarberOwnerDashboardPage';
+import GymOwnerDashboardPage from './pages/GymOwnerDashboardPage';
 import BusinessSetupPage from './pages/BusinessSetupPage';
 import AdminPanelPage from './pages/admin/AdminPanelPage';
 
@@ -35,6 +38,22 @@ export default function App() {
               element={
                 <RequireAuth>
                   <BusinessDashboard />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/barber/dashboard"
+              element={
+                <RequireAuth>
+                  <BarberOwnerDashboardPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/gym/dashboard"
+              element={
+                <RequireAuth>
+                  <GymOwnerDashboardPage />
                 </RequireAuth>
               }
             />
@@ -68,6 +87,10 @@ export default function App() {
             <Route
               path="/r/:businessSlug/barber-staff"
               element={<BarberStaffQueuePage />}
+            />
+            <Route
+              path="/r/:businessSlug/gym"
+              element={<CustomerGymPage />}
             />
           </Route>
         </Routes>

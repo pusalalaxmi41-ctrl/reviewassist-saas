@@ -10,6 +10,7 @@ import {
   QrCode,
   RotateCcw,
   Scissors,
+  Dumbbell,
   Share2,
   Upload,
   X,
@@ -25,6 +26,7 @@ import {
   getBarberQueueUrl,
   isBarberOrSalonCategory,
 } from '../../utils/barberQueueValidation';
+import { getGymPortalUrl, isGymCategory } from '../../utils/gymValidation';
 import {
   generatePrintablePdfBlobFromCanvas,
   getDefaultQRDesignSettings,
@@ -40,9 +42,10 @@ import { Button } from '../common/Button';
 
 interface Props {
   business: Business;
+  defaultMode?: 'review' | 'barber_queue' | 'gym';
 }
 
-export function QRCodeManager({ business }: Props) {
+export function QRCodeManager({ business, defaultMode }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [settings, setSettings] = useState<QRDesignSettings>(() =>
@@ -56,41 +59,77 @@ export function QRCodeManager({ business }: Props) {
   const [customPhone, setCustomPhone] = useState('');
 
   const supportsBarberQueue = isBarberOrSalonCategory(business.category);
-  const [qrMode, setQrMode] = useState<'review' | 'barber_queue'>('review');
+  const supportsGymPortal = isGymCategory(business.category);
+  const resolvedDefault: 'review' | 'barber_queue' | 'gym' =
+    defaultMode ??
+    (supportsGymPortal
+      ? 'gym'
+      : supportsBarberQueue
+        ? 'barber_queue'
+        : 'review');
+
+  const [qrMode, setQrMode] = useState<'review' | 'barber_queue' | 'gym'>(
+    resolvedDefault,
+  );
   const [queueHeading, setQueueHeading] = useState('Scan to Join the Live Queue');
   const [queueInstruction, setQueueInstruction] = useState(
-    'See live wait time, claim your token & track your turn from your phone',
+    'See live wait time, claim your Token QR & track your turn on your phone',
+  );
+  const [gymHeading, setGymHeading] = useState('Scan for Gym Pass & Daily Check-In');
+  const [gymInstruction, setGymInstruction] = useState(
+    'Join in 10 seconds, track your plan expiry & tap Daily Check-In at the desk',
   );
 
   const isQueueMode = supportsBarberQueue && qrMode === 'barber_queue';
-  const qrUrl = isQueueMode
-    ? getBarberQueueUrl(business.slug)
-    : getCustomerReviewUrl(business.slug, 'qr');
-  const directUrl = isQueueMode
-    ? getBarberQueueUrl(business.slug)
-    : getCustomerReviewUrl(business.slug, 'direct');
+  const isGymMode = supportsGymPortal && qrMode === 'gym';
+  const qrUrl = isGymMode
+    ? getGymPortalUrl(business.slug)
+    : isQueueMode
+      ? getBarberQueueUrl(business.slug)
+      : getCustomerReviewUrl(business.slug, 'qr');
+  const directUrl = isGymMode
+    ? getGymPortalUrl(business.slug)
+    : isQueueMode
+      ? getBarberQueueUrl(business.slug)
+      : getCustomerReviewUrl(business.slug, 'direct');
   const whatsAppMsg = buildWhatsAppMessage(business);
   const whatsAppLink = getWhatsAppShareLink(business, customPhone);
 
-  const effectivePosterSettings: QRDesignSettings = isQueueMode
+  const effectivePosterSettings: QRDesignSettings = isGymMode
     ? {
         ...settings,
         template: 'table_standee',
-        heading: queueHeading,
-        instruction: queueInstruction,
+        heading: gymHeading,
+        instruction: gymInstruction,
       }
-    : settings;
+    : isQueueMode
+      ? {
+          ...settings,
+          template: 'table_standee',
+          heading: queueHeading,
+          instruction: queueInstruction,
+        }
+      : settings;
 
-  const effectiveRenderOptions = isQueueMode
+  const effectiveRenderOptions = isGymMode
     ? {
         targetUrl: qrUrl,
         customSteps: [
-          'Scan QR with phone camera',
-          'Check live wait & select service',
-          'Claim your token & walk in on time',
+          'Scan QR at the gym desk',
+          'Pick plan or enter phone',
+          'Tap Daily Check-In & view days left',
         ] as [string, string, string],
       }
-    : undefined;
+    : isQueueMode
+      ? {
+          targetUrl: qrUrl,
+          customSteps: [
+            'Scan QR with phone camera',
+            'Check live wait & select service',
+            'Get your Personal Token QR & walk in on time',
+          ] as [string, string, string],
+        }
+      : undefined;
 
   // Persist per-business settings & re-render high-resolution live preview canvas
   useEffect(() => {
@@ -99,27 +138,53 @@ export function QRCodeManager({ business }: Props) {
       void renderQrPosterToCanvas(
         canvasRef.current,
         business,
-        isQueueMode
+        isGymMode
           ? {
               ...settings,
               template: 'table_standee',
-              heading: queueHeading,
-              instruction: queueInstruction,
+              heading: gymHeading,
+              instruction: gymInstruction,
             }
-          : settings,
-        isQueueMode
+          : isQueueMode
+            ? {
+                ...settings,
+                template: 'table_standee',
+                heading: queueHeading,
+                instruction: queueInstruction,
+              }
+            : settings,
+        isGymMode
           ? {
               targetUrl: qrUrl,
               customSteps: [
-                'Scan QR with phone camera',
-                'Check live wait & select service',
-                'Claim your token & walk in on time',
+                'Scan QR at the gym desk',
+                'Pick plan or enter phone',
+                'Tap Daily Check-In & view days left',
               ],
             }
-          : undefined,
+          : isQueueMode
+            ? {
+                targetUrl: qrUrl,
+                customSteps: [
+                  'Scan QR with phone camera',
+                  'Check live wait & select service',
+                  'Get your Personal Token QR & walk in on time',
+                ],
+              }
+            : undefined,
       );
     }
-  }, [business, settings, isQueueMode, queueHeading, queueInstruction, qrUrl]);
+  }, [
+    business,
+    settings,
+    isQueueMode,
+    isGymMode,
+    queueHeading,
+    queueInstruction,
+    gymHeading,
+    gymInstruction,
+    qrUrl,
+  ]);
 
   function handleTemplateChange(nextTemplate: QRTemplateId) {
     const prevDefaults = QR_TEMPLATE_DEFAULTS[settings.template];
@@ -183,9 +248,11 @@ export function QRCodeManager({ business }: Props) {
       effectiveRenderOptions,
     );
     const pngUrl = canvasRef.current.toDataURL('image/png');
-    const filename = isQueueMode
-      ? `${business.slug}-live-queue-qr.png`
-      : `${business.slug}-${settings.template}-qr.png`;
+    const filename = isGymMode
+      ? `${business.slug}-gym-pass-qr.png`
+      : isQueueMode
+        ? `${business.slug}-live-queue-qr.png`
+        : `${business.slug}-${settings.template}-qr.png`;
     const link = document.createElement('a');
     link.download = filename;
     link.href = pngUrl;
@@ -205,9 +272,11 @@ export function QRCodeManager({ business }: Props) {
     );
     const pdfBlob = generatePrintablePdfBlobFromCanvas(canvasRef.current);
     const blobUrl = URL.createObjectURL(pdfBlob);
-    const filename = isQueueMode
-      ? `${business.slug}-live-queue-qr.pdf`
-      : `${business.slug}-${settings.template}-qr.pdf`;
+    const filename = isGymMode
+      ? `${business.slug}-gym-pass-qr.pdf`
+      : isQueueMode
+        ? `${business.slug}-live-queue-qr.pdf`
+        : `${business.slug}-${settings.template}-qr.pdf`;
     const link = document.createElement('a');
     link.download = filename;
     link.href = blobUrl;
@@ -240,35 +309,54 @@ export function QRCodeManager({ business }: Props) {
 
   return (
     <div className="space-y-8">
-      {/* Salon & Barber Mode Switcher: Google Review QR vs Live Queue Standee */}
-      {supportsBarberQueue && (
+      {/* Industry Standee Mode Switcher: Barber Live Queue / Gym Desk Pass vs Google Review QR */}
+      {(supportsBarberQueue || supportsGymPortal) && (
         <div className="inline-flex flex-wrap items-center gap-1.5 rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-2 shadow-2xs">
+          {supportsBarberQueue && (
+            <button
+              type="button"
+              onClick={() => setQrMode('barber_queue')}
+              className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
+                isQueueMode
+                  ? 'bg-[#111318] text-[#FFFFFF] shadow-2xs'
+                  : 'text-[#626B65] hover:bg-[#F7F7F2] hover:text-[#252B29]'
+              }`}
+            >
+              <Scissors
+                className={`h-4 w-4 ${isQueueMode ? 'text-[#F3E3B8]' : ''}`}
+                aria-hidden
+              />
+              <span>Live Queue &amp; Wait-Time QR Standee</span>
+            </button>
+          )}
+          {supportsGymPortal && (
+            <button
+              type="button"
+              onClick={() => setQrMode('gym')}
+              className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
+                isGymMode
+                  ? 'bg-[#0F172A] text-[#FFFFFF] shadow-2xs'
+                  : 'text-[#626B65] hover:bg-[#F7F7F2] hover:text-[#252B29]'
+              }`}
+            >
+              <Dumbbell
+                className={`h-4 w-4 ${isGymMode ? 'text-[#A3E635]' : ''}`}
+                aria-hidden
+              />
+              <span>Front-Desk Gym Pass &amp; Check-In QR</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setQrMode('review')}
             className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
-              !isQueueMode
+              !isQueueMode && !isGymMode
                 ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
                 : 'text-[#626B65] hover:bg-[#F7F7F2] hover:text-[#252B29]'
             }`}
           >
             <QrCode className="h-4 w-4" aria-hidden />
             <span>Google Review QR</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setQrMode('barber_queue')}
-            className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
-              isQueueMode
-                ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
-                : 'text-[#626B65] hover:bg-[#F7F7F2] hover:text-[#252B29]'
-            }`}
-          >
-            <Scissors
-              className={`h-4 w-4 ${isQueueMode ? 'text-[#D2DB76]' : ''}`}
-              aria-hidden
-            />
-            <span>Live Queue &amp; Wait-Time QR Standee</span>
           </button>
         </div>
       )}
@@ -277,9 +365,11 @@ export function QRCodeManager({ business }: Props) {
       <div className="flex flex-col gap-4 rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-5 sm:flex-row sm:items-center sm:justify-between shadow-2xs">
         <div className="space-y-1">
           <p className="text-[12px] font-semibold uppercase tracking-wider text-[#626B65]">
-            {isQueueMode
-              ? 'Live Queue & Wait-Time Standee URL (Encoded in QR)'
-              : 'Business-Specific Customer Review URL (Encoded in QR)'}
+            {isGymMode
+              ? 'Front-Desk Gym Membership & Check-In URL (Encoded in QR)'
+              : isQueueMode
+                ? 'Live Queue & Wait-Time Standee URL (Encoded in QR)'
+                : 'Business-Specific Customer Review URL (Encoded in QR)'}
           </p>
           <p className="break-all font-mono text-[14px] font-medium text-[#244B40]">{qrUrl}</p>
         </div>
@@ -408,9 +498,17 @@ export function QRCodeManager({ business }: Props) {
                   id="qrHeadingInput"
                   type="text"
                   maxLength={70}
-                  value={isQueueMode ? queueHeading : settings.heading}
+                  value={
+                    isGymMode
+                      ? gymHeading
+                      : isQueueMode
+                        ? queueHeading
+                        : settings.heading
+                  }
                   onChange={(e) => {
-                    if (isQueueMode) {
+                    if (isGymMode) {
+                      setGymHeading(e.target.value);
+                    } else if (isQueueMode) {
                       setQueueHeading(e.target.value);
                     } else {
                       setSettings((prev) => ({
@@ -434,9 +532,17 @@ export function QRCodeManager({ business }: Props) {
                   id="qrInstructionInput"
                   type="text"
                   maxLength={90}
-                  value={isQueueMode ? queueInstruction : settings.instruction}
+                  value={
+                    isGymMode
+                      ? gymInstruction
+                      : isQueueMode
+                        ? queueInstruction
+                        : settings.instruction
+                  }
                   onChange={(e) => {
-                    if (isQueueMode) {
+                    if (isGymMode) {
+                      setGymInstruction(e.target.value);
+                    } else if (isQueueMode) {
                       setQueueInstruction(e.target.value);
                     } else {
                       setSettings((prev) => ({

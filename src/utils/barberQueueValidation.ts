@@ -350,3 +350,56 @@ export function validateBarberTicketStatus(
   }
   return { ok: true, value: status.trim() as BarberQueueTicketStatus };
 }
+
+/**
+ * Generates the scannable personal Live Queue Token QR payload displayed on a
+ * customer's phone right after they scan the shop QR and join the walk-in line.
+ */
+export function encodeBarberQueueTicketQr(
+  businessSlug: string,
+  ticketId: string,
+  tokenNumber: number,
+): string {
+  const cleanSlug = stripControlChars(businessSlug).toLowerCase();
+  const cleanId = stripControlChars(ticketId);
+  return `vitaran-queue://${cleanSlug}/${cleanId}#${tokenNumber}`;
+}
+
+/**
+ * Parses a customer's Personal Token QR code, raw ticket ID, or manual token
+ * number (`#4` / `4`) entered or scanned by the barber at the chair.
+ */
+export function parseBarberQueueTicketQr(
+  rawInput: string,
+): { businessSlug?: string; ticketId?: string; tokenNumber?: number } | null {
+  const cleaned = stripControlChars(rawInput);
+  if (!cleaned) return null;
+
+  // 1. Full personal Token QR format: vitaran-queue://<slug>/<ticketId>#<token>
+  const qrMatch =
+    /^vitaran-queue:\/\/([a-z0-9-]{3,80})\/([a-zA-Z0-9_-]{4,80})(?:#(\d{1,5}))?$/i.exec(
+      cleaned,
+    );
+  if (qrMatch) {
+    return {
+      businessSlug: qrMatch[1].toLowerCase(),
+      ticketId: qrMatch[2],
+      tokenNumber: qrMatch[3] ? Number.parseInt(qrMatch[3], 10) : undefined,
+    };
+  }
+
+  // 2. Simple manual token number: "#4" or "4" or "Token 4"
+  const numMatch = /^(?:token\s*)?#?(\d{1,5})$/i.exec(cleaned);
+  if (numMatch) {
+    return {
+      tokenNumber: Number.parseInt(numMatch[1], 10),
+    };
+  }
+
+  // 3. Raw ticket ID (UUID or mock bqt-...)
+  if (/^[a-zA-Z0-9_-]{6,80}$/.test(cleaned)) {
+    return { ticketId: cleaned };
+  }
+
+  return null;
+}

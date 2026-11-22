@@ -103,6 +103,27 @@ import {
   validateBarberTicketStatus,
   validateJoinBarberQueueInput,
 } from '../../utils/barberQueueValidation';
+import type {
+  GymConfig,
+  GymConfigInput,
+  GymDailyCheckInResult,
+  GymEffectiveMemberStatus,
+  GymMember,
+  GymOwnerDashboardPayload,
+  GymOwnerMemberAction,
+  PublicGymPortalPayload,
+  SubmitGymRegistrationInput,
+} from '../../types/gym';
+import {
+  addDaysToIsoDate,
+  diffDaysBetweenIsoDates,
+  getTodayIsoDateKey,
+  normalizeGymConfig,
+  normalizeGymPhone,
+  validateGymConfigInput,
+  validateGymOwnerAction,
+  validateGymRegistrationInput,
+} from '../../utils/gymValidation';
 import { MENU_PRESET_PACKS } from '../../config/menuPresets';
 import {
   buildServerSeedAndClientChallenge,
@@ -161,6 +182,9 @@ const STORAGE_KEYS = {
     'reviewassist_mock_restaurant_monthly_inventory_v1',
   BARBER_QUEUE_CONFIGS: 'reviewassist_mock_barber_queue_configs_v1',
   BARBER_QUEUE_TICKETS: 'reviewassist_mock_barber_queue_tickets_v1',
+  GYM_CONFIGS: 'reviewassist_mock_gym_configs_v1',
+  GYM_MEMBERS: 'reviewassist_mock_gym_members_v1',
+  GYM_CHECK_INS: 'reviewassist_mock_gym_check_ins_v1',
 };
 
 // Initial seed businesses for development & preview
@@ -203,6 +227,19 @@ const INITIAL_BUSINESSES: Business[] = [
     status: 'active',
     accountState: 'active',
     createdAt: '2026-11-03T09:30:00.000Z',
+  },
+  {
+    id: 'biz-iron-pulse-4',
+    ownerId: 'owner-iron-pulse-4',
+    slug: 'iron-pulse-gym',
+    name: 'Iron Pulse Fitness',
+    category: 'gym',
+    city: 'Hyderabad',
+    googleReviewUrl: PLACEHOLDER_GOOGLE_REVIEW_URL,
+    googleReviewUrlIsPlaceholder: true,
+    status: 'active',
+    accountState: 'active',
+    createdAt: '2026-11-04T07:00:00.000Z',
   },
 ];
 
@@ -4724,6 +4761,620 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       newLoyaltyStarsBalance,
       alreadyAwarded,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Module 5: GymOS — Membership, Payment Approvals & 3-Day Renewal Radar
+  // ---------------------------------------------------------------------------
+
+  private hydrateGymMember(
+    raw: GymMember,
+    renewalAlertDays: number,
+    todayIso: string,
+  ): GymMember {
+    let effectiveStatus: GymEffectiveMemberStatus = raw.status;
+    let daysRemaining = 0;
+
+    if (raw.status === 'active' && raw.endDate) {
+      const diff = diffDaysBetweenIsoDates(raw.endDate, todayIso);
+      if (diff < 0) {
+        effectiveStatus = 'expired';
+        daysRemaining = 0;
+      } else if (diff <= renewalAlertDays) {
+        effectiveStatus = 'expiring_soon';
+        daysRemaining = diff;
+      } else {
+        effectiveStatus = 'active';
+        daysRemaining = diff;
+      }
+    }
+
+    return {
+      ...raw,
+      effectiveStatus,
+      daysRemaining,
+      checkedInToday: raw.lastCheckInDate === todayIso,
+    };
+  }
+
+  private getOrSeedMockGymMembers(): GymMember[] {
+    const existing = this.read<GymMember[]>(STORAGE_KEYS.GYM_MEMBERS, []);
+    if (existing.length > 0) return existing;
+
+    const today = getTodayIsoDateKey();
+    const now = new Date().toISOString();
+    const seeded: GymMember[] = [
+      {
+        id: 'gymm-demo-1',
+        businessId: 'biz-iron-pulse-4',
+        memberCode: 'GYM-001',
+        fullName: 'Rahul Sharma',
+        phone: '9876543210',
+        planId: '1_month',
+        planName: '1 Month Plan',
+        durationDays: 30,
+        feePaise: 150000,
+        status: 'pending_approval',
+        effectiveStatus: 'pending_approval',
+        daysRemaining: 0,
+        startDate: null,
+        endDate: null,
+        totalCheckIns: 0,
+        lastCheckInDate: null,
+        checkedInToday: false,
+        approvedByLabel: null,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'gymm-demo-2',
+        businessId: 'biz-iron-pulse-4',
+        memberCode: 'GYM-002',
+        fullName: 'Priya Nair',
+        phone: '9876500002',
+        planId: '1_month',
+        planName: '1 Month Plan',
+        durationDays: 30,
+        feePaise: 150000,
+        status: 'active',
+        effectiveStatus: 'expiring_soon',
+        daysRemaining: 2,
+        startDate: addDaysToIsoDate(today, -28),
+        endDate: addDaysToIsoDate(today, 2),
+        totalCheckIns: 19,
+        lastCheckInDate: addDaysToIsoDate(today, -1),
+        checkedInToday: false,
+        approvedByLabel: 'Owner',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'gymm-demo-3',
+        businessId: 'biz-iron-pulse-4',
+        memberCode: 'GYM-003',
+        fullName: 'Vikram Reddy',
+        phone: '9876500003',
+        planId: '3_months',
+        planName: '3 Months Plan',
+        durationDays: 90,
+        feePaise: 400000,
+        status: 'active',
+        effectiveStatus: 'active',
+        daysRemaining: 24,
+        startDate: addDaysToIsoDate(today, -66),
+        endDate: addDaysToIsoDate(today, 24),
+        totalCheckIns: 42,
+        lastCheckInDate: today,
+        checkedInToday: true,
+        approvedByLabel: 'Owner',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'gymm-demo-4',
+        businessId: 'biz-iron-pulse-4',
+        memberCode: 'GYM-004',
+        fullName: 'Arjun Mehta',
+        phone: '9876500004',
+        planId: '1_month',
+        planName: '1 Month Plan',
+        durationDays: 30,
+        feePaise: 150000,
+        status: 'active',
+        effectiveStatus: 'expired',
+        daysRemaining: 0,
+        startDate: addDaysToIsoDate(today, -33),
+        endDate: addDaysToIsoDate(today, -3),
+        totalCheckIns: 21,
+        lastCheckInDate: addDaysToIsoDate(today, -5),
+        checkedInToday: false,
+        approvedByLabel: 'Owner',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+
+    this.write(STORAGE_KEYS.GYM_MEMBERS, seeded);
+    return seeded;
+  }
+
+  async getGymConfig(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymConfig> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    const store = this.read<Record<string, GymConfig>>(
+      STORAGE_KEYS.GYM_CONFIGS,
+      {},
+    );
+    return normalizeGymConfig(cleanId, store[cleanId]);
+  }
+
+  async updateGymConfig(
+    businessId: string,
+    input: GymConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymConfig> {
+    const validation = validateGymConfigInput(businessId, input);
+    if (!validation.ok) throw new Error(validation.error);
+
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    const store = this.read<Record<string, GymConfig>>(
+      STORAGE_KEYS.GYM_CONFIGS,
+      {},
+    );
+    const prev = store[cleanId];
+    const now = new Date().toISOString();
+    const updated: GymConfig = {
+      businessId: cleanId,
+      isRegistrationOpen: validation.value.isRegistrationOpen,
+      renewalAlertDays: validation.value.renewalAlertDays,
+      plans: validation.value.plans,
+      createdAt: prev?.createdAt ?? now,
+      updatedAt: now,
+    };
+    store[cleanId] = updated;
+    this.write(STORAGE_KEYS.GYM_CONFIGS, store);
+    return updated;
+  }
+
+  async getPublicGymPortal(
+    businessSlug: string,
+  ): Promise<PublicGymPortalPayload | null> {
+    const cleanSlug = (businessSlug ?? '').trim().toLowerCase();
+    if (!/^[a-z0-9-]{3,80}$/.test(cleanSlug)) return null;
+
+    const business = await this.getBusinessBySlug(cleanSlug);
+    if (
+      !business ||
+      business.status !== 'active' ||
+      business.accountState !== 'active'
+    ) {
+      return null;
+    }
+
+    const cfgStore = this.read<Record<string, GymConfig>>(
+      STORAGE_KEYS.GYM_CONFIGS,
+      {},
+    );
+    const config = normalizeGymConfig(business.id, cfgStore[business.id]);
+    const today = getTodayIsoDateKey();
+    const members = this.getOrSeedMockGymMembers()
+      .filter((m) => m.businessId === business.id)
+      .map((m) => this.hydrateGymMember(m, config.renewalAlertDays, today));
+
+    const activeMembersCount = members.filter(
+      (m) =>
+        m.effectiveStatus === 'active' || m.effectiveStatus === 'expiring_soon',
+    ).length;
+    const checkedInTodayCount = members.filter((m) => m.checkedInToday).length;
+
+    return {
+      business: {
+        id: business.id,
+        slug: business.slug,
+        name: business.name,
+        category: business.category,
+        city: business.city,
+        googleReviewUrl: business.googleReviewUrl,
+      },
+      config,
+      activeMembersCount,
+      checkedInTodayCount,
+    };
+  }
+
+  async submitGymMemberRegistration(
+    input: SubmitGymRegistrationInput,
+  ): Promise<GymMember> {
+    const validation = validateGymRegistrationInput(input);
+    if (!validation.ok) throw new Error(validation.error);
+
+    const business = await this.getBusinessBySlug(validation.value.businessSlug);
+    if (
+      !business ||
+      business.status !== 'active' ||
+      business.accountState !== 'active'
+    ) {
+      throw new Error('Gym is not active.');
+    }
+
+    const cfgStore = this.read<Record<string, GymConfig>>(
+      STORAGE_KEYS.GYM_CONFIGS,
+      {},
+    );
+    const config = normalizeGymConfig(business.id, cfgStore[business.id]);
+    if (!config.isRegistrationOpen) {
+      throw new Error(
+        'New member registrations are currently paused. Please speak to the front desk.',
+      );
+    }
+
+    const matchedPlan =
+      config.plans.find(
+        (p) =>
+          p.id.toLowerCase() === validation.value.planId.toLowerCase() ||
+          p.name.toLowerCase() === validation.value.planId.toLowerCase(),
+      ) ?? config.plans[0];
+
+    const today = getTodayIsoDateKey();
+    const now = new Date().toISOString();
+    const allMembers = this.getOrSeedMockGymMembers();
+    const idx = allMembers.findIndex(
+      (m) =>
+        m.businessId === business.id && m.phone === validation.value.phone,
+    );
+
+    if (idx !== -1) {
+      const existing = this.hydrateGymMember(
+        allMembers[idx],
+        config.renewalAlertDays,
+        today,
+      );
+      if (
+        existing.effectiveStatus === 'active' ||
+        existing.effectiveStatus === 'expiring_soon'
+      ) {
+        throw new Error(
+          'An active membership already exists for this phone number. Switch to "My Digital Pass" to view your pass.',
+        );
+      }
+
+      const updated: GymMember = {
+        ...existing,
+        fullName: validation.value.fullName,
+        planId: matchedPlan.id,
+        planName: matchedPlan.name,
+        durationDays: matchedPlan.durationDays,
+        feePaise: matchedPlan.pricePaise,
+        status: 'pending_approval',
+        effectiveStatus: 'pending_approval',
+        daysRemaining: 0,
+        updatedAt: now,
+      };
+      allMembers[idx] = updated;
+      this.write(STORAGE_KEYS.GYM_MEMBERS, allMembers);
+      return updated;
+    }
+
+    const bizMembers = allMembers.filter((m) => m.businessId === business.id);
+    let seq = bizMembers.length + 1;
+    let code = `GYM-${String(seq).padStart(3, '0')}`;
+    const existingCodes = new Set(bizMembers.map((m) => m.memberCode));
+    while (existingCodes.has(code)) {
+      seq++;
+      code = `GYM-${String(seq).padStart(3, '0')}`;
+    }
+
+    const created: GymMember = {
+      id: `gymm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      businessId: business.id,
+      memberCode: code,
+      fullName: validation.value.fullName,
+      phone: validation.value.phone,
+      planId: matchedPlan.id,
+      planName: matchedPlan.name,
+      durationDays: matchedPlan.durationDays,
+      feePaise: matchedPlan.pricePaise,
+      status: 'pending_approval',
+      effectiveStatus: 'pending_approval',
+      daysRemaining: 0,
+      startDate: null,
+      endDate: null,
+      totalCheckIns: 0,
+      lastCheckInDate: null,
+      checkedInToday: false,
+      approvedByLabel: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    allMembers.push(created);
+    this.write(STORAGE_KEYS.GYM_MEMBERS, allMembers);
+    return created;
+  }
+
+  async lookupGymMemberPass(params: {
+    businessSlug: string;
+    phone: string;
+  }): Promise<GymMember | null> {
+    const normPhone = normalizeGymPhone(params.phone);
+    if (normPhone.length < 8) {
+      throw new Error('Please enter a valid 10-digit phone number.');
+    }
+
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (
+      !business ||
+      business.status !== 'active' ||
+      business.accountState !== 'active'
+    ) {
+      return null;
+    }
+
+    const cfgStore = this.read<Record<string, GymConfig>>(
+      STORAGE_KEYS.GYM_CONFIGS,
+      {},
+    );
+    const config = normalizeGymConfig(business.id, cfgStore[business.id]);
+    const today = getTodayIsoDateKey();
+
+    const found = this.getOrSeedMockGymMembers().find(
+      (m) => m.businessId === business.id && m.phone === normPhone,
+    );
+    if (!found) return null;
+
+    return this.hydrateGymMember(found, config.renewalAlertDays, today);
+  }
+
+  async gymMemberDailyCheckIn(params: {
+    businessSlug: string;
+    phone: string;
+  }): Promise<GymDailyCheckInResult> {
+    const normPhone = normalizeGymPhone(params.phone);
+    if (normPhone.length < 8) {
+      throw new Error('Please enter a valid 10-digit phone number.');
+    }
+
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (
+      !business ||
+      business.status !== 'active' ||
+      business.accountState !== 'active'
+    ) {
+      throw new Error('Gym is not active.');
+    }
+
+    const cfgStore = this.read<Record<string, GymConfig>>(
+      STORAGE_KEYS.GYM_CONFIGS,
+      {},
+    );
+    const config = normalizeGymConfig(business.id, cfgStore[business.id]);
+    const today = getTodayIsoDateKey();
+
+    const members = this.getOrSeedMockGymMembers();
+    const idx = members.findIndex(
+      (m) => m.businessId === business.id && m.phone === normPhone,
+    );
+    if (idx === -1) {
+      throw new Error('Member not found for this phone number.');
+    }
+
+    const hydrated = this.hydrateGymMember(
+      members[idx],
+      config.renewalAlertDays,
+      today,
+    );
+    if (hydrated.effectiveStatus === 'pending_approval') {
+      throw new Error(
+        'Your membership is pending payment approval at the front desk.',
+      );
+    }
+    if (
+      hydrated.effectiveStatus !== 'active' &&
+      hydrated.effectiveStatus !== 'expiring_soon'
+    ) {
+      throw new Error(
+        'Your membership plan has expired. Please renew at the front desk to check in.',
+      );
+    }
+
+    if (hydrated.checkedInToday) {
+      return {
+        memberId: hydrated.id,
+        memberCode: hydrated.memberCode,
+        fullName: hydrated.fullName,
+        alreadyCheckedInToday: true,
+        totalCheckIns: hydrated.totalCheckIns,
+        daysRemaining: hydrated.daysRemaining,
+        checkedInDate: today,
+      };
+    }
+
+    const updated: GymMember = {
+      ...members[idx],
+      totalCheckIns: members[idx].totalCheckIns + 1,
+      lastCheckInDate: today,
+      checkedInToday: true,
+      updatedAt: new Date().toISOString(),
+    };
+    members[idx] = updated;
+    this.write(STORAGE_KEYS.GYM_MEMBERS, members);
+
+    return {
+      memberId: updated.id,
+      memberCode: updated.memberCode,
+      fullName: updated.fullName,
+      alreadyCheckedInToday: false,
+      totalCheckIns: updated.totalCheckIns,
+      daysRemaining: hydrated.daysRemaining,
+      checkedInDate: today,
+    };
+  }
+
+  async getGymOwnerDashboard(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymOwnerDashboardPayload> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    const cfgStore = this.read<Record<string, GymConfig>>(
+      STORAGE_KEYS.GYM_CONFIGS,
+      {},
+    );
+    const config = normalizeGymConfig(cleanId, cfgStore[cleanId]);
+    const today = getTodayIsoDateKey();
+
+    const members = this.getOrSeedMockGymMembers()
+      .filter((m) => m.businessId === cleanId)
+      .map((m) => this.hydrateGymMember(m, config.renewalAlertDays, today))
+      .sort((a, b) => {
+        const rank = (s: GymEffectiveMemberStatus) =>
+          s === 'pending_approval'
+            ? 1
+            : s === 'expiring_soon'
+              ? 2
+              : s === 'active'
+                ? 3
+                : 4;
+        const rDiff = rank(a.effectiveStatus) - rank(b.effectiveStatus);
+        if (rDiff !== 0) return rDiff;
+        if (a.endDate && b.endDate) return a.endDate.localeCompare(b.endDate);
+        return b.createdAt.localeCompare(a.createdAt);
+      });
+
+    const checkedInTodayCount = members.filter((m) => m.checkedInToday).length;
+
+    return {
+      config,
+      members,
+      checkedInTodayCount,
+    };
+  }
+
+  async ownerApproveOrRenewGymMember(params: {
+    businessId: string;
+    memberId: string;
+    action: GymOwnerMemberAction;
+    planId?: string | null;
+    durationDays?: number | null;
+    feePaise?: number | null;
+    staffLabel?: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMember> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const actionCheck = validateGymOwnerAction(params.action);
+    if (!actionCheck.ok) throw new Error(actionCheck.error);
+
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, params.options);
+
+    const cfgStore = this.read<Record<string, GymConfig>>(
+      STORAGE_KEYS.GYM_CONFIGS,
+      {},
+    );
+    const config = normalizeGymConfig(cleanId, cfgStore[cleanId]);
+    const today = getTodayIsoDateKey();
+    const now = new Date().toISOString();
+
+    const members = this.getOrSeedMockGymMembers();
+    const idx = members.findIndex(
+      (m) => m.id === params.memberId && m.businessId === cleanId,
+    );
+    if (idx === -1) {
+      throw new Error('Gym member not found for this business.');
+    }
+
+    const existing = members[idx];
+    let planId = params.planId?.trim() || existing.planId;
+    let planName = existing.planName;
+    let durationDays = params.durationDays ?? existing.durationDays;
+    let feePaise = params.feePaise ?? existing.feePaise;
+
+    if (params.planId) {
+      const matched = config.plans.find(
+        (p) => p.id.toLowerCase() === params.planId!.trim().toLowerCase(),
+      );
+      if (matched) {
+        planId = matched.id;
+        planName = matched.name;
+        if (params.durationDays == null) durationDays = matched.durationDays;
+        if (params.feePaise == null) feePaise = matched.pricePaise;
+      }
+    }
+
+    durationDays = Math.max(1, Math.min(1095, Math.round(durationDays)));
+    feePaise = Math.max(0, Math.min(100_000_000, Math.round(feePaise)));
+    const label = (params.staffLabel ?? 'Owner').trim().slice(0, 80) || 'Owner';
+
+    let updated: GymMember = { ...existing, updatedAt: now };
+
+    if (actionCheck.value === 'approve') {
+      updated = {
+        ...updated,
+        status: 'active',
+        planId,
+        planName,
+        durationDays,
+        feePaise,
+        startDate: today,
+        endDate: addDaysToIsoDate(today, durationDays),
+        approvedByLabel: label,
+      };
+    } else if (actionCheck.value === 'renew') {
+      const baseDate =
+        existing.endDate && existing.endDate > today ? existing.endDate : today;
+      updated = {
+        ...updated,
+        status: 'active',
+        planId,
+        planName,
+        durationDays,
+        feePaise,
+        startDate: existing.startDate ?? today,
+        endDate: addDaysToIsoDate(baseDate, durationDays),
+        approvedByLabel: label,
+      };
+    } else if (actionCheck.value === 'reject') {
+      updated = { ...updated, status: 'rejected' };
+    } else if (actionCheck.value === 'suspend') {
+      updated = { ...updated, status: 'suspended' };
+    }
+
+    const hydrated = this.hydrateGymMember(
+      updated,
+      config.renewalAlertDays,
+      today,
+    );
+    members[idx] = hydrated;
+    this.write(STORAGE_KEYS.GYM_MEMBERS, members);
+    return hydrated;
   }
 }
 

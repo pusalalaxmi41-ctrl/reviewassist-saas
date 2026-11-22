@@ -96,6 +96,24 @@ import {
   validateBarberTicketStatus,
   validateJoinBarberQueueInput,
 } from '../../utils/barberQueueValidation';
+import type {
+  GymConfig,
+  GymConfigInput,
+  GymDailyCheckInResult,
+  GymMember,
+  GymOwnerDashboardPayload,
+  GymOwnerMemberAction,
+  GymPlan,
+  PublicGymPortalPayload,
+  SubmitGymRegistrationInput,
+} from '../../types/gym';
+import {
+  normalizeGymConfig,
+  normalizeGymPhone,
+  validateGymConfigInput,
+  validateGymOwnerAction,
+  validateGymRegistrationInput,
+} from '../../utils/gymValidation';
 import { MENU_PRESET_PACKS } from '../../config/menuPresets';
 import {
   normalizeBusinessAIConfig,
@@ -4098,5 +4116,290 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     }
 
     return mockBusinessRepository.barberAdvanceQueueTicket(params);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Module 5: GymOS — Membership, Payment Approvals & 3-Day Renewal Radar
+  // ---------------------------------------------------------------------------
+
+  async getGymConfig(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymConfig> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('gym_configs')
+      .select(
+        'business_id, is_registration_open, renewal_alert_days, plans, created_at, updated_at',
+      )
+      .eq('business_id', cleanId)
+      .maybeSingle();
+
+    if (!error && data) {
+      const row = data as {
+        business_id: string;
+        is_registration_open: boolean;
+        renewal_alert_days: number;
+        plans: GymPlan[];
+        created_at: string;
+        updated_at: string;
+      };
+      return normalizeGymConfig(cleanId, {
+        isRegistrationOpen: row.is_registration_open,
+        renewalAlertDays: row.renewal_alert_days,
+        plans: row.plans,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      });
+    }
+
+    if (!error && !data) {
+      return normalizeGymConfig(cleanId, null);
+    }
+
+    return mockBusinessRepository.getGymConfig(cleanId, options);
+  }
+
+  async updateGymConfig(
+    businessId: string,
+    input: GymConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymConfig> {
+    const validation = validateGymConfigInput(businessId, input);
+    if (!validation.ok) throw new Error(validation.error);
+
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+    const now = new Date().toISOString();
+
+    const { data, error } = await client
+      .from('gym_configs')
+      .upsert(
+        {
+          business_id: cleanId,
+          is_registration_open: validation.value.isRegistrationOpen,
+          renewal_alert_days: validation.value.renewalAlertDays,
+          plans: validation.value.plans,
+          updated_at: now,
+        },
+        { onConflict: 'business_id' },
+      )
+      .select(
+        'business_id, is_registration_open, renewal_alert_days, plans, created_at, updated_at',
+      )
+      .single();
+
+    if (!error && data) {
+      const row = data as {
+        business_id: string;
+        is_registration_open: boolean;
+        renewal_alert_days: number;
+        plans: GymPlan[];
+        created_at: string;
+        updated_at: string;
+      };
+      return normalizeGymConfig(cleanId, {
+        isRegistrationOpen: row.is_registration_open,
+        renewalAlertDays: row.renewal_alert_days,
+        plans: row.plans,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      });
+    }
+
+    return mockBusinessRepository.updateGymConfig(cleanId, validation.value, options);
+  }
+
+  async getPublicGymPortal(
+    businessSlug: string,
+  ): Promise<PublicGymPortalPayload | null> {
+    const cleanSlug = (businessSlug ?? '').trim().toLowerCase();
+    if (!/^[a-z0-9-]{3,80}$/.test(cleanSlug)) return null;
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('get_public_gym_portal', {
+      p_slug: cleanSlug,
+    });
+
+    if (!error) {
+      if (data) return data as PublicGymPortalPayload;
+      const demoFallback = await mockBusinessRepository.getPublicGymPortal(cleanSlug);
+      if (demoFallback) return demoFallback;
+      return null;
+    }
+
+    return mockBusinessRepository.getPublicGymPortal(cleanSlug);
+  }
+
+  async submitGymMemberRegistration(
+    input: SubmitGymRegistrationInput,
+  ): Promise<GymMember> {
+    const validation = validateGymRegistrationInput(input);
+    if (!validation.ok) throw new Error(validation.error);
+
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('submit_gym_member_registration', {
+      p_slug: validation.value.businessSlug,
+      p_full_name: validation.value.fullName,
+      p_phone: validation.value.phone,
+      p_plan_id: validation.value.planId,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as GymMember;
+    }
+
+    if (
+      error &&
+      (error.message.includes('paused') ||
+        error.message.includes('already exists') ||
+        error.message.includes('valid'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    if (error && error.message.includes('not active')) {
+      const isDemo = await mockBusinessRepository.getBusinessBySlug(
+        validation.value.businessSlug,
+      );
+      if (!isDemo) throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.submitGymMemberRegistration(input);
+  }
+
+  async lookupGymMemberPass(params: {
+    businessSlug: string;
+    phone: string;
+  }): Promise<GymMember | null> {
+    const normPhone = normalizeGymPhone(params.phone);
+    if (normPhone.length < 8) {
+      throw new Error('Please enter a valid 10-digit phone number.');
+    }
+
+    const cleanSlug = params.businessSlug.trim().toLowerCase();
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('lookup_gym_member_pass', {
+      p_slug: cleanSlug,
+      p_phone: normPhone,
+    });
+
+    if (!error) {
+      if (data) return data as GymMember;
+      const isDemo = await mockBusinessRepository.getBusinessBySlug(cleanSlug);
+      if (isDemo) {
+        return mockBusinessRepository.lookupGymMemberPass({
+          businessSlug: cleanSlug,
+          phone: normPhone,
+        });
+      }
+      return null;
+    }
+
+    return mockBusinessRepository.lookupGymMemberPass(params);
+  }
+
+  async gymMemberDailyCheckIn(params: {
+    businessSlug: string;
+    phone: string;
+  }): Promise<GymDailyCheckInResult> {
+    const normPhone = normalizeGymPhone(params.phone);
+    if (normPhone.length < 8) {
+      throw new Error('Please enter a valid 10-digit phone number.');
+    }
+
+    const cleanSlug = params.businessSlug.trim().toLowerCase();
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('gym_member_daily_check_in', {
+      p_slug: cleanSlug,
+      p_phone: normPhone,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as GymDailyCheckInResult;
+    }
+
+    if (
+      error &&
+      (error.message.includes('pending payment') ||
+        error.message.includes('expired') ||
+        error.message.includes('Member not found'))
+    ) {
+      const isDemo = await mockBusinessRepository.getBusinessBySlug(cleanSlug);
+      if (!isDemo) throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.gymMemberDailyCheckIn(params);
+  }
+
+  async getGymOwnerDashboard(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymOwnerDashboardPayload> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('get_gym_owner_dashboard', {
+      p_business_id: cleanId,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as GymOwnerDashboardPayload;
+    }
+
+    return mockBusinessRepository.getGymOwnerDashboard(cleanId, options);
+  }
+
+  async ownerApproveOrRenewGymMember(params: {
+    businessId: string;
+    memberId: string;
+    action: GymOwnerMemberAction;
+    planId?: string | null;
+    durationDays?: number | null;
+    feePaise?: number | null;
+    staffLabel?: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMember> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const actionCheck = validateGymOwnerAction(params.action);
+    if (!actionCheck.ok) throw new Error(actionCheck.error);
+
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('owner_approve_or_renew_gym_member', {
+      p_business_id: cleanId,
+      p_member_id: params.memberId,
+      p_action: actionCheck.value,
+      p_plan_id: params.planId ?? null,
+      p_duration_days: params.durationDays ?? null,
+      p_fee_paise: params.feePaise ?? null,
+      p_staff_label: params.staffLabel ?? 'Owner',
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as GymMember;
+    }
+
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('not found'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.ownerApproveOrRenewGymMember(params);
   }
 }
