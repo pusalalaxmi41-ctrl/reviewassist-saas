@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Banknote,
   Calculator,
@@ -108,12 +109,12 @@ export function TableFinalBillModal({
   const perGuestPaise =
     bill && splitWays > 1 ? Math.ceil(bill.grandTotalPaise / splitWays) : 0;
 
-  return (
+  const modalContent = (
     <div
       role="dialog"
       aria-modal="true"
       aria-label={`Final Bill and Checkout for ${table.tableNumber}`}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-xs"
     >
       <div className="relative max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-[#1E1B4B]/20 bg-white shadow-2xl">
         {/* Header */}
@@ -431,4 +432,8 @@ export function TableFinalBillModal({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined'
+    ? createPortal(modalContent, document.body)
+    : modalContent;
 }

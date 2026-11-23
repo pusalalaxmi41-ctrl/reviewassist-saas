@@ -36,6 +36,7 @@ import {
   type ApplyMenuPresetResult,
   type CompleteTableBillCheckoutResult,
   type CreatePosOrPlatformOrderInput,
+  type FloorTableLayoutItem,
   type MenuPresetKey,
   type OpenTableBillSummary,
   type PublicRestaurantMenuPayload,
@@ -3500,6 +3501,8 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       pendingRewardClaims,
       tableOrderingEnabled: Boolean(profile.tableOrderingEnabled),
       businessMode: profile.businessMode ?? 'restaurant',
+      floorWidthFt: profile.floorWidthFt ?? 40,
+      floorHeightFt: profile.floorHeightFt ?? 28,
       tableOrders: activeTableOrders,
       recentOrders,
       tableMessages: recentMessages,
@@ -4587,6 +4590,90 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     });
 
     return { settledOrdersCount, billSummary };
+  }
+
+  async saveRestaurantFloorLayout(params: {
+    businessId: string;
+    floorWidthFt: number;
+    floorHeightFt: number;
+    tables: FloorTableLayoutItem[];
+    options?: AIConfigAccessOptions;
+  }): Promise<{
+    floorWidthFt: number;
+    floorHeightFt: number;
+    updatedTablesCount: number;
+  }> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, params.options);
+
+    const floorWidthFt = Math.max(
+      10,
+      Math.min(300, Math.round(params.floorWidthFt || 40)),
+    );
+    const floorHeightFt = Math.max(
+      10,
+      Math.min(300, Math.round(params.floorHeightFt || 28)),
+    );
+    const now = new Date().toISOString();
+
+    const profileStore = this.read<Record<string, RestaurantProfile>>(
+      STORAGE_KEYS.RESTAURANT_PROFILES,
+      {},
+    );
+    const existingProf = normalizeRestaurantProfile(
+      cleanId,
+      profileStore[cleanId],
+      'local',
+    );
+    profileStore[cleanId] = {
+      ...existingProf,
+      floorWidthFt,
+      floorHeightFt,
+      updatedAt: now,
+    };
+    this.write(STORAGE_KEYS.RESTAURANT_PROFILES, profileStore);
+
+    const tableStore = this.read<Record<string, RestaurantTable[]>>(
+      STORAGE_KEYS.RESTAURANT_TABLES,
+      {},
+    );
+    const tblList = tableStore[cleanId] ?? [];
+    const layoutById = new Map(params.tables.map((t) => [t.id, t]));
+    let updatedTablesCount = 0;
+
+    for (let i = 0; i < tblList.length; i++) {
+      const patch = layoutById.get(tblList[i].id);
+      if (!patch) continue;
+      tblList[i] = {
+        ...tblList[i],
+        tableShape:
+          patch.tableShape === 'square' ||
+          patch.tableShape === 'round' ||
+          patch.tableShape === 'rectangle'
+            ? patch.tableShape
+            : 'rectangle',
+        posX: Math.max(0, Math.min(94, Number(patch.posX) || 0)),
+        posY: Math.max(0, Math.min(90, Number(patch.posY) || 0)),
+        widthUnits: Math.max(6, Math.min(45, Number(patch.widthUnits) || 14)),
+        heightUnits: Math.max(6, Math.min(45, Number(patch.heightUnits) || 14)),
+        seatCapacity: Math.max(
+          1,
+          Math.min(30, Math.round(Number(patch.seatCapacity) || 4)),
+        ),
+        updatedAt: now,
+      };
+      updatedTablesCount++;
+    }
+    tableStore[cleanId] = tblList;
+    this.write(STORAGE_KEYS.RESTAURANT_TABLES, tableStore);
+
+    return { floorWidthFt, floorHeightFt, updatedTablesCount };
   }
 
   subscribeToHospitalityRealtime(

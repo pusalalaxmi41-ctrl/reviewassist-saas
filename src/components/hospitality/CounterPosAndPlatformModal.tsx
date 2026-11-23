@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ChefHat,
   Minus,
@@ -195,7 +196,7 @@ export function CounterPosAndPlatformModal({
     }
   }
 
-  return (
+  const modalContent = (
     <div
       role="dialog"
       aria-modal="true"
@@ -204,9 +205,9 @@ export function CounterPosAndPlatformModal({
           ? 'Add Aggregator Platform Order'
           : 'Counter POS Billing Screen'
       }
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 sm:p-5 backdrop-blur-xs"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-2 sm:p-4 backdrop-blur-xs"
     >
-      <div className="flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border border-[#1E1B4B]/20 bg-[#F8F9FA] shadow-2xl">
+      <div className="flex h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-3xl border border-[#1E1B4B]/20 bg-[#F8F9FA] shadow-2xl">
         {/* Top Modal Bar */}
         <div className="flex flex-wrap items-center justify-between gap-3 bg-[#1E1B4B] px-5 py-3.5 text-white">
           <div className="flex flex-wrap items-center gap-2">
@@ -546,7 +547,7 @@ export function CounterPosAndPlatformModal({
                 No matching dishes found.
               </p>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
                 {filteredDishes.map((dish) => {
                   const inCart = cart.find((c) => c.item.id === dish.id);
                   const isVeg =
@@ -564,8 +565,8 @@ export function CounterPosAndPlatformModal({
                           : 'border-slate-200 hover:border-[#1E1B4B]/50'
                       }`}
                     >
-                      {/* Uniform Square Aspect Photo OR Crisp Fork-and-Spoon Fallback */}
-                      <div className="relative aspect-square w-full bg-[#F8F9FA] flex items-center justify-center overflow-hidden">
+                      {/* Crisp Compact Dish Photo OR Sleek Fork-and-Spoon Fallback */}
+                      <div className="relative h-24 w-full bg-[#F8F9FA] flex items-center justify-center overflow-hidden">
                         {dish.imageUrl ? (
                           <img
                             src={dish.imageUrl}
@@ -623,4 +624,8 @@ export function CounterPosAndPlatformModal({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined'
+    ? createPortal(modalContent, document.body)
+    : modalContent;
 }

@@ -181,7 +181,7 @@ export default function RestaurantStaffVerificationPage() {
     : '';
 
   return (
-    <div className="mx-auto w-full max-w-md space-y-4 pb-10 animate-fadeSlideUp">
+    <div className="mx-auto w-full max-w-lg space-y-4 pb-10 animate-fadeSlideUp">
       {/* Top Bar — WAITER MOBILE FLOOR APP */}
       <header className="bistro-card px-4 py-3.5 space-y-3">
         <div className="flex items-center justify-between gap-3">
@@ -388,6 +388,8 @@ export default function RestaurantStaffVerificationPage() {
           mode="staff_portal"
           staffPinHash={verifiedPinHash}
           staffLabel={staffSession.staffLabel}
+          staffCode={staffSession.staffCode}
+          staffName={staffSession.fullName}
         />
       )}
     </div>

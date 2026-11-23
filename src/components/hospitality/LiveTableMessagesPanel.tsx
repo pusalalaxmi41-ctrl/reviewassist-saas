@@ -30,6 +30,7 @@ interface Props {
   onAssignCall: (callId: string, assignedStaffLabel: string) => Promise<void>;
   onOpenTableCheckout: (table: RestaurantTable) => void;
   onSendManagerReply: (tableKey: string, messageText: string) => Promise<void>;
+  singleColumn?: boolean;
 }
 
 export function LiveTableMessagesPanel({
@@ -42,6 +43,7 @@ export function LiveTableMessagesPanel({
   onAssignCall,
   onOpenTableCheckout,
   onSendManagerReply,
+  singleColumn = false,
 }: Props) {
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [sendingTableKey, setSendingTableKey] = useState<string | null>(null);
@@ -263,7 +265,11 @@ export function LiveTableMessagesPanel({
             No table or room chat messages yet today. Guest requests, order updates, and direct chats appear here in real time.
           </div>
         ) : (
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div
+            className={
+              singleColumn ? 'space-y-4' : 'grid gap-4 lg:grid-cols-2'
+            }
+          >
             {threads.map((thread) => (
               <div
                 key={thread.tableId}

@@ -226,6 +226,10 @@ export interface RestaurantProfile {
   acceptingOrders?: boolean;
   /** Enables unified Hotel Rooms mode alongside Dining Tables. */
   hotelRoomsEnabled?: boolean;
+  /** Custom visual floor plan width in feet (default 40 ft). */
+  floorWidthFt?: number;
+  /** Custom visual floor plan length/height in feet (default 28 ft). */
+  floorHeightFt?: number;
   updatedAt: string;
   storageSource?: 'supabase' | 'local';
 }
@@ -251,6 +255,20 @@ export interface RestaurantProfileInput {
   voiceAlertsEnabled?: boolean;
   acceptingOrders?: boolean;
   hotelRoomsEnabled?: boolean;
+  floorWidthFt?: number;
+  floorHeightFt?: number;
+}
+
+export type RestaurantTableShape = 'square' | 'rectangle' | 'round';
+
+export interface FloorTableLayoutItem {
+  id: string;
+  tableShape: RestaurantTableShape;
+  posX: number;
+  posY: number;
+  widthUnits: number;
+  heightUnits: number;
+  seatCapacity: number;
 }
 
 export interface RestaurantTable {
@@ -262,6 +280,11 @@ export interface RestaurantTable {
   locationType?: RestaurantLocationType;
   seatCapacity?: number;
   occupiedSince?: string | null;
+  tableShape?: RestaurantTableShape;
+  posX?: number | null;
+  posY?: number | null;
+  widthUnits?: number;
+  heightUnits?: number;
   isActive: boolean;
   createdAt?: string;
   updatedAt?: string;
@@ -273,6 +296,11 @@ export interface RestaurantTableInput {
   tableKey?: string;
   locationType?: RestaurantLocationType;
   seatCapacity?: number;
+  tableShape?: RestaurantTableShape;
+  posX?: number | null;
+  posY?: number | null;
+  widthUnits?: number;
+  heightUnits?: number;
   isActive?: boolean;
 }
 
@@ -715,6 +743,8 @@ export interface RestaurantFloorAndAnalyticsPayload {
   >;
   tableOrderingEnabled?: boolean;
   businessMode?: RestaurantBusinessMode;
+  floorWidthFt?: number;
+  floorHeightFt?: number;
   tableOrders?: RestaurantTableOrder[];
   /** All open/unpaid & recent (24h) orders including served/paid/platform orders for Floor Map & Orders ledger. */
   recentOrders?: RestaurantTableOrder[];

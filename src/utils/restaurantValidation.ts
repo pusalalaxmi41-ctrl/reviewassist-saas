@@ -706,6 +706,20 @@ export function normalizeRestaurantProfile(
       typeof partial?.hotelRoomsEnabled === 'boolean'
         ? partial.hotelRoomsEnabled
         : false,
+    floorWidthFt:
+      typeof partial?.floorWidthFt === 'number' &&
+      Number.isFinite(partial.floorWidthFt) &&
+      partial.floorWidthFt >= 10 &&
+      partial.floorWidthFt <= 300
+        ? Math.round(partial.floorWidthFt)
+        : 40,
+    floorHeightFt:
+      typeof partial?.floorHeightFt === 'number' &&
+      Number.isFinite(partial.floorHeightFt) &&
+      partial.floorHeightFt >= 10 &&
+      partial.floorHeightFt <= 300
+        ? Math.round(partial.floorHeightFt)
+        : 28,
     updatedAt:
       (partial as Partial<RestaurantProfile> | undefined)?.updatedAt ||
       new Date().toISOString(),

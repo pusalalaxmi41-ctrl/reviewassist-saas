@@ -10,6 +10,7 @@
  */
 
 import { MockLocalStorageRepository } from '../src/services/storage/MockLocalStorageRepository.ts';
+import { hashStaffPin } from '../src/utils/restaurantValidation.ts';
 import {
   buildUpiPaymentUri,
   calculateBillTotals,
@@ -697,6 +698,158 @@ assert(
 assert(
   !/substring\s*\(/i.test(sqlText),
   'Migration 019 obeys SQL Guardrail: zero substring(... from ...) syntax (pg_catalog.substr only)',
+);
+
+// ---------------------------------------------------------------------------
+// 8. Migration 020 — Custom Floor Plan Studio + Waiter PIN Direct-to-Chef + Assigned Task Alerts
+// ---------------------------------------------------------------------------
+console.log(
+  '\n8. Interactive Floor Plan Designer (Migration 020) & Waiter Mobile Order/Notification Flow',
+);
+
+const layoutSaveRes = await repo.saveRestaurantFloorLayout({
+  businessId: restaurant.id,
+  floorWidthFt: 52,
+  floorHeightFt: 34,
+  tables: [
+    {
+      id: tableT1.id,
+      tableShape: 'round',
+      posX: 42,
+      posY: 30,
+      widthUnits: 18,
+      heightUnits: 18,
+      seatCapacity: 6,
+    },
+    {
+      id: roomR101.id,
+      tableShape: 'rectangle',
+      posX: 70,
+      posY: 18,
+      widthUnits: 24,
+      heightUnits: 16,
+      seatCapacity: 2,
+    },
+  ],
+  options: ownerA,
+});
+
+assert(
+  layoutSaveRes.floorWidthFt === 52 &&
+    layoutSaveRes.floorHeightFt === 34 &&
+    layoutSaveRes.updatedTablesCount === 2,
+  'Saves custom room dimensions (52ft × 34ft) and updated table count atomically',
+  layoutSaveRes,
+);
+
+const floorAfterLayout = await repo.getRestaurantFloorAndAnalytics({
+  businessSlug: restaurant.slug,
+  options: ownerA,
+});
+const movedT1 = floorAfterLayout.tables?.find((t) => t.id === tableT1.id);
+assert(
+  floorAfterLayout.floorWidthFt === 52 &&
+    floorAfterLayout.floorHeightFt === 34 &&
+    movedT1?.tableShape === 'round' &&
+    movedT1?.posX === 42 &&
+    movedT1?.posY === 30 &&
+    movedT1?.widthUnits === 18 &&
+    movedT1?.heightUnits === 18 &&
+    movedT1?.seatCapacity === 6,
+  'Persists custom floor plan coordinates, shape (round), size & seat capacity cleanly in floor payload',
+  movedT1,
+);
+
+await assertRejects(
+  () =>
+    repo.saveRestaurantFloorLayout({
+      businessId: restaurant.id,
+      floorWidthFt: 99,
+      floorHeightFt: 99,
+      tables: [],
+      options: ownerB,
+    }),
+  'unauthorized',
+  'Blocks unauthorized tenant from modifying another venue custom floor plan',
+);
+
+// Create active Waiter Rahul (WTR-01) with personal PIN
+const rahulPinHash = await hashStaffPin(restaurant.slug, '4567');
+const waiterRahul = await repo.createRestaurantStaffMember(
+  restaurant.id,
+  {
+    fullName: 'Rahul',
+    role: 'waiter',
+    staffCode: 'WTR-01',
+    pinHash: rahulPinHash,
+  },
+  ownerA,
+);
+
+// Waiter takes a Table 01 order from Waiter Phone and sends DIRECTLY to Chef (KDS)
+const waiterDirectOrder = await repo.createPosOrPlatformOrder({
+  businessId: restaurant.id,
+  orderSource: 'pos_dine_in',
+  tableId: tableT1.id,
+  guestName: 'Walk-in Table 1 Guest',
+  kitchenNote: 'Serve hot with mint chutney',
+  items: [{ itemId: dishShared.id, quantity: 2 }],
+  staffLabel: `${waiterRahul.fullName} (${waiterRahul.staffCode})`,
+  staffPinHash: rahulPinHash,
+});
+
+assert(
+  waiterDirectOrder.status === 'approved_for_kitchen' &&
+    waiterDirectOrder.tableId === tableT1.id &&
+    waiterDirectOrder.approvedBy === 'Rahul (WTR-01)',
+  'Waiter PIN direct-to-chef order routes straight to Kitchen KDS with canonical approvedBy audit ("Rahul (WTR-01)")',
+  waiterDirectOrder,
+);
+
+// Manager proactively dispatches a Clean Table task to Rahul (WTR-01)
+const dispatchedCall = await repo.createRestaurantTableCall({
+  businessSlug: restaurant.slug,
+  tableKey: tableT1.tableKey,
+  callType: 'clean_table',
+});
+await repo.updateRestaurantTableCallStatus({
+  businessSlug: restaurant.slug,
+  callId: dispatchedCall.id,
+  status: 'open',
+  assignedStaffLabel: 'Rahul (WTR-01)',
+  options: ownerA,
+});
+
+// Waiter phone polls / receives floor payload authenticated ONLY via Rahul's PIN
+const waiterFloorPayload = await repo.getRestaurantFloorAndAnalytics({
+  businessSlug: restaurant.slug,
+  staffPinHash: rahulPinHash,
+});
+const rahulAssignedTask = waiterFloorPayload.activeTableCalls.find(
+  (c) => c.id === dispatchedCall.id,
+);
+const waiterOrderOnDashboard = (waiterFloorPayload.tableOrders ?? []).find(
+  (o) => o.id === waiterDirectOrder.id,
+);
+
+assert(
+  rahulAssignedTask?.assignedStaffLabel === 'Rahul (WTR-01)' &&
+    rahulAssignedTask?.callType === 'clean_table' &&
+    Boolean(waiterOrderOnDashboard),
+  'Waiter phone receives assigned Clean Table task & live direct-to-chef order synced with Main Dashboard',
+  { rahulAssignedTask, waiterOrderOnDashboard },
+);
+
+// SQL Guardrail check on 020_floor_plan_designer_and_waiter_flow.sql
+const sql020Text = await Deno.readTextFile(
+  'supabase/migrations/020_floor_plan_designer_and_waiter_flow.sql',
+);
+assert(
+  !/substring\s*\(/i.test(sql020Text) &&
+    /save_restaurant_floor_layout/i.test(sql020Text) &&
+    /is_business_owner/i.test(sql020Text) &&
+    /set search_path = pg_catalog, public, pg_temp/i.test(sql020Text),
+  'Migration 020 obeys SQL Guardrails: zero substring(, owner check via is_business_owner, hardened search_path',
 );
 
 // ---------------------------------------------------------------------------

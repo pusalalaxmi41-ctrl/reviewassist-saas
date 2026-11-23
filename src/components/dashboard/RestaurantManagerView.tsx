@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import QRCode from 'qrcode';
 import {
   UtensilsCrossed,
@@ -52,6 +53,7 @@ import type { Business } from '../../types/business';
 import type {
   DietaryTag,
   DishSpiceLevel,
+  FloorTableLayoutItem,
   MenuPresetKey,
   MenuThemeTemplate,
   RestaurantBusinessMode,
@@ -68,6 +70,7 @@ import type {
   RestaurantStaffMember,
   RestaurantSuggestion,
   RestaurantTable,
+  RestaurantTableCallType,
   RestaurantTableOrder,
   RestaurantTableOrderStatus,
   RestaurantTriviaQuestion,
@@ -244,6 +247,13 @@ export function RestaurantManagerView({
     null,
   );
   const [showChatDrawer, setShowChatDrawer] = useState(false);
+
+  // Manager -> Waiter proactive task dispatch bar state
+  const [dispatchTableKey, setDispatchTableKey] = useState<string>('');
+  const [dispatchTaskType, setDispatchTaskType] =
+    useState<RestaurantTableCallType>('clean_table');
+  const [dispatchWaiterLabel, setDispatchWaiterLabel] = useState<string>('');
+  const [dispatchingTask, setDispatchingTask] = useState(false);
 
   // Voice Alert dedup refs (skip initial load; speak only newly arrived calls & orders)
   const initializedAlertsRef = useRef(false);
@@ -762,7 +772,7 @@ export function RestaurantManagerView({
 
   async function handleUpdateTableCall(
     callId: string,
-    nextStatus: 'acknowledged' | 'resolved',
+    nextStatus: 'open' | 'acknowledged' | 'resolved',
     assignedStaffLabel?: string | null,
   ) {
     try {
@@ -778,11 +788,65 @@ export function RestaurantManagerView({
         nextStatus === 'resolved'
           ? 'Guest request marked done ✓'
           : assignedStaffLabel
-            ? `Assigned to ${assignedStaffLabel}.`
+            ? `Notified ${assignedStaffLabel} — live alert sent to their Waiter App ✓`
             : 'Guest request acknowledged.',
       );
     } catch (err) {
       setErrorMessage((err as Error).message);
+    }
+  }
+
+  async function handleDispatchTaskToWaiter(e: React.FormEvent) {
+    e.preventDefault();
+    const activeTables = tables.filter((t) => t.isActive);
+    const targetTable =
+      activeTables.find((t) => t.tableKey === dispatchTableKey) ??
+      activeTables[0];
+    const assignable = staffMembers.filter(
+      (s) => s.isActive && (s.role === 'waiter' || s.role === 'manager'),
+    );
+    const targetWaiter =
+      dispatchWaiterLabel ||
+      (assignable[0]
+        ? `${assignable[0].fullName} (${assignable[0].staffCode})`
+        : '');
+
+    if (!targetTable) {
+      setErrorMessage('Add a table first before dispatching waiter tasks.');
+      return;
+    }
+    if (!targetWaiter) {
+      setErrorMessage(
+        'Add at least one Waiter or Manager in "Staff & Waiters" to assign tasks.',
+      );
+      return;
+    }
+
+    setDispatchingTask(true);
+    try {
+      const created = await businessRepository.createRestaurantTableCall({
+        businessSlug: business.slug,
+        tableKey: targetTable.tableKey,
+        callType: dispatchTaskType,
+      });
+      await businessRepository.updateRestaurantTableCallStatus({
+        businessSlug: business.slug,
+        callId: created.id,
+        status: 'open',
+        assignedStaffLabel: targetWaiter,
+        staffPinHash: null,
+      });
+      await refreshFloorData();
+      const meta =
+        TABLE_CALL_TYPE_METADATA[dispatchTaskType] ??
+        TABLE_CALL_TYPE_METADATA.assistance;
+      notifyStatus(
+        `Sent live alert to ${targetWaiter}: Go to ${targetTable.tableNumber} (${meta.label}) ✓`,
+      );
+    } catch (err) {
+      setErrorMessage((err as Error).message);
+    } finally {
+      setDispatchingTask(false);
     }
   }
 
@@ -1654,7 +1718,7 @@ export function RestaurantManagerView({
   const unreadSuggestions = suggestions.filter((s) => !s.isRead).length;
 
   return (
-    <div className="space-y-6 animate-fadeSlideUp">
+    <div className="space-y-5 pb-24">
       {/* Global Toast Banners */}
       {statusMessage && (
         <div
@@ -2237,6 +2301,19 @@ export function RestaurantManagerView({
                         <span className="text-[11.5px] font-semibold text-[#6B7280] tabular-nums">
                           ({formatTimeAgo(call.createdAt)})
                         </span>
+                        {call.assignedStaffLabel && (
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10.5px] font-extrabold ${
+                              call.status === 'acknowledged'
+                                ? 'bg-emerald-100 text-emerald-900'
+                                : 'bg-indigo-100 text-indigo-900'
+                            }`}
+                          >
+                            {call.status === 'acknowledged'
+                              ? `🏃 On Way: ${call.assignedStaffLabel}`
+                              : `🔔 Notified: ${call.assignedStaffLabel}`}
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2">
@@ -2248,7 +2325,7 @@ export function RestaurantManagerView({
                               if (!e.target.value) return;
                               void handleUpdateTableCall(
                                 call.id,
-                                'acknowledged',
+                                'open',
                                 e.target.value,
                               );
                             }}
@@ -2332,6 +2409,57 @@ export function RestaurantManagerView({
                     business.category === 'hotel' ||
                     business.category === 'pg'
                   }
+                  floorWidthFt={
+                    floorData?.floorWidthFt ?? profile?.floorWidthFt ?? 40
+                  }
+                  floorHeightFt={
+                    floorData?.floorHeightFt ?? profile?.floorHeightFt ?? 28
+                  }
+                  onSaveFloorLayout={async (layoutParams: {
+                    floorWidthFt: number;
+                    floorHeightFt: number;
+                    tables: FloorTableLayoutItem[];
+                  }) => {
+                    const res =
+                      await businessRepository.saveRestaurantFloorLayout({
+                        businessId: business.id,
+                        floorWidthFt: layoutParams.floorWidthFt,
+                        floorHeightFt: layoutParams.floorHeightFt,
+                        tables: layoutParams.tables,
+                      });
+                    const byId = new Map(
+                      layoutParams.tables.map((t) => [t.id, t]),
+                    );
+                    setTables((prev) =>
+                      prev.map((t) => {
+                        const patch = byId.get(t.id);
+                        return patch
+                          ? {
+                              ...t,
+                              tableShape: patch.tableShape,
+                              posX: patch.posX,
+                              posY: patch.posY,
+                              widthUnits: patch.widthUnits,
+                              heightUnits: patch.heightUnits,
+                              seatCapacity: patch.seatCapacity,
+                            }
+                          : t;
+                      }),
+                    );
+                    setProfile((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            floorWidthFt: res.floorWidthFt,
+                            floorHeightFt: res.floorHeightFt,
+                          }
+                        : prev,
+                    );
+                    notifyStatus(
+                      `Saved custom ${res.floorWidthFt}ft × ${res.floorHeightFt}ft floor plan (${res.updatedTablesCount} tables updated) ✓`,
+                    );
+                    void refreshFloorData();
+                  }}
                   onSelectAvailableTable={(tbl) => {
                     setPosInitialTableId(tbl.id);
                     setPosModalMode('pos');
@@ -2341,6 +2469,114 @@ export function RestaurantManagerView({
                   }}
                 />
               )}
+
+              {/* Proactive Manager -> Waiter Task Dispatcher (Send instant alert to Rahul/Madhan phone!) */}
+              {tables.filter((t) => t.isActive).length > 0 &&
+                staffMembers.some(
+                  (s) =>
+                    s.isActive &&
+                    (s.role === 'waiter' || s.role === 'manager'),
+                ) && (
+                  <form
+                    onSubmit={(e) => void handleDispatchTaskToWaiter(e)}
+                    className="bistro-card px-4 py-3 flex flex-wrap items-center justify-between gap-2.5"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#1E1B4B] text-[#D2DB76]">
+                        <BellRing className="h-4 w-4" aria-hidden />
+                      </span>
+                      <div>
+                        <p className="text-[12.5px] font-extrabold text-[#111827]">
+                          Assign Task to Waiter (Instant Phone + Voice Alert)
+                        </p>
+                        <p className="text-[11px] font-medium text-[#6B7280]">
+                          Notify a waiter immediately to clean a table, bring water, or assist a guest.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        aria-label="Select table for waiter task"
+                        value={
+                          dispatchTableKey ||
+                          tables.filter((t) => t.isActive)[0]?.tableKey ||
+                          ''
+                        }
+                        onChange={(e) => setDispatchTableKey(e.target.value)}
+                        className="h-9 rounded-xl border border-[#1E1B4B]/20 bg-[#F8F9FA] px-2.5 text-[12px] font-bold text-[#111827] focus:border-[#1E1B4B] focus:outline-none cursor-pointer"
+                      >
+                        {tables
+                          .filter((t) => t.isActive)
+                          .map((t) => (
+                            <option key={t.id} value={t.tableKey}>
+                              {t.tableNumber}
+                              {t.tableLabel ? ` (${t.tableLabel})` : ''}
+                            </option>
+                          ))}
+                      </select>
+
+                      <select
+                        aria-label="Select task type"
+                        value={dispatchTaskType}
+                        onChange={(e) =>
+                          setDispatchTaskType(
+                            e.target.value as RestaurantTableCallType,
+                          )
+                        }
+                        className="h-9 rounded-xl border border-[#1E1B4B]/20 bg-[#F8F9FA] px-2.5 text-[12px] font-bold text-[#111827] focus:border-[#1E1B4B] focus:outline-none cursor-pointer"
+                      >
+                        <option value="clean_table">🧹 Clean Table</option>
+                        <option value="water">💧 Bring Water</option>
+                        <option value="assistance">🙋 Attend Guest</option>
+                        <option value="bill_request">🧾 Take Bill</option>
+                      </select>
+
+                      <select
+                        aria-label="Select waiter to notify"
+                        value={
+                          dispatchWaiterLabel ||
+                          (() => {
+                            const first = staffMembers.find(
+                              (s) =>
+                                s.isActive &&
+                                (s.role === 'waiter' || s.role === 'manager'),
+                            );
+                            return first
+                              ? `${first.fullName} (${first.staffCode})`
+                              : '';
+                          })()
+                        }
+                        onChange={(e) => setDispatchWaiterLabel(e.target.value)}
+                        className="h-9 rounded-xl border border-[#1E1B4B]/20 bg-[#F8F9FA] px-2.5 text-[12px] font-bold text-[#1E1B4B] focus:border-[#1E1B4B] focus:outline-none cursor-pointer"
+                      >
+                        {staffMembers
+                          .filter(
+                            (s) =>
+                              s.isActive &&
+                              (s.role === 'waiter' || s.role === 'manager'),
+                          )
+                          .map((st) => {
+                            const lbl = `${st.fullName} (${st.staffCode})`;
+                            return (
+                              <option key={st.id} value={lbl}>
+                                {lbl}
+                              </option>
+                            );
+                          })}
+                      </select>
+
+                      <button
+                        type="submit"
+                        disabled={dispatchingTask}
+                        className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#1E1B4B] px-3.5 text-[12px] font-extrabold text-[#D2DB76] hover:bg-[#2E2A6E] active:scale-[0.98] transition disabled:opacity-50 cursor-pointer"
+                      >
+                        <BellRing className="h-3.5 w-3.5" aria-hidden />
+                        {dispatchingTask ? 'Sending…' : 'Send to Waiter'}
+                      </button>
+                    </div>
+                  </form>
+                )}
             </div>
           )}
 
@@ -5014,100 +5250,108 @@ export function RestaurantManagerView({
           </div>
         </div>
       )}
-      {/* Floating Bottom-Right Live Requests & 2-Way Table Chat Bubble (Always Accessible!) */}
-      <button
-        type="button"
-        onClick={() => setShowChatDrawer(true)}
-        aria-label="Open Live Guest Requests and Table Chat"
-        className={`fixed bottom-6 right-6 z-40 flex h-14 items-center gap-2.5 rounded-full px-4.5 shadow-2xl transition-all hover:scale-[1.03] active:scale-[0.97] cursor-pointer ${
-          openMessagesAndAlertsCount > 0
-            ? 'bg-[#1E1B4B] text-white ring-4 ring-[#EF4444]/40'
-            : 'bg-[#1E1B4B] text-white ring-2 ring-[#D2DB76]/70'
-        }`}
-      >
-        <span className="relative flex h-8 w-8 items-center justify-center rounded-full bg-[#D2DB76] text-[#1E1B4B]">
-          <MessageSquare className="h-4.5 w-4.5" aria-hidden />
-          {openMessagesAndAlertsCount > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#EF4444] px-1 text-[10.5px] font-black text-white shadow-sm animate-pulse tabular-nums">
-              {openMessagesAndAlertsCount}
-            </span>
-          )}
-        </span>
-        <span className="text-[13px] font-extrabold pr-1">
-          {openMessagesAndAlertsCount > 0
-            ? `Chat & Alerts (${openMessagesAndAlertsCount})`
-            : 'Live Chat'}
-        </span>
-      </button>
-
-      {/* Slide-Over Right Drawer: Live Requests & 2-Way Table Chat (Never Leaves Floor Map!) */}
-      {showChatDrawer && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Live Requests and Table Chat Drawer"
-          className="fixed inset-0 z-50 flex justify-end bg-[#1E1B4B]/45 backdrop-blur-[2px]"
-        >
-          <div className="flex h-full w-full max-w-[520px] flex-col bg-[#F8F9FA] shadow-2xl animate-fadeSlideUp">
-            <div className="flex items-center justify-between gap-3 bg-[#1E1B4B] px-5 py-4 text-white">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#D2DB76] text-[#1E1B4B]">
-                  <MessageSquare className="h-4.5 w-4.5" aria-hidden />
+      {/* Floating Bottom-Right Live Requests & 2-Way Table Chat Bubble (Portaled into document.body — Never Overlaps Content) */}
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <button
+            type="button"
+            onClick={() => setShowChatDrawer(true)}
+            aria-label="Open Live Guest Requests and Table Chat"
+            className={`fixed bottom-5 right-5 z-[80] flex h-13 items-center gap-2 rounded-full px-4 shadow-2xl transition-all hover:scale-[1.03] active:scale-[0.97] cursor-pointer ${
+              openMessagesAndAlertsCount > 0
+                ? 'bg-[#1E1B4B] text-white ring-4 ring-[#EF4444]/40'
+                : 'bg-[#1E1B4B] text-white ring-2 ring-[#D2DB76]/75'
+            }`}
+          >
+            <span className="relative flex h-7 w-7 items-center justify-center rounded-full bg-[#D2DB76] text-[#1E1B4B]">
+              <MessageSquare className="h-4 w-4" aria-hidden />
+              {openMessagesAndAlertsCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#EF4444] px-1 text-[10px] font-black text-white shadow-sm animate-pulse tabular-nums">
+                  {openMessagesAndAlertsCount}
                 </span>
-                <div className="min-w-0">
-                  <h2 className="text-[16px] font-extrabold truncate">
-                    Live Requests &amp; 2-Way Table Chat
-                  </h2>
-                  <p className="text-[11.5px] font-semibold text-[#D2DB76]">
-                    {activeCalls.length} active alert
-                    {activeCalls.length === 1 ? '' : 's'} ·{' '}
-                    {tableMessages.length} message
-                    {tableMessages.length === 1 ? '' : 's'}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowChatDrawer(false)}
-                aria-label="Close Live Chat Drawer"
-                className="rounded-xl bg-white/10 p-2 text-white hover:bg-white/20 cursor-pointer"
-              >
-                <X className="h-5 w-5" aria-hidden />
-              </button>
-            </div>
+              )}
+            </span>
+            <span className="text-[12.5px] font-extrabold pr-0.5">
+              {openMessagesAndAlertsCount > 0
+                ? `Chat & Alerts (${openMessagesAndAlertsCount})`
+                : 'Live Chat'}
+            </span>
+          </button>,
+          document.body,
+        )}
 
-            <div className="flex-1 overflow-y-auto p-4">
-              <LiveTableMessagesPanel
-                businessSlug={business.slug}
-                businessName={business.name}
-                activeCalls={activeCalls}
-                tableMessages={tableMessages}
-                tables={tables}
-                staffRoster={staffMembers}
-                onResolveCall={async (callId, assignedLabel) => {
-                  await handleUpdateTableCall(
-                    callId,
-                    'resolved',
-                    assignedLabel,
-                  );
-                }}
-                onAssignCall={async (callId, assignedLabel) => {
-                  await handleUpdateTableCall(
-                    callId,
-                    'acknowledged',
-                    assignedLabel,
-                  );
-                }}
-                onOpenTableCheckout={(tbl) => {
-                  setShowChatDrawer(false);
-                  setBillModalTable(tbl);
-                }}
-                onSendManagerReply={handleSendManagerReply}
-              />
+      {/* Slide-Over Right Drawer: Live Requests & 2-Way Table Chat (Portaled Full-Height Over Viewport) */}
+      {showChatDrawer &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Live Requests and Table Chat Drawer"
+            className="fixed inset-0 z-[100] flex justify-end bg-slate-950/55 backdrop-blur-[2px]"
+          >
+            <div className="flex h-full w-full max-w-[540px] flex-col bg-[#F8F9FA] shadow-2xl">
+              <div className="flex items-center justify-between gap-3 bg-[#1E1B4B] px-5 py-4 text-white">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#D2DB76] text-[#1E1B4B]">
+                    <MessageSquare className="h-4.5 w-4.5" aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <h2 className="text-[16px] font-extrabold truncate">
+                      Live Requests &amp; 2-Way Table Chat
+                    </h2>
+                    <p className="text-[11.5px] font-semibold text-[#D2DB76]">
+                      {activeCalls.length} active alert
+                      {activeCalls.length === 1 ? '' : 's'} ·{' '}
+                      {tableMessages.length} message
+                      {tableMessages.length === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowChatDrawer(false)}
+                  aria-label="Close Live Chat Drawer"
+                  className="rounded-xl bg-white/10 p-2 text-white hover:bg-white/20 cursor-pointer"
+                >
+                  <X className="h-5 w-5" aria-hidden />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4">
+                <LiveTableMessagesPanel
+                  businessSlug={business.slug}
+                  businessName={business.name}
+                  activeCalls={activeCalls}
+                  tableMessages={tableMessages}
+                  tables={tables}
+                  staffRoster={staffMembers}
+                  singleColumn
+                  onResolveCall={async (callId, assignedLabel) => {
+                    await handleUpdateTableCall(
+                      callId,
+                      'resolved',
+                      assignedLabel,
+                    );
+                  }}
+                  onAssignCall={async (callId, assignedLabel) => {
+                    await handleUpdateTableCall(
+                      callId,
+                      'acknowledged',
+                      assignedLabel,
+                    );
+                  }}
+                  onOpenTableCheckout={(tbl) => {
+                    setShowChatDrawer(false);
+                    setBillModalTable(tbl);
+                  }}
+                  onSendManagerReply={handleSendManagerReply}
+                />
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
 
       {/* Open Table / Room Bill & Split-Bill Checkout Modal */}
       {billModalTable && (

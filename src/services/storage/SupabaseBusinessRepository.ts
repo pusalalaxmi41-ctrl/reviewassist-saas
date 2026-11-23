@@ -31,6 +31,7 @@ import type {
   CreatePosOrPlatformOrderInput,
   DietaryTag,
   DishSpiceLevel,
+  FloorTableLayoutItem,
   MenuPresetKey,
   MenuThemeTemplate,
   MonthlyInventoryEntryType,
@@ -1575,6 +1576,11 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
           location_type?: RestaurantLocationType;
           seat_capacity?: number;
           occupied_since?: string | null;
+          table_shape?: 'square' | 'rectangle' | 'round';
+          pos_x?: number | null;
+          pos_y?: number | null;
+          width_units?: number | null;
+          height_units?: number | null;
           is_active: boolean;
           created_at: string;
           updated_at: string;
@@ -1588,6 +1594,23 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         locationType: row.location_type ?? 'table',
         seatCapacity: row.seat_capacity ?? 4,
         occupiedSince: row.occupied_since ?? null,
+        tableShape: row.table_shape ?? 'rectangle',
+        posX:
+          row.pos_x !== null && row.pos_x !== undefined
+            ? Number(row.pos_x)
+            : null,
+        posY:
+          row.pos_y !== null && row.pos_y !== undefined
+            ? Number(row.pos_y)
+            : null,
+        widthUnits:
+          row.width_units !== null && row.width_units !== undefined
+            ? Number(row.width_units)
+            : 14,
+        heightUnits:
+          row.height_units !== null && row.height_units !== undefined
+            ? Number(row.height_units)
+            : 14,
         isActive: row.is_active,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -3228,7 +3251,56 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     );
 
     if (!error && data && typeof data === 'object') {
-      return data as RestaurantFloorAndAnalyticsPayload;
+      const payload = data as RestaurantFloorAndAnalyticsPayload;
+      // If Migration 020 hasn't been applied on Supabase yet, overlay any local floor layout saved by the owner
+      if (
+        payload.floorWidthFt === undefined &&
+        Array.isArray(payload.tables) &&
+        payload.tables.length > 0 &&
+        typeof window !== 'undefined' &&
+        window.localStorage
+      ) {
+        const bizId = payload.tables[0]?.businessId;
+        if (bizId) {
+          try {
+            const raw = window.localStorage.getItem(
+              `vitaran_floor_layout_${bizId}`,
+            );
+            if (raw) {
+              const saved = JSON.parse(raw) as {
+                floorWidthFt?: number;
+                floorHeightFt?: number;
+                tables?: FloorTableLayoutItem[];
+              };
+              const byId = new Map(
+                (saved.tables ?? []).map((t) => [t.id, t]),
+              );
+              return {
+                ...payload,
+                floorWidthFt: saved.floorWidthFt ?? 40,
+                floorHeightFt: saved.floorHeightFt ?? 28,
+                tables: payload.tables.map((tbl) => {
+                  const patch = byId.get(tbl.id);
+                  return patch
+                    ? {
+                        ...tbl,
+                        tableShape: patch.tableShape,
+                        posX: patch.posX,
+                        posY: patch.posY,
+                        widthUnits: patch.widthUnits,
+                        heightUnits: patch.heightUnits,
+                        seatCapacity: patch.seatCapacity ?? tbl.seatCapacity,
+                      }
+                    : tbl;
+                }),
+              };
+            }
+          } catch {
+            // ignore corrupted fallback cache
+          }
+        }
+      }
+      return payload;
     }
 
     return mockBusinessRepository.getRestaurantFloorAndAnalytics(params);
@@ -3588,6 +3660,70 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     }
 
     return mockBusinessRepository.completeTableBillCheckout(params);
+  }
+
+  async saveRestaurantFloorLayout(params: {
+    businessId: string;
+    floorWidthFt: number;
+    floorHeightFt: number;
+    tables: FloorTableLayoutItem[];
+    options?: AIConfigAccessOptions;
+  }): Promise<{
+    floorWidthFt: number;
+    floorHeightFt: number;
+    updatedTablesCount: number;
+  }> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('save_restaurant_floor_layout', {
+      p_business_id: cleanId,
+      p_floor_width_ft: Math.max(
+        10,
+        Math.min(300, Math.round(params.floorWidthFt || 40)),
+      ),
+      p_floor_height_ft: Math.max(
+        10,
+        Math.min(300, Math.round(params.floorHeightFt || 28)),
+      ),
+      p_tables: params.tables,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as {
+        floorWidthFt: number;
+        floorHeightFt: number;
+        updatedTablesCount: number;
+      };
+    }
+    if (error && error.message.includes('Unauthorized')) {
+      throw new Error(error.message);
+    }
+
+    // Graceful localStorage persistence if Migration 020 hasn't been applied yet
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(
+          `vitaran_floor_layout_${cleanId}`,
+          JSON.stringify({
+            floorWidthFt: params.floorWidthFt,
+            floorHeightFt: params.floorHeightFt,
+            tables: params.tables,
+          }),
+        );
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+
+    return {
+      floorWidthFt: params.floorWidthFt,
+      floorHeightFt: params.floorHeightFt,
+      updatedTablesCount: params.tables.length,
+    };
   }
 
   subscribeToHospitalityRealtime(

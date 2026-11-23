@@ -20,6 +20,7 @@ import type {
   ApplyMenuPresetResult,
   CompleteTableBillCheckoutResult,
   CreatePosOrPlatformOrderInput,
+  FloorTableLayoutItem,
   MenuPresetKey,
   OpenTableBillSummary,
   PublicRestaurantMenuPayload,
@@ -596,6 +597,19 @@ export interface IBusinessRepository {
     staffPinHash?: string | null;
     options?: AIConfigAccessOptions;
   }): Promise<CompleteTableBillCheckoutResult>;
+
+  /** Atomically saves custom floor plan dimensions (width x height ft) and dragged table shapes/coordinates. */
+  saveRestaurantFloorLayout(params: {
+    businessId: string;
+    floorWidthFt: number;
+    floorHeightFt: number;
+    tables: FloorTableLayoutItem[];
+    options?: AIConfigAccessOptions;
+  }): Promise<{
+    floorWidthFt: number;
+    floorHeightFt: number;
+    updatedTablesCount: number;
+  }>;
 
   /** Subscribes to live hospitality changes (orders, calls, messages). Returns cleanup unsubscribe callback. */
   subscribeToHospitalityRealtime(

@@ -353,11 +353,11 @@ export default function BusinessDashboard() {
     (destination === 'games_loyalty' && loyaltyMode === 'loyalty');
 
   return (
-    <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
-      {/* LEFT SIDEBAR — 6 Plain-English Destinations (Fixed 244px on Desktop, Zero Scrollbar) */}
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+      {/* LEFT SIDEBAR — 6 Plain-English Destinations (Sleek 216px on Desktop, Zero Scrollbar) */}
       <aside
         aria-label="BistroOS Workspace Navigation"
-        className="w-full lg:w-[244px] lg:shrink-0 lg:sticky lg:top-20 bistro-card p-4 flex flex-col justify-between lg:min-h-[600px] space-y-5"
+        className="w-full lg:w-[216px] lg:shrink-0 lg:sticky lg:top-18 bistro-card p-3.5 flex flex-col justify-between lg:min-h-[600px] space-y-4"
       >
         <div className="space-y-4">
           {/* Restaurant Switcher Header */}
