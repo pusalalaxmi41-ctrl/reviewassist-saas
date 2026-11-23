@@ -3,6 +3,9 @@ import {
   ArrowLeft,
   CheckCircle2,
   ChefHat,
+  Clock,
+  Info,
+  MessageSquare,
   Minus,
   Plus,
   Send,
@@ -28,6 +31,7 @@ import type {
 import { businessRepository } from '../../services/storage';
 import { resolveDishPhotoUrl } from '../../config/menuPresets';
 import { formatPriceFromPaise } from '../../utils/restaurantValidation';
+import { SPICE_LEVEL_METADATA } from '../../utils/hospitalityHelpers';
 
 interface Props {
   businessSlug: string;
@@ -40,6 +44,8 @@ interface Props {
   items: RestaurantMenuItem[];
   wallet: RestaurantCustomerWalletState | null;
   onBackToHub: () => void;
+  onOrderSubmitted?: () => void;
+  onOpenChatAndBill?: (tab: 'chat' | 'bill') => void;
 }
 
 interface ThemeStyleTokens {
@@ -504,16 +510,23 @@ export function CustomerDigitalMenuView({
   items,
   wallet,
   onBackToHub,
+  onOrderSubmitted,
+  onOpenChatAndBill,
 }: Props) {
   const theme: MenuThemeTemplate = profile.menuThemeTemplate ?? 'default';
   const tokens = getThemeTokens(theme);
-  const orderingEnabled = Boolean(profile.tableOrderingEnabled);
+  const orderingEnabled =
+    Boolean(profile.tableOrderingEnabled) && profile.acceptingOrders !== false;
 
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
   const [vegOnly, setVegOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   // Default to rich photo cards, auto-available switch to Classic Compact Menu (great for 40+ Indian dishes!)
   const [viewMode, setViewMode] = useState<'cards' | 'compact'>('cards');
+  const [selectedDishDetail, setSelectedDishDetail] = useState<{
+    dish: RestaurantMenuItem;
+    categoryName: string;
+  } | null>(null);
 
   // Optional Table Order Draft State (ONLY active when tableOrderingEnabled === true)
   const [orderQuantities, setOrderQuantities] = useState<
@@ -530,8 +543,15 @@ export function CustomerDigitalMenuView({
     useState<RestaurantTableOrder | null>(null);
 
   const normalizedSearch = searchQuery.trim().toLowerCase();
+  const isRoomLocation = table?.locationType === 'room';
 
-  const visibleItems = items.filter((item) => {
+  const locationScopedItems = items.filter((item) => {
+    if (isRoomLocation && item.showOnRoom === false) return false;
+    if (!isRoomLocation && table && item.showOnTable === false) return false;
+    return true;
+  });
+
+  const visibleItems = locationScopedItems.filter((item) => {
     if (
       selectedCategoryId !== 'all' &&
       item.categoryId !== selectedCategoryId
@@ -542,7 +562,8 @@ export function CustomerDigitalMenuView({
       return false;
     }
     if (normalizedSearch) {
-      const hay = `${item.name} ${item.description ?? ''}`.toLowerCase();
+      const hay =
+        `${item.name} ${item.description ?? ''} ${item.ingredientsSummary ?? ''}`.toLowerCase();
       if (!hay.includes(normalizedSearch)) {
         return false;
       }
@@ -596,6 +617,7 @@ export function CustomerDigitalMenuView({
         customerId: wallet?.customer.id ?? null,
         guestName:
           guestNameInput.trim() || wallet?.customer.displayName || null,
+        kitchenNote: cleanNote,
         items: selectedEntries.map((entry, idx) => ({
           itemId: entry.dish.id,
           quantity: entry.quantity,
@@ -606,6 +628,7 @@ export function CustomerDigitalMenuView({
       setOrderQuantities({});
       setOrderNote('');
       setShowOrderReview(false);
+      onOrderSubmitted?.();
     } catch (err) {
       setOrderError((err as Error).message);
     } finally {
@@ -810,9 +833,21 @@ export function CustomerDigitalMenuView({
                 .map((i) => `${i.quantity}× ${i.name}`)
                 .join(', ')}
             </p>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">
-              Status: Pending Staff Approval → Kitchen Queue
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">
+                Status: Pending Staff Approval → Kitchen Queue
+              </p>
+              {onOpenChatAndBill && (
+                <button
+                  type="button"
+                  onClick={() => onOpenChatAndBill('bill')}
+                  className="inline-flex items-center gap-1 rounded-full bg-emerald-700 px-3 py-1 text-[11px] font-extrabold text-white hover:bg-emerald-800 cursor-pointer"
+                >
+                  <MessageSquare className="h-3 w-3" aria-hidden />
+                  View Bill &amp; Track →
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -966,7 +1001,16 @@ export function CustomerDigitalMenuView({
                           key={dish.id}
                           className="flex items-center justify-between gap-3 px-4 py-3"
                         >
-                          <div className="min-w-0 flex-1 space-y-0.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelectedDishDetail({
+                                dish,
+                                categoryName: cat.name,
+                              })
+                            }
+                            className="min-w-0 flex-1 space-y-0.5 text-left cursor-pointer"
+                          >
                             <div className="flex items-center gap-2">
                               <FssaiDietaryMark tag={dish.dietaryTag} />
                               {dish.isFeatured && (
@@ -978,13 +1022,18 @@ export function CustomerDigitalMenuView({
                               <h3 className={`${tokens.dishTitle} truncate`}>
                                 {dish.name}
                               </h3>
+                              {dish.spiceLevel && (
+                                <span className="text-[11px]" aria-hidden>
+                                  {SPICE_LEVEL_METADATA[dish.spiceLevel].emoji}
+                                </span>
+                              )}
                             </div>
                             {dish.description && (
                               <p className={`${tokens.dishDesc} line-clamp-1`}>
                                 {dish.description}
                               </p>
                             )}
-                          </div>
+                          </button>
 
                           <div className="flex shrink-0 items-center gap-2">
                             <span className={tokens.priceTag}>
@@ -1013,7 +1062,16 @@ export function CustomerDigitalMenuView({
                             key={dish.id}
                             className={`${tokens.dishCard} flex items-center gap-3.5`}
                           >
-                            <div className="relative h-18 w-18 shrink-0 overflow-hidden rounded-full border-2 border-[#0D9488]/30 shadow-xs">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedDishDetail({
+                                  dish,
+                                  categoryName: cat.name,
+                                })
+                              }
+                              className="relative h-18 w-18 shrink-0 overflow-hidden rounded-full border-2 border-[#0D9488]/30 shadow-xs cursor-pointer"
+                            >
                               <DishPhoto
                                 src={photoUrl}
                                 alt={dish.name}
@@ -1023,9 +1081,18 @@ export function CustomerDigitalMenuView({
                               <span className="absolute bottom-0 right-0 rounded-full bg-[#1A365D] px-1.5 py-0.5 font-mono text-[9px] font-bold text-[#FFFFFF]">
                                 {String(dishIdx + 1).padStart(2, '0')}
                               </span>
-                            </div>
+                            </button>
 
-                            <div className="min-w-0 flex-1 space-y-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedDishDetail({
+                                  dish,
+                                  categoryName: cat.name,
+                                })
+                              }
+                              className="min-w-0 flex-1 space-y-1 text-left cursor-pointer"
+                            >
                               <div className="flex items-center gap-1.5">
                                 <FssaiDietaryMark tag={dish.dietaryTag} />
                                 {dish.isFeatured && (
@@ -1036,6 +1103,11 @@ export function CustomerDigitalMenuView({
                                     Pick
                                   </span>
                                 )}
+                                {dish.spiceLevel && (
+                                  <span className="text-[11px]" aria-hidden>
+                                    {SPICE_LEVEL_METADATA[dish.spiceLevel].emoji}
+                                  </span>
+                                )}
                               </div>
                               <h3 className={tokens.dishTitle}>{dish.name}</h3>
                               {dish.description && (
@@ -1043,7 +1115,7 @@ export function CustomerDigitalMenuView({
                                   {dish.description}
                                 </p>
                               )}
-                            </div>
+                            </button>
 
                             <div className="flex shrink-0 flex-col items-end gap-2">
                               <span className={tokens.priceTag}>
@@ -1073,7 +1145,16 @@ export function CustomerDigitalMenuView({
                             key={dish.id}
                             className={`${tokens.dishCard} flex flex-col justify-between`}
                           >
-                            <div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedDishDetail({
+                                  dish,
+                                  categoryName: cat.name,
+                                })
+                              }
+                              className="text-left w-full cursor-pointer"
+                            >
                               <div className="relative h-28 w-full overflow-hidden">
                                 <DishPhoto
                                   src={photoUrl}
@@ -1095,6 +1176,12 @@ export function CustomerDigitalMenuView({
                                     Best
                                   </span>
                                 )}
+                                {dish.prepTimeMinutes && (
+                                  <span className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-0.5 rounded-full bg-black/65 px-2 py-0.5 text-[9.5px] font-bold text-white">
+                                    <Clock className="h-2.5 w-2.5" aria-hidden />
+                                    {dish.prepTimeMinutes}m
+                                  </span>
+                                )}
                               </div>
 
                               <div className="p-3 space-y-1">
@@ -1106,8 +1193,14 @@ export function CustomerDigitalMenuView({
                                     {dish.description}
                                   </p>
                                 )}
+                                <p className="inline-flex items-center gap-1 text-[10px] font-bold opacity-65">
+                                  <Info className="h-2.5 w-2.5" aria-hidden />
+                                  {dish.spiceLevel
+                                    ? `${SPICE_LEVEL_METADATA[dish.spiceLevel].emoji} ${SPICE_LEVEL_METADATA[dish.spiceLevel].label}`
+                                    : 'Tap for details'}
+                                </p>
                               </div>
-                            </div>
+                            </button>
 
                             <div className="flex items-center justify-between gap-1.5 px-3 pb-3 pt-1">
                               <span className={tokens.priceTag}>
@@ -1275,6 +1368,134 @@ export function CustomerDigitalMenuView({
                 : 'Send Table Order for Approval'}
             </button>
           </form>
+        </div>
+      )}
+
+      {/* Expandable Dish Details Pop-Up Modal (Photo, Spice Level, Ingredients, Prep Time, Add to Order) */}
+      {selectedDishDetail && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={selectedDishDetail.dish.name}
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/65 p-4 backdrop-blur-xs"
+        >
+          <div className="w-full max-w-md overflow-hidden rounded-3xl bg-[#FFFFFF] text-[#111827] shadow-2xl animate-fadeSlideUp">
+            <div className="relative h-52 w-full overflow-hidden">
+              <DishPhoto
+                src={resolveDishPhotoUrl(
+                  selectedDishDetail.dish.name,
+                  selectedDishDetail.categoryName,
+                  selectedDishDetail.dish.imageUrl,
+                  theme,
+                )}
+                alt={selectedDishDetail.dish.name}
+                className="h-full w-full"
+                fallbackClass={tokens.fallbackPlateBg}
+              />
+              <button
+                type="button"
+                aria-label="Close dish details"
+                onClick={() => setSelectedDishDetail(null)}
+                className="absolute top-3 right-3 rounded-full bg-black/60 p-2 text-white hover:bg-black/80 cursor-pointer"
+              >
+                <X className="h-4.5 w-4.5" aria-hidden />
+              </button>
+              <div className="absolute bottom-3 left-3 flex flex-wrap items-center gap-1.5">
+                <FssaiDietaryMark tag={selectedDishDetail.dish.dietaryTag} />
+                {selectedDishDetail.dish.isFeatured && (
+                  <span className="rounded-full bg-[#D2DB76] px-2.5 py-0.5 text-[10.5px] font-extrabold text-[#1E1B4B]">
+                    ★ Chef&apos;s Special
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="p-5 space-y-3.5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#6B7280]">
+                    {selectedDishDetail.categoryName}
+                  </p>
+                  <h3 className="text-[20px] font-extrabold text-[#111827] leading-snug">
+                    {selectedDishDetail.dish.name}
+                  </h3>
+                </div>
+                <span className="shrink-0 rounded-full bg-[#1E1B4B]/8 px-3 py-1 text-[16px] font-black text-[#1E1B4B] tabular-nums">
+                  {formatPriceFromPaise(
+                    selectedDishDetail.dish.pricePaise,
+                    profile.currencyCode,
+                  )}
+                </span>
+              </div>
+
+              {/* Spice Level & Prep Time Pills */}
+              {(selectedDishDetail.dish.spiceLevel ||
+                selectedDishDetail.dish.prepTimeMinutes) && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {selectedDishDetail.dish.spiceLevel && (
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11.5px] font-extrabold ${SPICE_LEVEL_METADATA[selectedDishDetail.dish.spiceLevel].badgeClass}`}
+                    >
+                      {
+                        SPICE_LEVEL_METADATA[selectedDishDetail.dish.spiceLevel]
+                          .emoji
+                      }{' '}
+                      {
+                        SPICE_LEVEL_METADATA[selectedDishDetail.dish.spiceLevel]
+                          .label
+                      }
+                    </span>
+                  )}
+                  {selectedDishDetail.dish.prepTimeMinutes && (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-[#1E1B4B]/12 bg-[#F8F9FA] px-2.5 py-1 text-[11.5px] font-bold text-[#374151]">
+                      <Clock className="h-3.5 w-3.5 text-[#1E1B4B]" aria-hidden />
+                      Ready in ~{selectedDishDetail.dish.prepTimeMinutes} mins
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {selectedDishDetail.dish.description && (
+                <p className="text-[13.5px] text-[#4B5563] leading-relaxed">
+                  {selectedDishDetail.dish.description}
+                </p>
+              )}
+
+              {selectedDishDetail.dish.ingredientsSummary && (
+                <div className="rounded-2xl border border-[#1E1B4B]/10 bg-[#F8F9FA] p-3">
+                  <p className="text-[10.5px] font-extrabold uppercase tracking-wider text-[#6B7280]">
+                    Ingredients &amp; Allergens
+                  </p>
+                  <p className="mt-0.5 text-[12.5px] font-semibold text-[#111827]">
+                    {selectedDishDetail.dish.ingredientsSummary}
+                  </p>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setSelectedDishDetail(null)}
+                  className="h-11 rounded-xl border border-[#1E1B4B]/15 bg-[#F8F9FA] px-4 text-[13px] font-bold text-[#374151] hover:bg-white cursor-pointer"
+                >
+                  Close
+                </button>
+                {orderingEnabled && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      adjustQty(selectedDishDetail.dish.id, 1);
+                      setSelectedDishDetail(null);
+                    }}
+                    className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#1E1B4B] px-4 text-[13.5px] font-extrabold text-white hover:bg-[#2E2A6E] cursor-pointer"
+                  >
+                    <Plus className="h-4 w-4 text-[#D2DB76]" aria-hidden />
+                    Add to Order
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

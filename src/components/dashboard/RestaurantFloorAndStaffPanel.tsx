@@ -386,6 +386,7 @@ export function RestaurantFloorAndStaffPanel({
         pending_approval: 'Moved to Pending.',
         approved_for_kitchen: 'Approved → Sent to Chef Kitchen Queue!',
         preparing: 'Kitchen started preparing order.',
+        ready: 'Order marked Ready to Serve!',
         served: 'Order marked Served ✓',
         cancelled: 'Order cancelled.',
       };

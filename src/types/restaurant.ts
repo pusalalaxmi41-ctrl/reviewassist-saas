@@ -36,10 +36,36 @@ export type MenuPresetKey =
   | 'samudra_coastal'
   | 'sizzler_diner';
 
+export type RestaurantLocationType = 'table' | 'room';
+
+export type DishSpiceLevel = 'mild' | 'medium' | 'spicy' | 'extra_spicy';
+
+export type RestaurantOrderSource =
+  | 'qr_table'
+  | 'qr_room'
+  | 'pos_dine_in'
+  | 'pos_takeaway'
+  | 'pos_delivery'
+  | 'swiggy'
+  | 'zomato'
+  | 'magicpin'
+  | 'ondc'
+  | 'phone'
+  | 'website';
+
+export type RestaurantPaymentStatus = 'unpaid' | 'upi_pending_verify' | 'paid';
+
+export type RestaurantPaymentMethod =
+  | 'cash'
+  | 'upi'
+  | 'card'
+  | 'platform_prepaid';
+
 export type RestaurantTableOrderStatus =
   | 'pending_approval'
   | 'approved_for_kitchen'
   | 'preparing'
+  | 'ready'
   | 'served'
   | 'cancelled';
 
@@ -57,13 +83,87 @@ export interface RestaurantTableOrder {
   tableId: string | null;
   tableNumber?: string | null;
   tableKey?: string | null;
+  locationType?: RestaurantLocationType;
   customerId: string | null;
   guestName: string | null;
   items: RestaurantTableOrderItem[];
   status: RestaurantTableOrderStatus;
+  orderSource?: RestaurantOrderSource;
+  platformOrderNumber?: string | null;
+  packagingPaise?: number;
+  kitchenNote?: string | null;
+  billSessionId?: string | null;
+  paymentStatus?: RestaurantPaymentStatus;
+  paymentMethod?: RestaurantPaymentMethod | null;
+  paidAt?: string | null;
+  customerRepeatVisitCount?: number;
   approvedBy: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type RestaurantTableMessageSenderRole = 'customer' | 'manager' | 'system';
+
+export interface RestaurantTableMessage {
+  id: string;
+  businessId: string;
+  tableId: string;
+  tableNumber?: string;
+  tableKey?: string;
+  locationType?: RestaurantLocationType;
+  senderRole: RestaurantTableMessageSenderRole;
+  senderName: string | null;
+  messageText: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface OpenTableBillSummary {
+  businessId: string;
+  businessName: string;
+  tableId: string;
+  tableNumber: string;
+  tableKey: string;
+  locationType: RestaurantLocationType;
+  occupiedSince: string | null;
+  orders: RestaurantTableOrder[];
+  orderCount: number;
+  subtotalPaise: number;
+  gstPercent: number;
+  gstPaise: number;
+  cgstPaise: number;
+  sgstPaise: number;
+  serviceChargePercent: number;
+  serviceChargePaise: number;
+  grandTotalPaise: number;
+  currencyCode: RestaurantCurrencyCode;
+  gstin: string | null;
+  upiId: string | null;
+  upiPayeeName: string;
+  paymentStatus: RestaurantPaymentStatus;
+  paymentMethod: RestaurantPaymentMethod | null;
+  paidAt: string | null;
+  billRequested: boolean;
+  isCheckedOut: boolean;
+}
+
+export interface CreatePosOrPlatformOrderInput {
+  businessId: string;
+  orderSource: RestaurantOrderSource;
+  tableId?: string | null;
+  platformOrderNumber?: string | null;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  kitchenNote?: string | null;
+  packagingPaise?: number;
+  items: Array<{ itemId: string; quantity: number; notes?: string | null }>;
+  staffLabel?: string;
+  staffPinHash?: string | null;
+}
+
+export interface CompleteTableBillCheckoutResult {
+  settledOrdersCount: number;
+  billSummary: OpenTableBillSummary | null;
 }
 
 export interface ApplyMenuPresetResult {
@@ -110,6 +210,22 @@ export interface RestaurantProfile {
   customLogoUrl?: string | null;
   /** Optional custom hex accent color (#RRGGBB). */
   customAccentColor?: string | null;
+  /** Optional merchant UPI ID for dynamic customer QR payments (e.g. hotelgrand@okicici). */
+  upiId?: string | null;
+  /** Optional UPI Payee Display Name. */
+  upiPayeeName?: string | null;
+  /** Optional GSTIN printed on tax bills & receipts. */
+  gstin?: string | null;
+  /** Optional GST % (0–28, auto-split equally into CGST + SGST). Defaults to 0 (Simple Total). */
+  gstPercent?: number;
+  /** Optional Service Charge % (0–25). Defaults to 0. */
+  serviceChargePercent?: number;
+  /** Enable browser Web Speech API spoken voice alerts for incoming table calls & orders. */
+  voiceAlertsEnabled?: boolean;
+  /** Operational toggle to pause/resume incoming QR orders. */
+  acceptingOrders?: boolean;
+  /** Enables unified Hotel Rooms mode alongside Dining Tables. */
+  hotelRoomsEnabled?: boolean;
   updatedAt: string;
   storageSource?: 'supabase' | 'local';
 }
@@ -127,6 +243,14 @@ export interface RestaurantProfileInput {
   businessMode?: RestaurantBusinessMode;
   customLogoUrl?: string | null;
   customAccentColor?: string | null;
+  upiId?: string | null;
+  upiPayeeName?: string | null;
+  gstin?: string | null;
+  gstPercent?: number;
+  serviceChargePercent?: number;
+  voiceAlertsEnabled?: boolean;
+  acceptingOrders?: boolean;
+  hotelRoomsEnabled?: boolean;
 }
 
 export interface RestaurantTable {
@@ -135,6 +259,9 @@ export interface RestaurantTable {
   tableNumber: string;
   tableLabel: string | null;
   tableKey: string;
+  locationType?: RestaurantLocationType;
+  seatCapacity?: number;
+  occupiedSince?: string | null;
   isActive: boolean;
   createdAt?: string;
   updatedAt?: string;
@@ -144,6 +271,8 @@ export interface RestaurantTableInput {
   tableNumber: string;
   tableLabel?: string | null;
   tableKey?: string;
+  locationType?: RestaurantLocationType;
+  seatCapacity?: number;
   isActive?: boolean;
 }
 
@@ -177,6 +306,11 @@ export interface RestaurantMenuItem {
   isFeatured: boolean;
   imageUrl: string | null;
   displayOrder: number;
+  showOnTable?: boolean;
+  showOnRoom?: boolean;
+  spiceLevel?: DishSpiceLevel | null;
+  ingredientsSummary?: string | null;
+  prepTimeMinutes?: number | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -191,6 +325,11 @@ export interface RestaurantMenuItemInput {
   isFeatured?: boolean;
   imageUrl?: string | null;
   displayOrder?: number;
+  showOnTable?: boolean;
+  showOnRoom?: boolean;
+  spiceLevel?: DishSpiceLevel | null;
+  ingredientsSummary?: string | null;
+  prepTimeMinutes?: number | null;
 }
 
 export interface PublicRestaurantMenuPayload {
@@ -502,7 +641,12 @@ export interface RestaurantSuggestionInput {
 // Phase 4: Visual Table Floor Map, Staff Verification Mode & Owner Analytics
 // ===========================================================================
 
-export type RestaurantTableCallType = 'assistance' | 'ready_for_bill';
+export type RestaurantTableCallType =
+  | 'assistance'
+  | 'water'
+  | 'bill_request'
+  | 'clean_table'
+  | 'ready_for_bill';
 
 export type RestaurantTableCallStatus = 'open' | 'acknowledged' | 'resolved';
 
@@ -512,9 +656,11 @@ export interface RestaurantTableCall {
   tableId: string;
   tableNumber: string;
   tableKey: string;
+  locationType?: RestaurantLocationType;
   customerId: string | null;
   callType: RestaurantTableCallType;
   status: RestaurantTableCallStatus;
+  assignedStaffLabel?: string | null;
   staffNote?: string | null;
   createdAt: string;
   resolvedAt?: string | null;
@@ -570,6 +716,12 @@ export interface RestaurantFloorAndAnalyticsPayload {
   tableOrderingEnabled?: boolean;
   businessMode?: RestaurantBusinessMode;
   tableOrders?: RestaurantTableOrder[];
+  /** All open/unpaid & recent (24h) orders including served/paid/platform orders for Floor Map & Orders ledger. */
+  recentOrders?: RestaurantTableOrder[];
+  /** Recent 2-way table/room chat messages across the property (last 24h). */
+  tableMessages?: RestaurantTableMessage[];
+  /** Active tables & rooms with live occupiedSince timestamps for visual Floor Map. */
+  tables?: RestaurantTable[];
   /** Map of `verifiedByLabel` -> count of verified paid visits performed today (UTC day). */
   staffVerificationCountsToday?: Record<string, number>;
   analytics: RestaurantEngagementAnalytics;

@@ -148,6 +148,7 @@ export const ALLOWED_TABLE_ORDER_STATUSES: ReadonlyArray<RestaurantTableOrderSta
   'pending_approval',
   'approved_for_kitchen',
   'preparing',
+  'ready',
   'served',
   'cancelled',
 ];
@@ -340,6 +341,14 @@ export function validateRestaurantProfileInput(
         businessMode?: RestaurantBusinessMode;
         customLogoUrl?: string | null;
         customAccentColor?: string | null;
+        upiId?: string | null;
+        upiPayeeName?: string | null;
+        gstin?: string | null;
+        gstPercent?: number;
+        serviceChargePercent?: number;
+        voiceAlertsEnabled?: boolean;
+        acceptingOrders?: boolean;
+        hotelRoomsEnabled?: boolean;
       };
     }
   | { ok: false; error: string } {
@@ -495,6 +504,68 @@ export function validateRestaurantProfileInput(
     }
   }
 
+  const upiId =
+    rec.upiId === undefined
+      ? undefined
+      : typeof rec.upiId === 'string' && stripControlChars(rec.upiId)
+        ? stripControlChars(rec.upiId).slice(0, 120)
+        : null;
+
+  const upiPayeeName =
+    rec.upiPayeeName === undefined
+      ? undefined
+      : typeof rec.upiPayeeName === 'string' &&
+          stripControlChars(rec.upiPayeeName)
+        ? stripControlChars(rec.upiPayeeName).slice(0, 100)
+        : null;
+
+  const gstin =
+    rec.gstin === undefined
+      ? undefined
+      : typeof rec.gstin === 'string' && stripControlChars(rec.gstin)
+        ? stripControlChars(rec.gstin).toUpperCase().slice(0, 32)
+        : null;
+
+  let gstPercent: number | undefined;
+  if (rec.gstPercent !== undefined) {
+    if (
+      typeof rec.gstPercent !== 'number' ||
+      !Number.isFinite(rec.gstPercent) ||
+      rec.gstPercent < 0 ||
+      rec.gstPercent > 28
+    ) {
+      return { ok: false, error: 'GST percentage must be between 0 and 28.' };
+    }
+    gstPercent = Math.round(rec.gstPercent * 100) / 100;
+  }
+
+  let serviceChargePercent: number | undefined;
+  if (rec.serviceChargePercent !== undefined) {
+    if (
+      typeof rec.serviceChargePercent !== 'number' ||
+      !Number.isFinite(rec.serviceChargePercent) ||
+      rec.serviceChargePercent < 0 ||
+      rec.serviceChargePercent > 25
+    ) {
+      return {
+        ok: false,
+        error: 'Service charge percentage must be between 0 and 25.',
+      };
+    }
+    serviceChargePercent = Math.round(rec.serviceChargePercent * 100) / 100;
+  }
+
+  const voiceAlertsEnabled =
+    typeof rec.voiceAlertsEnabled === 'boolean'
+      ? rec.voiceAlertsEnabled
+      : undefined;
+  const acceptingOrders =
+    typeof rec.acceptingOrders === 'boolean' ? rec.acceptingOrders : undefined;
+  const hotelRoomsEnabled =
+    typeof rec.hotelRoomsEnabled === 'boolean'
+      ? rec.hotelRoomsEnabled
+      : undefined;
+
   return {
     ok: true,
     value: {
@@ -512,6 +583,14 @@ export function validateRestaurantProfileInput(
       ...(businessMode !== undefined ? { businessMode } : {}),
       ...(customLogoUrl !== undefined ? { customLogoUrl } : {}),
       ...(customAccentColor !== undefined ? { customAccentColor } : {}),
+      ...(upiId !== undefined ? { upiId } : {}),
+      ...(upiPayeeName !== undefined ? { upiPayeeName } : {}),
+      ...(gstin !== undefined ? { gstin } : {}),
+      ...(gstPercent !== undefined ? { gstPercent } : {}),
+      ...(serviceChargePercent !== undefined ? { serviceChargePercent } : {}),
+      ...(voiceAlertsEnabled !== undefined ? { voiceAlertsEnabled } : {}),
+      ...(acceptingOrders !== undefined ? { acceptingOrders } : {}),
+      ...(hotelRoomsEnabled !== undefined ? { hotelRoomsEnabled } : {}),
     },
   };
 }
@@ -588,6 +667,45 @@ export function normalizeRestaurantProfile(
     businessMode,
     customLogoUrl,
     customAccentColor,
+    upiId:
+      typeof partial?.upiId === 'string' && stripControlChars(partial.upiId)
+        ? stripControlChars(partial.upiId).slice(0, 120)
+        : null,
+    upiPayeeName:
+      typeof partial?.upiPayeeName === 'string' &&
+      stripControlChars(partial.upiPayeeName)
+        ? stripControlChars(partial.upiPayeeName).slice(0, 100)
+        : null,
+    gstin:
+      typeof partial?.gstin === 'string' && stripControlChars(partial.gstin)
+        ? stripControlChars(partial.gstin).toUpperCase().slice(0, 32)
+        : null,
+    gstPercent:
+      typeof partial?.gstPercent === 'number' &&
+      Number.isFinite(partial.gstPercent) &&
+      partial.gstPercent >= 0 &&
+      partial.gstPercent <= 28
+        ? Math.round(partial.gstPercent * 100) / 100
+        : 0,
+    serviceChargePercent:
+      typeof partial?.serviceChargePercent === 'number' &&
+      Number.isFinite(partial.serviceChargePercent) &&
+      partial.serviceChargePercent >= 0 &&
+      partial.serviceChargePercent <= 25
+        ? Math.round(partial.serviceChargePercent * 100) / 100
+        : 0,
+    voiceAlertsEnabled:
+      typeof partial?.voiceAlertsEnabled === 'boolean'
+        ? partial.voiceAlertsEnabled
+        : true,
+    acceptingOrders:
+      typeof partial?.acceptingOrders === 'boolean'
+        ? partial.acceptingOrders
+        : true,
+    hotelRoomsEnabled:
+      typeof partial?.hotelRoomsEnabled === 'boolean'
+        ? partial.hotelRoomsEnabled
+        : false,
     updatedAt:
       (partial as Partial<RestaurantProfile> | undefined)?.updatedAt ||
       new Date().toISOString(),
@@ -605,6 +723,8 @@ export function validateRestaurantTableInput(
         tableNumber: string;
         tableLabel: string | null;
         tableKey: string;
+        locationType: 'table' | 'room';
+        seatCapacity: number;
         isActive: boolean;
       };
     }
@@ -658,6 +778,14 @@ export function validateRestaurantTableInput(
     };
   }
 
+  const locationType: 'table' | 'room' =
+    rec.locationType === 'room' ? 'room' : 'table';
+  const rawSeats =
+    typeof rec.seatCapacity === 'number' && Number.isInteger(rec.seatCapacity)
+      ? Math.max(1, Math.min(30, rec.seatCapacity))
+      : locationType === 'room'
+        ? 2
+        : 4;
   const isActive = typeof rec.isActive === 'boolean' ? rec.isActive : true;
 
   return {
@@ -666,6 +794,8 @@ export function validateRestaurantTableInput(
       tableNumber,
       tableLabel,
       tableKey,
+      locationType,
+      seatCapacity: rawSeats,
       isActive,
     },
   };
@@ -755,6 +885,11 @@ export function validateRestaurantMenuItemInput(
         isFeatured: boolean;
         imageUrl: string | null;
         displayOrder: number;
+        showOnTable: boolean;
+        showOnRoom: boolean;
+        spiceLevel: 'mild' | 'medium' | 'spicy' | 'extra_spicy' | null;
+        ingredientsSummary: string | null;
+        prepTimeMinutes: number | null;
       };
     }
   | { ok: false; error: string } {
@@ -849,6 +984,36 @@ export function validateRestaurantMenuItemInput(
     typeof rec.displayOrder === 'number' && Number.isFinite(rec.displayOrder)
       ? Math.max(0, Math.floor(rec.displayOrder))
       : 0;
+  const showOnTable =
+    typeof rec.showOnTable === 'boolean' ? rec.showOnTable : true;
+  const showOnRoom =
+    typeof rec.showOnRoom === 'boolean' ? rec.showOnRoom : true;
+
+  let spiceLevel: 'mild' | 'medium' | 'spicy' | 'extra_spicy' | null = null;
+  if (
+    typeof rec.spiceLevel === 'string' &&
+    ['mild', 'medium', 'spicy', 'extra_spicy'].includes(rec.spiceLevel)
+  ) {
+    spiceLevel = rec.spiceLevel as 'mild' | 'medium' | 'spicy' | 'extra_spicy';
+  }
+
+  let ingredientsSummary: string | null = null;
+  if (
+    typeof rec.ingredientsSummary === 'string' &&
+    stripControlChars(rec.ingredientsSummary)
+  ) {
+    ingredientsSummary = stripControlChars(rec.ingredientsSummary).slice(0, 400);
+  }
+
+  let prepTimeMinutes: number | null = null;
+  if (
+    typeof rec.prepTimeMinutes === 'number' &&
+    Number.isFinite(rec.prepTimeMinutes) &&
+    rec.prepTimeMinutes >= 1 &&
+    rec.prepTimeMinutes <= 180
+  ) {
+    prepTimeMinutes = Math.round(rec.prepTimeMinutes);
+  }
 
   return {
     ok: true,
@@ -862,6 +1027,11 @@ export function validateRestaurantMenuItemInput(
       isFeatured,
       imageUrl,
       displayOrder,
+      showOnTable,
+      showOnRoom,
+      spiceLevel,
+      ingredientsSummary,
+      prepTimeMinutes,
     },
   };
 }

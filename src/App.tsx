@@ -8,6 +8,7 @@ import AuthPage from './pages/AuthPage';
 import CustomerReviewPage from './pages/CustomerReviewPage';
 import CustomerRestaurantMenuPage from './pages/CustomerRestaurantMenuPage';
 import RestaurantStaffVerificationPage from './pages/RestaurantStaffVerificationPage';
+import RestaurantKitchenDisplayPage from './pages/RestaurantKitchenDisplayPage';
 import CustomerBarberQueuePage from './pages/CustomerBarberQueuePage';
 import BarberStaffQueuePage from './pages/BarberStaffQueuePage';
 import CustomerGymPage from './pages/CustomerGymPage';
@@ -66,6 +67,10 @@ export default function App() {
               }
             />
           </Route>
+          <Route
+            path="/r/:businessSlug/kitchen"
+            element={<RestaurantKitchenDisplayPage />}
+          />
           <Route element={<CustomerLayout />}>
             <Route path="/r/:businessSlug" element={<CustomerReviewPage />} />
             <Route

@@ -18,7 +18,10 @@ import type {
 } from '../../types/businessKnowledge';
 import type {
   ApplyMenuPresetResult,
+  CompleteTableBillCheckoutResult,
+  CreatePosOrPlatformOrderInput,
   MenuPresetKey,
+  OpenTableBillSummary,
   PublicRestaurantMenuPayload,
   PublicStaffLoginOption,
   RestaurantCustomerCheckInInput,
@@ -39,6 +42,7 @@ import type {
   RestaurantMenuItemInput,
   RestaurantMonthlyInventoryInput,
   RestaurantMonthlyInventoryItem,
+  RestaurantPaymentMethod,
   RestaurantPointToStarExchangeResponse,
   RestaurantProfile,
   RestaurantProfileInput,
@@ -56,6 +60,8 @@ import type {
   RestaurantTableCallStatus,
   RestaurantTableCallType,
   RestaurantTableInput,
+  RestaurantTableMessage,
+  RestaurantTableMessageSenderRole,
   RestaurantTableOrder,
   RestaurantTableOrderStatus,
   VerifiedStaffMemberSession,
@@ -452,11 +458,12 @@ export interface IBusinessRepository {
     businessName: string;
   }>;
 
-  /** Updates a table call alert status ('open' | 'acknowledged' | 'resolved'). */
+  /** Updates a table call alert status ('open' | 'acknowledged' | 'resolved') and optional assigned waiter label. */
   updateRestaurantTableCallStatus(params: {
     businessSlug: string;
     callId: string;
     status: RestaurantTableCallStatus;
+    assignedStaffLabel?: string | null;
     staffPinHash?: string | null;
     options?: AIConfigAccessOptions;
   }): Promise<RestaurantTableCall>;
@@ -523,11 +530,12 @@ export interface IBusinessRepository {
     customerId?: string | null;
     guestName?: string | null;
     items: Array<{ itemId: string; quantity: number; notes?: string | null }>;
+    kitchenNote?: string | null;
   }): Promise<RestaurantTableOrder>;
 
   /**
    * Lets Owner or Staff (via Staff PIN) move a table order through:
-   * 'pending_approval' -> 'approved_for_kitchen' -> 'preparing' -> 'served' | 'cancelled'
+   * 'pending_approval' -> 'approved_for_kitchen' -> 'preparing' -> 'ready' -> 'served' | 'cancelled'
    */
   updateTableOrderStatus(params: {
     businessSlug: string;
@@ -537,6 +545,65 @@ export interface IBusinessRepository {
     staffPinHash?: string | null;
     options?: AIConfigAccessOptions;
   }): Promise<RestaurantTableOrder>;
+
+  // ---------------------------------------------------------------------------
+  // Complete Hospitality OS (Migration 019): Counter POS, Platform Orders,
+  // 2-Way Live Table/Room Chat, Multi-Order Open Bills & Realtime Sync
+  // ---------------------------------------------------------------------------
+
+  /** Creates a Counter POS or Aggregator Platform (Swiggy/Zomato/etc.) order straight into kitchen KOT. */
+  createPosOrPlatformOrder(
+    input: CreatePosOrPlatformOrderInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantTableOrder>;
+
+  /** Sends a live 2-way table/room chat message ('customer' | 'manager' | 'system') and returns thread. */
+  sendTableChatMessage(params: {
+    businessSlug: string;
+    tableKey: string;
+    senderRole: RestaurantTableMessageSenderRole;
+    senderName?: string | null;
+    messageText: string;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<RestaurantTableMessage[]>;
+
+  /** Retrieves chronological live chat messages for a table or hotel room. */
+  getTableChatMessages(params: {
+    businessSlug: string;
+    tableKey: string;
+  }): Promise<RestaurantTableMessage[]>;
+
+  /** Aggregates all unpaid active orders on a table/room into an open bill with GST (CGST+SGST) & Service Charge. */
+  getOpenTableBillSummary(params: {
+    businessSlug: string;
+    tableKey: string;
+  }): Promise<OpenTableBillSummary | null>;
+
+  /** Guest action after scanning UPI QR: marks active unpaid orders on that table as 'upi_pending_verify'. */
+  markTableBillUpiPending(params: {
+    businessSlug: string;
+    tableKey: string;
+    guestName?: string | null;
+  }): Promise<OpenTableBillSummary | null>;
+
+  /** Owner/Staff final checkout: marks open orders served + paid, resets table occupancy, posts receipt confirmation. */
+  completeTableBillCheckout(params: {
+    businessId: string;
+    tableId: string;
+    paymentMethod: RestaurantPaymentMethod;
+    staffLabel?: string;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<CompleteTableBillCheckoutResult>;
+
+  /** Subscribes to live hospitality changes (orders, calls, messages). Returns cleanup unsubscribe callback. */
+  subscribeToHospitalityRealtime(
+    businessId: string,
+    onChange: (event: {
+      table: 'restaurant_table_orders' | 'restaurant_table_calls' | 'restaurant_table_messages';
+    }) => void,
+  ): () => void;
 
   // ---------------------------------------------------------------------------
   // Master Upgrade II: Individual Staff Roster & Monthly Inventory / Expenses

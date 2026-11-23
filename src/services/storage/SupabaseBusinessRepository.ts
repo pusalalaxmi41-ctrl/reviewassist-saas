@@ -27,10 +27,14 @@ import type {
 } from '../../types/businessKnowledge';
 import type {
   ApplyMenuPresetResult,
+  CompleteTableBillCheckoutResult,
+  CreatePosOrPlatformOrderInput,
   DietaryTag,
+  DishSpiceLevel,
   MenuPresetKey,
   MenuThemeTemplate,
   MonthlyInventoryEntryType,
+  OpenTableBillSummary,
   PublicRestaurantMenuPayload,
   PublicStaffLoginOption,
   RestaurantBusinessMode,
@@ -46,6 +50,7 @@ import type {
   RestaurantGameSlug,
   RestaurantGameStartResponse,
   RestaurantGameSubmissionInput,
+  RestaurantLocationType,
   RestaurantLoyaltyRules,
   RestaurantLoyaltyRulesInput,
   RestaurantMenuCategory,
@@ -54,6 +59,7 @@ import type {
   RestaurantMenuItemInput,
   RestaurantMonthlyInventoryInput,
   RestaurantMonthlyInventoryItem,
+  RestaurantPaymentMethod,
   RestaurantPointToStarExchangeResponse,
   RestaurantProfile,
   RestaurantProfileInput,
@@ -72,6 +78,8 @@ import type {
   RestaurantTableCallStatus,
   RestaurantTableCallType,
   RestaurantTableInput,
+  RestaurantTableMessage,
+  RestaurantTableMessageSenderRole,
   RestaurantTableOrder,
   RestaurantTableOrderStatus,
   RestaurantTriviaQuestion,
@@ -1343,6 +1351,14 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         business_mode?: RestaurantBusinessMode;
         custom_logo_url?: string | null;
         custom_accent_color?: string | null;
+        upi_id?: string | null;
+        upi_payee_name?: string | null;
+        gstin?: string | null;
+        gst_percent?: number | string | null;
+        service_charge_percent?: number | string | null;
+        voice_alerts_enabled?: boolean;
+        accepting_orders?: boolean;
+        hotel_rooms_enabled?: boolean;
         updated_at: string;
       };
       return normalizeRestaurantProfile(
@@ -1360,6 +1376,20 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
           businessMode: row.business_mode ?? 'restaurant',
           customLogoUrl: row.custom_logo_url ?? null,
           customAccentColor: row.custom_accent_color ?? null,
+          upiId: row.upi_id ?? null,
+          upiPayeeName: row.upi_payee_name ?? null,
+          gstin: row.gstin ?? null,
+          gstPercent: Number(row.gst_percent ?? 0),
+          serviceChargePercent: Number(row.service_charge_percent ?? 0),
+          voiceAlertsEnabled:
+            typeof row.voice_alerts_enabled === 'boolean'
+              ? row.voice_alerts_enabled
+              : true,
+          acceptingOrders:
+            typeof row.accepting_orders === 'boolean'
+              ? row.accepting_orders
+              : true,
+          hotelRoomsEnabled: Boolean(row.hotel_rooms_enabled),
           updatedAt: row.updated_at,
         },
         'supabase',
@@ -1416,6 +1446,31 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     if (validation.value.customAccentColor !== undefined) {
       upsertPayload.custom_accent_color = validation.value.customAccentColor;
     }
+    if (validation.value.upiId !== undefined) {
+      upsertPayload.upi_id = validation.value.upiId;
+    }
+    if (validation.value.upiPayeeName !== undefined) {
+      upsertPayload.upi_payee_name = validation.value.upiPayeeName;
+    }
+    if (validation.value.gstin !== undefined) {
+      upsertPayload.gstin = validation.value.gstin;
+    }
+    if (validation.value.gstPercent !== undefined) {
+      upsertPayload.gst_percent = validation.value.gstPercent;
+    }
+    if (validation.value.serviceChargePercent !== undefined) {
+      upsertPayload.service_charge_percent =
+        validation.value.serviceChargePercent;
+    }
+    if (validation.value.voiceAlertsEnabled !== undefined) {
+      upsertPayload.voice_alerts_enabled = validation.value.voiceAlertsEnabled;
+    }
+    if (validation.value.acceptingOrders !== undefined) {
+      upsertPayload.accepting_orders = validation.value.acceptingOrders;
+    }
+    if (validation.value.hotelRoomsEnabled !== undefined) {
+      upsertPayload.hotel_rooms_enabled = validation.value.hotelRoomsEnabled;
+    }
 
     const { data, error } = await client
       .from('restaurant_profiles')
@@ -1438,6 +1493,14 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         business_mode?: RestaurantBusinessMode;
         custom_logo_url?: string | null;
         custom_accent_color?: string | null;
+        upi_id?: string | null;
+        upi_payee_name?: string | null;
+        gstin?: string | null;
+        gst_percent?: number | string | null;
+        service_charge_percent?: number | string | null;
+        voice_alerts_enabled?: boolean;
+        accepting_orders?: boolean;
+        hotel_rooms_enabled?: boolean;
         updated_at: string;
       };
       return normalizeRestaurantProfile(
@@ -1455,6 +1518,20 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
           businessMode: row.business_mode ?? 'restaurant',
           customLogoUrl: row.custom_logo_url ?? null,
           customAccentColor: row.custom_accent_color ?? null,
+          upiId: row.upi_id ?? null,
+          upiPayeeName: row.upi_payee_name ?? null,
+          gstin: row.gstin ?? null,
+          gstPercent: Number(row.gst_percent ?? 0),
+          serviceChargePercent: Number(row.service_charge_percent ?? 0),
+          voiceAlertsEnabled:
+            typeof row.voice_alerts_enabled === 'boolean'
+              ? row.voice_alerts_enabled
+              : true,
+          acceptingOrders:
+            typeof row.accepting_orders === 'boolean'
+              ? row.accepting_orders
+              : true,
+          hotelRoomsEnabled: Boolean(row.hotel_rooms_enabled),
           updatedAt: row.updated_at,
         },
         'supabase',
@@ -1483,9 +1560,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
 
     const { data, error } = await client
       .from('restaurant_tables')
-      .select(
-        'id, business_id, table_number, table_label, table_key, is_active, created_at, updated_at',
-      )
+      .select('*')
       .eq('business_id', cleanId)
       .order('created_at', { ascending: true });
 
@@ -1497,6 +1572,9 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
           table_number: string;
           table_label: string | null;
           table_key: string;
+          location_type?: RestaurantLocationType;
+          seat_capacity?: number;
+          occupied_since?: string | null;
           is_active: boolean;
           created_at: string;
           updated_at: string;
@@ -1507,6 +1585,9 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         tableNumber: row.table_number,
         tableLabel: row.table_label,
         tableKey: row.table_key,
+        locationType: row.location_type ?? 'table',
+        seatCapacity: row.seat_capacity ?? 4,
+        occupiedSince: row.occupied_since ?? null,
         isActive: row.is_active,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -1537,11 +1618,11 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         table_number: validation.value.tableNumber,
         table_label: validation.value.tableLabel,
         table_key: validation.value.tableKey,
+        location_type: validation.value.locationType,
+        seat_capacity: validation.value.seatCapacity,
         is_active: validation.value.isActive,
       })
-      .select(
-        'id, business_id, table_number, table_label, table_key, is_active, created_at, updated_at',
-      )
+      .select('*')
       .single();
 
     if (error) {
@@ -1563,6 +1644,9 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       table_number: string;
       table_label: string | null;
       table_key: string;
+      location_type?: RestaurantLocationType;
+      seat_capacity?: number;
+      occupied_since?: string | null;
       is_active: boolean;
       created_at: string;
       updated_at: string;
@@ -1573,6 +1657,9 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       tableNumber: row.table_number,
       tableLabel: row.table_label,
       tableKey: row.table_key,
+      locationType: row.location_type ?? 'table',
+      seatCapacity: row.seat_capacity ?? 4,
+      occupiedSince: row.occupied_since ?? null,
       isActive: row.is_active,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -1600,13 +1687,13 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         table_number: validation.value.tableNumber,
         table_label: validation.value.tableLabel,
         table_key: validation.value.tableKey,
+        location_type: validation.value.locationType,
+        seat_capacity: validation.value.seatCapacity,
         is_active: validation.value.isActive,
       })
       .eq('id', tableId)
       .eq('business_id', cleanId)
-      .select(
-        'id, business_id, table_number, table_label, table_key, is_active, created_at, updated_at',
-      )
+      .select('*')
       .single();
 
     if (error) {
@@ -1629,6 +1716,9 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       table_number: string;
       table_label: string | null;
       table_key: string;
+      location_type?: RestaurantLocationType;
+      seat_capacity?: number;
+      occupied_since?: string | null;
       is_active: boolean;
       created_at: string;
       updated_at: string;
@@ -1639,6 +1729,9 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       tableNumber: row.table_number,
       tableLabel: row.table_label,
       tableKey: row.table_key,
+      locationType: row.location_type ?? 'table',
+      seatCapacity: row.seat_capacity ?? 4,
+      occupiedSince: row.occupied_since ?? null,
       isActive: row.is_active,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -1884,9 +1977,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
 
     const { data, error } = await client
       .from('restaurant_menu_items')
-      .select(
-        'id, business_id, category_id, name, description, price_paise, dietary_tag, is_available, is_featured, image_url, display_order, created_at, updated_at',
-      )
+      .select('*')
       .eq('business_id', cleanId)
       .order('display_order', { ascending: true })
       .order('created_at', { ascending: true });
@@ -1905,6 +1996,11 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
           is_featured: boolean;
           image_url: string | null;
           display_order: number;
+          show_on_table?: boolean;
+          show_on_room?: boolean;
+          spice_level?: DishSpiceLevel | null;
+          ingredients_summary?: string | null;
+          prep_time_minutes?: number | null;
           created_at: string;
           updated_at: string;
         }>
@@ -1920,6 +2016,11 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         isFeatured: row.is_featured,
         imageUrl: row.image_url,
         displayOrder: row.display_order,
+        showOnTable: row.show_on_table ?? true,
+        showOnRoom: row.show_on_room ?? true,
+        spiceLevel: row.spice_level ?? null,
+        ingredientsSummary: row.ingredients_summary ?? null,
+        prepTimeMinutes: row.prep_time_minutes ?? null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       }));
@@ -1955,10 +2056,13 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         is_featured: validation.value.isFeatured,
         image_url: validation.value.imageUrl,
         display_order: validation.value.displayOrder,
+        show_on_table: validation.value.showOnTable,
+        show_on_room: validation.value.showOnRoom,
+        spice_level: validation.value.spiceLevel,
+        ingredients_summary: validation.value.ingredientsSummary,
+        prep_time_minutes: validation.value.prepTimeMinutes,
       })
-      .select(
-        'id, business_id, category_id, name, description, price_paise, dietary_tag, is_available, is_featured, image_url, display_order, created_at, updated_at',
-      )
+      .select('*')
       .single();
 
     if (error || !data) {
@@ -1981,6 +2085,11 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       is_featured: boolean;
       image_url: string | null;
       display_order: number;
+      show_on_table?: boolean;
+      show_on_room?: boolean;
+      spice_level?: DishSpiceLevel | null;
+      ingredients_summary?: string | null;
+      prep_time_minutes?: number | null;
       created_at: string;
       updated_at: string;
     };
@@ -1996,6 +2105,11 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       isFeatured: row.is_featured,
       imageUrl: row.image_url,
       displayOrder: row.display_order,
+      showOnTable: row.show_on_table ?? true,
+      showOnRoom: row.show_on_room ?? true,
+      spiceLevel: row.spice_level ?? null,
+      ingredientsSummary: row.ingredients_summary ?? null,
+      prepTimeMinutes: row.prep_time_minutes ?? null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -2028,12 +2142,15 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         is_featured: validation.value.isFeatured,
         image_url: validation.value.imageUrl,
         display_order: validation.value.displayOrder,
+        show_on_table: validation.value.showOnTable,
+        show_on_room: validation.value.showOnRoom,
+        spice_level: validation.value.spiceLevel,
+        ingredients_summary: validation.value.ingredientsSummary,
+        prep_time_minutes: validation.value.prepTimeMinutes,
       })
       .eq('id', itemId)
       .eq('business_id', cleanId)
-      .select(
-        'id, business_id, category_id, name, description, price_paise, dietary_tag, is_available, is_featured, image_url, display_order, created_at, updated_at',
-      )
+      .select('*')
       .single();
 
     if (error || !data) {
@@ -2057,6 +2174,11 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       is_featured: boolean;
       image_url: string | null;
       display_order: number;
+      show_on_table?: boolean;
+      show_on_room?: boolean;
+      spice_level?: DishSpiceLevel | null;
+      ingredients_summary?: string | null;
+      prep_time_minutes?: number | null;
       created_at: string;
       updated_at: string;
     };
@@ -2072,6 +2194,11 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       isFeatured: row.is_featured,
       imageUrl: row.image_url,
       displayOrder: row.display_order,
+      showOnTable: row.show_on_table ?? true,
+      showOnRoom: row.show_on_room ?? true,
+      spiceLevel: row.spice_level ?? null,
+      ingredientsSummary: row.ingredients_summary ?? null,
+      prepTimeMinutes: row.prep_time_minutes ?? null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -2993,6 +3120,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     businessSlug: string;
     callId: string;
     status: RestaurantTableCallStatus;
+    assignedStaffLabel?: string | null;
     staffPinHash?: string | null;
     options?: AIConfigAccessOptions;
   }): Promise<RestaurantTableCall> {
@@ -3004,6 +3132,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         p_call_id: params.callId,
         p_new_status: params.status,
         p_staff_pin_hash: params.staffPinHash ?? null,
+        p_assigned_staff_label: params.assignedStaffLabel ?? null,
       },
     );
 
@@ -3230,6 +3359,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     customerId?: string | null;
     guestName?: string | null;
     items: Array<{ itemId: string; quantity: number; notes?: string | null }>;
+    kitchenNote?: string | null;
   }): Promise<RestaurantTableOrder> {
     const itemsValidation = validateTableOrderItemsInput(params.items);
     if (!itemsValidation.ok) {
@@ -3243,6 +3373,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       p_customer_id: params.customerId ?? null,
       p_guest_name: params.guestName ?? null,
       p_items: itemsValidation.value,
+      p_kitchen_note: params.kitchenNote?.trim().slice(0, 300) ?? null,
     });
 
     if (!error && data && typeof data === 'object') {
@@ -3252,6 +3383,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     if (
       error &&
       (error.message.includes('turned off') ||
+        error.message.includes('paused') ||
         error.message.includes('unavailable') ||
         error.message.includes('not active'))
     ) {
@@ -3296,6 +3428,223 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     }
 
     return mockBusinessRepository.updateTableOrderStatus(params);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Complete Hospitality OS (Migration 019): Counter POS, Platform Orders,
+  // 2-Way Live Table/Room Chat, Multi-Order Open Bills & Supabase Realtime
+  // ---------------------------------------------------------------------------
+
+  async createPosOrPlatformOrder(
+    input: CreatePosOrPlatformOrderInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantTableOrder> {
+    const idErr = validateBusinessId(input.businessId);
+    if (idErr) throw new Error(idErr);
+    const itemsValidation = validateTableOrderItemsInput(input.items);
+    if (!itemsValidation.ok) throw new Error(itemsValidation.error);
+
+    const cleanId = input.businessId.trim();
+    if (!input.staffPinHash) {
+      await this.verifyBusinessOwnership(cleanId, options);
+    }
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('create_pos_or_platform_order', {
+      p_business_id: cleanId,
+      p_order_source: input.orderSource,
+      p_table_id: input.tableId ?? null,
+      p_platform_order_number: input.platformOrderNumber ?? null,
+      p_customer_name: input.customerName ?? null,
+      p_customer_phone: input.customerPhone ?? null,
+      p_kitchen_note: input.kitchenNote ?? null,
+      p_packaging_paise: Math.max(0, Math.round(input.packagingPaise ?? 0)),
+      p_items: itemsValidation.value,
+      p_staff_label: input.staffLabel ?? 'Owner',
+      p_staff_pin_hash: input.staffPinHash ?? null,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as RestaurantTableOrder;
+    }
+    if (error && error.message.includes('Unauthorized')) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.createPosOrPlatformOrder(input, options);
+  }
+
+  async sendTableChatMessage(params: {
+    businessSlug: string;
+    tableKey: string;
+    senderRole: RestaurantTableMessageSenderRole;
+    senderName?: string | null;
+    messageText: string;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<RestaurantTableMessage[]> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('send_table_chat_message', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_table_key: deriveTableKey(params.tableKey),
+      p_sender_role: params.senderRole,
+      p_sender_name: params.senderName ?? null,
+      p_message_text: params.messageText.trim().slice(0, 600),
+      p_staff_pin_hash: params.staffPinHash ?? null,
+    });
+
+    if (!error && Array.isArray(data)) {
+      return data as RestaurantTableMessage[];
+    }
+    if (error && error.message.includes('Unauthorized')) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.sendTableChatMessage(params);
+  }
+
+  async getTableChatMessages(params: {
+    businessSlug: string;
+    tableKey: string;
+  }): Promise<RestaurantTableMessage[]> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('get_table_chat_messages', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_table_key: deriveTableKey(params.tableKey),
+    });
+
+    if (!error && Array.isArray(data)) {
+      return data as RestaurantTableMessage[];
+    }
+
+    return mockBusinessRepository.getTableChatMessages(params);
+  }
+
+  async getOpenTableBillSummary(params: {
+    businessSlug: string;
+    tableKey: string;
+  }): Promise<OpenTableBillSummary | null> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('get_open_table_bill_summary', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_table_key: deriveTableKey(params.tableKey),
+    });
+
+    if (!error) {
+      return (data as OpenTableBillSummary | null) ?? null;
+    }
+
+    return mockBusinessRepository.getOpenTableBillSummary(params);
+  }
+
+  async markTableBillUpiPending(params: {
+    businessSlug: string;
+    tableKey: string;
+    guestName?: string | null;
+  }): Promise<OpenTableBillSummary | null> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('mark_table_bill_upi_pending', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_table_key: deriveTableKey(params.tableKey),
+      p_guest_name: params.guestName ?? null,
+    });
+
+    if (!error) {
+      return (data as OpenTableBillSummary | null) ?? null;
+    }
+
+    return mockBusinessRepository.markTableBillUpiPending(params);
+  }
+
+  async completeTableBillCheckout(params: {
+    businessId: string;
+    tableId: string;
+    paymentMethod: RestaurantPaymentMethod;
+    staffLabel?: string;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<CompleteTableBillCheckoutResult> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    if (!params.staffPinHash) {
+      await this.verifyBusinessOwnership(cleanId, params.options);
+    }
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('complete_table_bill_checkout', {
+      p_business_id: cleanId,
+      p_table_id: params.tableId,
+      p_payment_method: params.paymentMethod,
+      p_staff_label: params.staffLabel ?? 'Owner',
+      p_staff_pin_hash: params.staffPinHash ?? null,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as CompleteTableBillCheckoutResult;
+    }
+    if (error && error.message.includes('Unauthorized')) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.completeTableBillCheckout(params);
+  }
+
+  subscribeToHospitalityRealtime(
+    businessId: string,
+    onChange: (event: {
+      table:
+        | 'restaurant_table_orders'
+        | 'restaurant_table_calls'
+        | 'restaurant_table_messages';
+    }) => void,
+  ): () => void {
+    if (!supabase || !businessId) {
+      return mockBusinessRepository.subscribeToHospitalityRealtime(
+        businessId,
+        onChange,
+      );
+    }
+
+    const client = supabase;
+    const channelName = `hospitality-live-${businessId}-${Math.random().toString(36).slice(2, 8)}`;
+    const channel = client
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'restaurant_table_orders',
+          filter: `business_id=eq.${businessId}`,
+        },
+        () => onChange({ table: 'restaurant_table_orders' }),
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'restaurant_table_calls',
+          filter: `business_id=eq.${businessId}`,
+        },
+        () => onChange({ table: 'restaurant_table_calls' }),
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'restaurant_table_messages',
+          filter: `business_id=eq.${businessId}`,
+        },
+        () => onChange({ table: 'restaurant_table_messages' }),
+      )
+      .subscribe();
+
+    return () => {
+      void client.removeChannel(channel);
+    };
   }
 
   // ---------------------------------------------------------------------------

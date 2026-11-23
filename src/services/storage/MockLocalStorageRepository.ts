@@ -34,7 +34,10 @@ import {
 import {
   RESTAURANT_LIMITS,
   type ApplyMenuPresetResult,
+  type CompleteTableBillCheckoutResult,
+  type CreatePosOrPlatformOrderInput,
   type MenuPresetKey,
+  type OpenTableBillSummary,
   type PublicRestaurantMenuPayload,
   type PublicStaffLoginOption,
   type RestaurantCustomer,
@@ -59,6 +62,7 @@ import {
   type RestaurantMenuItemInput,
   type RestaurantMonthlyInventoryInput,
   type RestaurantMonthlyInventoryItem,
+  type RestaurantPaymentMethod,
   type RestaurantPointToStarExchangeResponse,
   type RestaurantProfile,
   type RestaurantProfileInput,
@@ -76,12 +80,20 @@ import {
   type RestaurantTableCallStatus,
   type RestaurantTableCallType,
   type RestaurantTableInput,
+  type RestaurantTableMessage,
+  type RestaurantTableMessageSenderRole,
   type RestaurantTableOrder,
   type RestaurantTableOrderItem,
   type RestaurantTableOrderStatus,
   type RestaurantVerifiedVisit,
   type VerifiedStaffMemberSession,
 } from '../../types/restaurant';
+import {
+  ALLOWED_ORDER_SOURCES,
+  calculateBillTotals,
+  isBillRequestCallType,
+  isPlatformOrOffPremiseSource,
+} from '../../utils/hospitalityHelpers';
 import type {
   AdvanceBarberQueueTicketResult,
   BarberQueueConfig,
@@ -192,6 +204,7 @@ const STORAGE_KEYS = {
   RESTAURANT_TABLE_CALLS: 'reviewassist_mock_restaurant_table_calls_v1',
   RESTAURANT_VERIFIED_VISITS: 'reviewassist_mock_restaurant_verified_visits_v1',
   RESTAURANT_TABLE_ORDERS: 'reviewassist_mock_restaurant_table_orders_v1',
+  RESTAURANT_TABLE_MESSAGES: 'reviewassist_mock_restaurant_table_messages_v1',
   RESTAURANT_STAFF_MEMBERS: 'reviewassist_mock_restaurant_staff_members_v1',
   RESTAURANT_MONTHLY_INVENTORY:
     'reviewassist_mock_restaurant_monthly_inventory_v1',
@@ -897,6 +910,38 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         validation.value.customAccentColor !== undefined
           ? validation.value.customAccentColor
           : (existing?.customAccentColor ?? null),
+      upiId:
+        validation.value.upiId !== undefined
+          ? validation.value.upiId
+          : (existing?.upiId ?? null),
+      upiPayeeName:
+        validation.value.upiPayeeName !== undefined
+          ? validation.value.upiPayeeName
+          : (existing?.upiPayeeName ?? null),
+      gstin:
+        validation.value.gstin !== undefined
+          ? validation.value.gstin
+          : (existing?.gstin ?? null),
+      gstPercent:
+        validation.value.gstPercent !== undefined
+          ? validation.value.gstPercent
+          : (existing?.gstPercent ?? 0),
+      serviceChargePercent:
+        validation.value.serviceChargePercent !== undefined
+          ? validation.value.serviceChargePercent
+          : (existing?.serviceChargePercent ?? 0),
+      voiceAlertsEnabled:
+        validation.value.voiceAlertsEnabled !== undefined
+          ? validation.value.voiceAlertsEnabled
+          : (existing?.voiceAlertsEnabled ?? true),
+      acceptingOrders:
+        validation.value.acceptingOrders !== undefined
+          ? validation.value.acceptingOrders
+          : (existing?.acceptingOrders ?? true),
+      hotelRoomsEnabled:
+        validation.value.hotelRoomsEnabled !== undefined
+          ? validation.value.hotelRoomsEnabled
+          : (existing?.hotelRoomsEnabled ?? false),
       updatedAt: new Date().toISOString(),
       storageSource: 'local',
     };
@@ -966,6 +1011,9 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       tableNumber: validation.value.tableNumber,
       tableLabel: validation.value.tableLabel,
       tableKey: validation.value.tableKey,
+      locationType: validation.value.locationType,
+      seatCapacity: validation.value.seatCapacity,
+      occupiedSince: null,
       isActive: validation.value.isActive,
       createdAt: now,
       updatedAt: now,
@@ -1016,6 +1064,8 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       tableNumber: validation.value.tableNumber,
       tableLabel: validation.value.tableLabel,
       tableKey: validation.value.tableKey,
+      locationType: validation.value.locationType,
+      seatCapacity: validation.value.seatCapacity,
       isActive: validation.value.isActive,
       updatedAt: new Date().toISOString(),
     };
@@ -1281,6 +1331,11 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       isAvailable: validation.value.isAvailable,
       isFeatured: validation.value.isFeatured,
       imageUrl: validation.value.imageUrl,
+      showOnTable: validation.value.showOnTable,
+      showOnRoom: validation.value.showOnRoom,
+      spiceLevel: validation.value.spiceLevel,
+      ingredientsSummary: validation.value.ingredientsSummary,
+      prepTimeMinutes: validation.value.prepTimeMinutes,
       displayOrder:
         input.displayOrder !== undefined
           ? validation.value.displayOrder
@@ -1340,6 +1395,11 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       isAvailable: validation.value.isAvailable,
       isFeatured: validation.value.isFeatured,
       imageUrl: validation.value.imageUrl,
+      showOnTable: validation.value.showOnTable,
+      showOnRoom: validation.value.showOnRoom,
+      spiceLevel: validation.value.spiceLevel,
+      ingredientsSummary: validation.value.ingredientsSummary,
+      prepTimeMinutes: validation.value.prepTimeMinutes,
       displayOrder:
         input.displayOrder !== undefined
           ? validation.value.displayOrder
@@ -1426,12 +1486,18 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       .sort((a, b) => a.displayOrder - b.displayOrder);
     const activeCatIds = new Set(activeCategories.map((c) => c.id));
 
+    const tableLocationType = matchedTable?.locationType ?? null;
     const itemStore = this.read<Record<string, RestaurantMenuItem[]>>(
       STORAGE_KEYS.RESTAURANT_ITEMS,
       {},
     );
     const availableItems = [...(itemStore[business.id] ?? [])]
-      .filter((i) => i.isAvailable && activeCatIds.has(i.categoryId))
+      .filter((i) => {
+        if (!i.isAvailable || !activeCatIds.has(i.categoryId)) return false;
+        if (tableLocationType === 'table') return i.showOnTable !== false;
+        if (tableLocationType === 'room') return i.showOnRoom !== false;
+        return true;
+      })
       .sort((a, b) => a.displayOrder - b.displayOrder);
 
     const gameStore = this.read<Record<string, RestaurantGameConfig[]>>(
@@ -2763,10 +2829,14 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     customerId?: string | null;
     callType: RestaurantTableCallType;
   }): Promise<RestaurantTableCall> {
-    if (
-      params.callType !== 'assistance' &&
-      params.callType !== 'ready_for_bill'
-    ) {
+    const allowedCallTypes: ReadonlyArray<RestaurantTableCallType> = [
+      'assistance',
+      'water',
+      'bill_request',
+      'clean_table',
+      'ready_for_bill',
+    ];
+    if (!allowedCallTypes.includes(params.callType)) {
       throw new Error('Invalid table call type.');
     }
 
@@ -2806,21 +2876,53 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       return existing;
     }
 
+    const now = new Date().toISOString();
     const created: RestaurantTableCall = {
       id: `call-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       businessId: business.id,
       tableId: table.id,
       tableNumber: table.tableNumber,
       tableKey: table.tableKey,
+      locationType: table.locationType ?? 'table',
       customerId: params.customerId ?? null,
       callType: params.callType,
       status: 'open',
-      createdAt: new Date().toISOString(),
+      assignedStaffLabel: null,
+      createdAt: now,
       resolvedAt: null,
     };
 
     calls.unshift(created);
     this.write(STORAGE_KEYS.RESTAURANT_TABLE_CALLS, calls);
+
+    // Also log system activity message into live 2-way table chat
+    const sysText =
+      params.callType === 'water'
+        ? 'Guest requested drinking water'
+        : params.callType === 'clean_table'
+          ? 'Guest requested table cleaning'
+          : isBillRequestCallType(params.callType)
+            ? 'Guest asked for the final bill'
+            : 'Guest called a waiter for assistance';
+    const msgs = this.read<RestaurantTableMessage[]>(
+      STORAGE_KEYS.RESTAURANT_TABLE_MESSAGES,
+      [],
+    );
+    msgs.push({
+      id: `tmsg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      businessId: business.id,
+      tableId: table.id,
+      tableNumber: table.tableNumber,
+      tableKey: table.tableKey,
+      locationType: table.locationType ?? 'table',
+      senderRole: 'system',
+      senderName: 'System',
+      messageText: sysText,
+      isRead: false,
+      createdAt: now,
+    });
+    this.write(STORAGE_KEYS.RESTAURANT_TABLE_MESSAGES, msgs);
+
     return created;
   }
 
@@ -2878,6 +2980,7 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     businessSlug: string;
     callId: string;
     status: RestaurantTableCallStatus;
+    assignedStaffLabel?: string | null;
     staffPinHash?: string | null;
     options?: AIConfigAccessOptions;
   }): Promise<RestaurantTableCall> {
@@ -2920,9 +3023,19 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       throw new Error('Table call alert not found.');
     }
 
+    const cleanAssign =
+      typeof params.assignedStaffLabel === 'string' &&
+      params.assignedStaffLabel.trim()
+        ? params.assignedStaffLabel.trim().slice(0, 100)
+        : undefined;
+
     const updated: RestaurantTableCall = {
       ...calls[idx],
       status: params.status,
+      assignedStaffLabel:
+        cleanAssign !== undefined
+          ? cleanAssign
+          : (calls[idx].assignedStaffLabel ?? null),
       resolvedAt:
         params.status === 'resolved' ? new Date().toISOString() : null,
     };
@@ -3321,18 +3434,54 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     for (const tx of starTxs) distinctCustomers.add(tx.customerId);
     for (const v of verifiedVisits) distinctCustomers.add(v.customerId);
 
-    const allOrders = this.read<RestaurantTableOrder[]>(
+    const oneDayAgoMs = Date.now() - 24 * 60 * 60 * 1000;
+    const allBizOrders = this.read<RestaurantTableOrder[]>(
       STORAGE_KEYS.RESTAURANT_TABLE_ORDERS,
       [],
-    ).filter(
-      (o) =>
-        o.businessId === business.id &&
-        (o.status === 'pending_approval' ||
+    ).filter((o) => o.businessId === business.id);
+
+    const activeTableOrders = [...allBizOrders]
+      .filter(
+        (o) =>
+          o.status === 'pending_approval' ||
           o.status === 'approved_for_kitchen' ||
-          o.status === 'preparing'),
+          o.status === 'preparing' ||
+          o.status === 'ready',
+      )
+      .reverse()
+      .slice(0, 80);
+
+    const recentOrders = [...allBizOrders]
+      .filter(
+        (o) =>
+          o.status === 'pending_approval' ||
+          o.status === 'approved_for_kitchen' ||
+          o.status === 'preparing' ||
+          o.status === 'ready' ||
+          (o.status === 'served' && (o.paymentStatus ?? 'unpaid') !== 'paid') ||
+          new Date(o.createdAt).getTime() >= oneDayAgoMs,
+      )
+      .reverse()
+      .slice(0, 120);
+
+    const tableStore = this.read<Record<string, RestaurantTable[]>>(
+      STORAGE_KEYS.RESTAURANT_TABLES,
+      {},
+    );
+    const activeTables = (tableStore[business.id] ?? []).filter(
+      (t) => t.isActive,
     );
 
-    const activeTableOrders = [...allOrders].reverse();
+    const recentMessages = this.read<RestaurantTableMessage[]>(
+      STORAGE_KEYS.RESTAURANT_TABLE_MESSAGES,
+      [],
+    )
+      .filter(
+        (m) =>
+          m.businessId === business.id &&
+          new Date(m.createdAt).getTime() >= oneDayAgoMs,
+      )
+      .slice(-150);
 
     const startOfToday = new Date();
     startOfToday.setUTCHours(0, 0, 0, 0);
@@ -3352,6 +3501,9 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       tableOrderingEnabled: Boolean(profile.tableOrderingEnabled),
       businessMode: profile.businessMode ?? 'restaurant',
       tableOrders: activeTableOrders,
+      recentOrders,
+      tableMessages: recentMessages,
+      tables: activeTables,
       staffVerificationCountsToday,
       analytics: {
         qrScans: metrics.qrScans,
@@ -3507,6 +3659,7 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     customerId?: string | null;
     guestName?: string | null;
     items: Array<{ itemId: string; quantity: number; notes?: string | null }>;
+    kitchenNote?: string | null;
   }): Promise<RestaurantTableOrder> {
     const itemsValidation = validateTableOrderItemsInput(params.items);
     if (!itemsValidation.ok) {
@@ -3533,6 +3686,11 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     if (!profile.tableOrderingEnabled) {
       throw new Error(
         'Customer phone ordering is currently turned off. Please place your order with your server.',
+      );
+    }
+    if (profile.acceptingOrders === false) {
+      throw new Error(
+        'We are temporarily paused and not accepting new orders right now.',
       );
     }
 
@@ -3574,47 +3732,118 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       });
     }
 
+    const now = new Date().toISOString();
+    const orders = this.read<RestaurantTableOrder[]>(
+      STORAGE_KEYS.RESTAURANT_TABLE_ORDERS,
+      [],
+    );
+
     let tableId: string | null = null;
     let tableNumber: string | null = null;
     let resolvedTableKey: string | null = null;
+    let locationType: 'table' | 'room' = 'table';
+    let billSessionId: string | null = null;
+
     if (params.tableKey && params.tableKey.trim()) {
       const cleanKey = deriveTableKey(params.tableKey);
       const tableStore = this.read<Record<string, RestaurantTable[]>>(
         STORAGE_KEYS.RESTAURANT_TABLES,
         {},
       );
-      const tbl = (tableStore[business.id] ?? []).find(
+      const tblList = tableStore[business.id] ?? [];
+      const tblIdx = tblList.findIndex(
         (t) => t.tableKey === cleanKey && t.isActive,
       );
-      if (tbl) {
+      if (tblIdx !== -1) {
+        const tbl = tblList[tblIdx];
         tableId = tbl.id;
         tableNumber = tbl.tableNumber;
         resolvedTableKey = tbl.tableKey;
+        locationType = tbl.locationType ?? 'table';
+
+        const existingOpen = [...orders]
+          .reverse()
+          .find(
+            (o) =>
+              o.businessId === business.id &&
+              o.tableId === tbl.id &&
+              o.status !== 'cancelled' &&
+              (o.paymentStatus ?? 'unpaid') !== 'paid' &&
+              Boolean(o.billSessionId),
+          );
+        billSessionId =
+          existingOpen?.billSessionId ??
+          `bsess-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+        if (!tbl.occupiedSince) {
+          tblList[tblIdx] = { ...tbl, occupiedSince: now };
+          tableStore[business.id] = tblList;
+          this.write(STORAGE_KEYS.RESTAURANT_TABLES, tableStore);
+        }
       }
     }
 
-    const now = new Date().toISOString();
+    let repeatVisits = 1;
+    if (params.customerId) {
+      const visits = this.read<RestaurantVerifiedVisit[]>(
+        STORAGE_KEYS.RESTAURANT_VERIFIED_VISITS,
+        [],
+      ).filter(
+        (v) =>
+          v.businessId === business.id && v.customerId === params.customerId,
+      );
+      repeatVisits = Math.max(1, visits.length + 1);
+    }
+
     const order: RestaurantTableOrder = {
       id: `tord-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       businessId: business.id,
       tableId,
       tableNumber,
       tableKey: resolvedTableKey,
+      locationType,
       customerId: params.customerId ?? null,
       guestName: params.guestName?.trim().slice(0, 80) || null,
       items: validatedItems,
       status: 'pending_approval',
+      orderSource: locationType === 'room' ? 'qr_room' : 'qr_table',
+      platformOrderNumber: null,
+      packagingPaise: 0,
+      kitchenNote: params.kitchenNote?.trim().slice(0, 300) || null,
+      billSessionId,
+      paymentStatus: 'unpaid',
+      paymentMethod: null,
+      paidAt: null,
+      customerRepeatVisitCount: repeatVisits,
       approvedBy: null,
       createdAt: now,
       updatedAt: now,
     };
 
-    const orders = this.read<RestaurantTableOrder[]>(
-      STORAGE_KEYS.RESTAURANT_TABLE_ORDERS,
-      [],
-    );
     orders.push(order);
     this.write(STORAGE_KEYS.RESTAURANT_TABLE_ORDERS, orders);
+
+    if (tableId && tableNumber && resolvedTableKey) {
+      const msgs = this.read<RestaurantTableMessage[]>(
+        STORAGE_KEYS.RESTAURANT_TABLE_MESSAGES,
+        [],
+      );
+      msgs.push({
+        id: `tmsg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        businessId: business.id,
+        tableId,
+        tableNumber,
+        tableKey: resolvedTableKey,
+        locationType,
+        senderRole: 'system',
+        senderName: 'System',
+        messageText: `New order placed (${validatedItems.length} items) — sent for kitchen confirmation`,
+        isRead: false,
+        createdAt: now,
+      });
+      this.write(STORAGE_KEYS.RESTAURANT_TABLE_MESSAGES, msgs);
+    }
+
     return order;
   }
 
@@ -3676,19 +3905,714 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     const shouldRecordApprover =
       statusCheck.value === 'approved_for_kitchen' ||
       statusCheck.value === 'preparing' ||
+      statusCheck.value === 'ready' ||
       statusCheck.value === 'served';
 
+    const now = new Date().toISOString();
     const updated: RestaurantTableOrder = {
       ...existing,
       status: statusCheck.value,
       approvedBy: shouldRecordApprover
         ? (existing.approvedBy ?? staffLabel)
         : existing.approvedBy,
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
     };
     orders[idx] = updated;
     this.write(STORAGE_KEYS.RESTAURANT_TABLE_ORDERS, orders);
+
+    if (
+      statusCheck.value === 'ready' &&
+      updated.tableId &&
+      updated.tableNumber &&
+      updated.tableKey
+    ) {
+      const msgs = this.read<RestaurantTableMessage[]>(
+        STORAGE_KEYS.RESTAURANT_TABLE_MESSAGES,
+        [],
+      );
+      msgs.push({
+        id: `tmsg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        businessId: business.id,
+        tableId: updated.tableId,
+        tableNumber: updated.tableNumber,
+        tableKey: updated.tableKey,
+        locationType: updated.locationType ?? 'table',
+        senderRole: 'system',
+        senderName: 'Kitchen',
+        messageText: 'Your order is freshly prepared and on its way!',
+        isRead: false,
+        createdAt: now,
+      });
+      this.write(STORAGE_KEYS.RESTAURANT_TABLE_MESSAGES, msgs);
+    }
+
     return updated;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Complete Hospitality OS (Migration 019): Counter POS, Platform Orders,
+  // 2-Way Live Table/Room Chat, Multi-Order Open Bills & Realtime Sync
+  // ---------------------------------------------------------------------------
+
+  async createPosOrPlatformOrder(
+    input: CreatePosOrPlatformOrderInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<RestaurantTableOrder> {
+    const idErr = validateBusinessId(input.businessId);
+    if (idErr) throw new Error(idErr);
+    if (!ALLOWED_ORDER_SOURCES.includes(input.orderSource)) {
+      throw new Error('Unsupported order source.');
+    }
+    const itemsValidation = validateTableOrderItemsInput(input.items);
+    if (!itemsValidation.ok) throw new Error(itemsValidation.error);
+
+    const cleanId = input.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+
+    const profileStore = this.read<Record<string, RestaurantProfile>>(
+      STORAGE_KEYS.RESTAURANT_PROFILES,
+      {},
+    );
+    const profile = normalizeRestaurantProfile(
+      cleanId,
+      profileStore[cleanId],
+      'local',
+    );
+    this.assertOwnerOrStaffPin(
+      business,
+      profile,
+      input.staffPinHash,
+      options,
+    );
+
+    const staffLabel = this.resolveAuditStaffLabel(
+      cleanId,
+      input.staffPinHash,
+      input.staffLabel ?? 'Owner',
+    );
+
+    const itemStore = this.read<Record<string, RestaurantMenuItem[]>>(
+      STORAGE_KEYS.RESTAURANT_ITEMS,
+      {},
+    );
+    const bizItems = itemStore[cleanId] ?? [];
+    const validatedItems: RestaurantTableOrderItem[] = [];
+    for (const reqItem of itemsValidation.value) {
+      const catItem = bizItems.find((i) => i.id === reqItem.itemId);
+      if (!catItem) {
+        throw new Error('Menu item not found for this business.');
+      }
+      validatedItems.push({
+        itemId: catItem.id,
+        name: catItem.name,
+        quantity: reqItem.quantity,
+        pricePaise: catItem.pricePaise,
+        notes: reqItem.notes,
+      });
+    }
+
+    const now = new Date().toISOString();
+    const orders = this.read<RestaurantTableOrder[]>(
+      STORAGE_KEYS.RESTAURANT_TABLE_ORDERS,
+      [],
+    );
+
+    let resolvedTableId: string | null = null;
+    let tableNumber: string | null = null;
+    let tableKey: string | null = null;
+    let locationType: 'table' | 'room' = 'table';
+    let billSessionId: string | null = null;
+
+    // Platform / Takeaway / Delivery orders NEVER attach to dining table bills!
+    if (!isPlatformOrOffPremiseSource(input.orderSource) && input.tableId) {
+      const tableStore = this.read<Record<string, RestaurantTable[]>>(
+        STORAGE_KEYS.RESTAURANT_TABLES,
+        {},
+      );
+      const tblList = tableStore[cleanId] ?? [];
+      const tblIdx = tblList.findIndex((t) => t.id === input.tableId);
+      if (tblIdx !== -1) {
+        const tbl = tblList[tblIdx];
+        resolvedTableId = tbl.id;
+        tableNumber = tbl.tableNumber;
+        tableKey = tbl.tableKey;
+        locationType = tbl.locationType ?? 'table';
+
+        const existingOpen = [...orders]
+          .reverse()
+          .find(
+            (o) =>
+              o.businessId === cleanId &&
+              o.tableId === tbl.id &&
+              o.status !== 'cancelled' &&
+              (o.paymentStatus ?? 'unpaid') !== 'paid' &&
+              Boolean(o.billSessionId),
+          );
+        billSessionId =
+          existingOpen?.billSessionId ??
+          `bsess-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+        if (!tbl.occupiedSince) {
+          tblList[tblIdx] = { ...tbl, occupiedSince: now };
+          tableStore[cleanId] = tblList;
+          this.write(STORAGE_KEYS.RESTAURANT_TABLES, tableStore);
+        }
+      }
+    }
+
+    let customerId: string | null = null;
+    let repeatVisits = 1;
+    const cleanPhone = input.customerPhone?.trim() || null;
+    if (cleanPhone) {
+      const customers = this.read<RestaurantCustomer[]>(
+        STORAGE_KEYS.RESTAURANT_CUSTOMERS,
+        [],
+      );
+      let matched = customers.find(
+        (c) =>
+          (c.phoneOrEmail ?? '').toLowerCase() === cleanPhone.toLowerCase(),
+      );
+      if (!matched) {
+        matched = {
+          id: `rcust-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          displayName: input.customerName?.trim().slice(0, 80) || 'Guest',
+          phoneOrEmail: cleanPhone,
+          guestTokenHash: `phone-${cleanPhone.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+          createdAt: now,
+        };
+        customers.push(matched);
+        this.write(STORAGE_KEYS.RESTAURANT_CUSTOMERS, customers);
+      }
+      customerId = matched.id;
+      const visits = this.read<RestaurantVerifiedVisit[]>(
+        STORAGE_KEYS.RESTAURANT_VERIFIED_VISITS,
+        [],
+      ).filter(
+        (v) => v.businessId === cleanId && v.customerId === matched.id,
+      );
+      const priorOrders = orders.filter(
+        (o) =>
+          o.businessId === cleanId &&
+          o.customerId === matched.id &&
+          o.status !== 'cancelled',
+      );
+      repeatVisits = Math.max(1, visits.length + priorOrders.length + 1);
+    }
+
+    const isAggregatorPrepaid =
+      input.orderSource === 'swiggy' ||
+      input.orderSource === 'zomato' ||
+      input.orderSource === 'magicpin' ||
+      input.orderSource === 'ondc';
+
+    const packagingPaise = Math.max(
+      0,
+      Math.min(1_000_000, Math.round(input.packagingPaise ?? 0)),
+    );
+
+    const created: RestaurantTableOrder = {
+      id: `tord-pos-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      businessId: cleanId,
+      tableId: resolvedTableId,
+      tableNumber,
+      tableKey,
+      locationType,
+      customerId,
+      guestName: input.customerName?.trim().slice(0, 80) || null,
+      items: validatedItems,
+      status: 'approved_for_kitchen',
+      orderSource: input.orderSource,
+      platformOrderNumber:
+        input.platformOrderNumber?.trim().slice(0, 60) || null,
+      packagingPaise,
+      kitchenNote: input.kitchenNote?.trim().slice(0, 300) || null,
+      billSessionId,
+      paymentStatus: isAggregatorPrepaid ? 'paid' : 'unpaid',
+      paymentMethod: isAggregatorPrepaid ? 'platform_prepaid' : null,
+      paidAt: isAggregatorPrepaid ? now : null,
+      customerRepeatVisitCount: repeatVisits,
+      approvedBy: staffLabel,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    orders.push(created);
+    this.write(STORAGE_KEYS.RESTAURANT_TABLE_ORDERS, orders);
+    return created;
+  }
+
+  async sendTableChatMessage(params: {
+    businessSlug: string;
+    tableKey: string;
+    senderRole: RestaurantTableMessageSenderRole;
+    senderName?: string | null;
+    messageText: string;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<RestaurantTableMessage[]> {
+    const cleanMsg = (params.messageText ?? '').trim().slice(0, 600);
+    if (!cleanMsg) throw new Error('Message cannot be empty.');
+
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (!business) throw new Error('Restaurant is not active.');
+
+    if (params.senderRole === 'manager') {
+      const profileStore = this.read<Record<string, RestaurantProfile>>(
+        STORAGE_KEYS.RESTAURANT_PROFILES,
+        {},
+      );
+      const profile = normalizeRestaurantProfile(
+        business.id,
+        profileStore[business.id],
+        'local',
+      );
+      this.assertOwnerOrStaffPin(
+        business,
+        profile,
+        params.staffPinHash,
+        params.options,
+      );
+    }
+
+    const cleanKey = deriveTableKey(params.tableKey);
+    const tableStore = this.read<Record<string, RestaurantTable[]>>(
+      STORAGE_KEYS.RESTAURANT_TABLES,
+      {},
+    );
+    const tbl = (tableStore[business.id] ?? []).find(
+      (t) => t.tableKey === cleanKey,
+    );
+    if (!tbl) throw new Error('Table or room not found.');
+
+    const msgs = this.read<RestaurantTableMessage[]>(
+      STORAGE_KEYS.RESTAURANT_TABLE_MESSAGES,
+      [],
+    );
+    if (params.senderRole === 'manager') {
+      for (let i = 0; i < msgs.length; i++) {
+        if (
+          msgs[i].businessId === business.id &&
+          msgs[i].tableId === tbl.id &&
+          msgs[i].senderRole === 'customer'
+        ) {
+          msgs[i] = { ...msgs[i], isRead: true };
+        }
+      }
+    }
+
+    msgs.push({
+      id: `tmsg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      businessId: business.id,
+      tableId: tbl.id,
+      tableNumber: tbl.tableNumber,
+      tableKey: tbl.tableKey,
+      locationType: tbl.locationType ?? 'table',
+      senderRole: params.senderRole,
+      senderName:
+        params.senderName?.trim().slice(0, 80) ||
+        (params.senderRole === 'manager'
+          ? 'Manager'
+          : params.senderRole === 'system'
+            ? 'System'
+            : 'Guest'),
+      messageText: cleanMsg,
+      isRead: params.senderRole === 'manager',
+      createdAt: new Date().toISOString(),
+    });
+    this.write(STORAGE_KEYS.RESTAURANT_TABLE_MESSAGES, msgs);
+
+    return msgs
+      .filter((m) => m.businessId === business.id && m.tableId === tbl.id)
+      .slice(-80);
+  }
+
+  async getTableChatMessages(params: {
+    businessSlug: string;
+    tableKey: string;
+  }): Promise<RestaurantTableMessage[]> {
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (!business) return [];
+    const cleanKey = deriveTableKey(params.tableKey);
+    const tableStore = this.read<Record<string, RestaurantTable[]>>(
+      STORAGE_KEYS.RESTAURANT_TABLES,
+      {},
+    );
+    const tbl = (tableStore[business.id] ?? []).find(
+      (t) => t.tableKey === cleanKey,
+    );
+    if (!tbl) return [];
+
+    return this.read<RestaurantTableMessage[]>(
+      STORAGE_KEYS.RESTAURANT_TABLE_MESSAGES,
+      [],
+    )
+      .filter((m) => m.businessId === business.id && m.tableId === tbl.id)
+      .slice(-80);
+  }
+
+  async getOpenTableBillSummary(params: {
+    businessSlug: string;
+    tableKey: string;
+  }): Promise<OpenTableBillSummary | null> {
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (!business) return null;
+
+    const cleanKey = deriveTableKey(params.tableKey);
+    const tableStore = this.read<Record<string, RestaurantTable[]>>(
+      STORAGE_KEYS.RESTAURANT_TABLES,
+      {},
+    );
+    const tbl = (tableStore[business.id] ?? []).find(
+      (t) => t.tableKey === cleanKey,
+    );
+    if (!tbl) return null;
+
+    const profileStore = this.read<Record<string, RestaurantProfile>>(
+      STORAGE_KEYS.RESTAURANT_PROFILES,
+      {},
+    );
+    const profile = normalizeRestaurantProfile(
+      business.id,
+      profileStore[business.id],
+      'local',
+    );
+
+    const allOrders = this.read<RestaurantTableOrder[]>(
+      STORAGE_KEYS.RESTAURANT_TABLE_ORDERS,
+      [],
+    ).filter(
+      (o) =>
+        o.businessId === business.id &&
+        o.tableId === tbl.id &&
+        o.status !== 'cancelled',
+    );
+
+    let billOrders = allOrders.filter(
+      (o) => (o.paymentStatus ?? 'unpaid') !== 'paid',
+    );
+    let isCheckedOut = false;
+    let paymentStatus: 'unpaid' | 'upi_pending_verify' | 'paid' = 'unpaid';
+    let paymentMethod: RestaurantPaymentMethod | null = null;
+    let paidAt: string | null = null;
+
+    if (billOrders.length > 0) {
+      if (billOrders.some((o) => o.paymentStatus === 'upi_pending_verify')) {
+        paymentStatus = 'upi_pending_verify';
+      }
+    } else {
+      const sixHoursAgo = Date.now() - 6 * 60 * 60 * 1000;
+      const latestPaid = [...allOrders]
+        .filter(
+          (o) =>
+            o.paymentStatus === 'paid' &&
+            o.paidAt &&
+            new Date(o.paidAt).getTime() >= sixHoursAgo,
+        )
+        .sort((a, b) => (b.paidAt ?? '').localeCompare(a.paidAt ?? ''))[0];
+
+      if (latestPaid) {
+        isCheckedOut = true;
+        paymentStatus = 'paid';
+        paymentMethod = latestPaid.paymentMethod ?? null;
+        paidAt = latestPaid.paidAt ?? null;
+        billOrders = allOrders.filter(
+          (o) =>
+            o.paymentStatus === 'paid' &&
+            (latestPaid.billSessionId
+              ? o.billSessionId === latestPaid.billSessionId
+              : o.paidAt === latestPaid.paidAt),
+        );
+      }
+    }
+
+    const subtotalPaise = billOrders.reduce(
+      (sum, o) =>
+        sum +
+        o.items.reduce((s, item) => s + item.pricePaise * item.quantity, 0),
+      0,
+    );
+
+    const totals = calculateBillTotals({
+      subtotalPaise,
+      gstPercent: profile.gstPercent ?? 0,
+      serviceChargePercent: profile.serviceChargePercent ?? 0,
+    });
+
+    const calls = this.read<RestaurantTableCall[]>(
+      STORAGE_KEYS.RESTAURANT_TABLE_CALLS,
+      [],
+    );
+    const billRequested = calls.some(
+      (c) =>
+        c.businessId === business.id &&
+        c.tableId === tbl.id &&
+        isBillRequestCallType(c.callType) &&
+        (c.status === 'open' || c.status === 'acknowledged'),
+    );
+
+    return {
+      businessId: business.id,
+      businessName: business.name,
+      tableId: tbl.id,
+      tableNumber: tbl.tableNumber,
+      tableKey: tbl.tableKey,
+      locationType: tbl.locationType ?? 'table',
+      occupiedSince: tbl.occupiedSince ?? null,
+      orders: billOrders,
+      orderCount: billOrders.length,
+      ...totals,
+      currencyCode: profile.currencyCode,
+      gstin: profile.gstin ?? null,
+      upiId: profile.upiId ?? null,
+      upiPayeeName: profile.upiPayeeName || business.name,
+      paymentStatus,
+      paymentMethod,
+      paidAt,
+      billRequested,
+      isCheckedOut,
+    };
+  }
+
+  async markTableBillUpiPending(params: {
+    businessSlug: string;
+    tableKey: string;
+    guestName?: string | null;
+  }): Promise<OpenTableBillSummary | null> {
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (!business) throw new Error('Restaurant is not active.');
+
+    const cleanKey = deriveTableKey(params.tableKey);
+    const tableStore = this.read<Record<string, RestaurantTable[]>>(
+      STORAGE_KEYS.RESTAURANT_TABLES,
+      {},
+    );
+    const tbl = (tableStore[business.id] ?? []).find(
+      (t) => t.tableKey === cleanKey,
+    );
+    if (!tbl) throw new Error('Table or room not found.');
+
+    const now = new Date().toISOString();
+    const orders = this.read<RestaurantTableOrder[]>(
+      STORAGE_KEYS.RESTAURANT_TABLE_ORDERS,
+      [],
+    );
+    let updatedCount = 0;
+    for (let i = 0; i < orders.length; i++) {
+      const o = orders[i];
+      if (
+        o.businessId === business.id &&
+        o.tableId === tbl.id &&
+        o.status !== 'cancelled' &&
+        (o.paymentStatus ?? 'unpaid') === 'unpaid'
+      ) {
+        orders[i] = {
+          ...o,
+          paymentStatus: 'upi_pending_verify',
+          paymentMethod: 'upi',
+          updatedAt: now,
+        };
+        updatedCount++;
+      }
+    }
+    this.write(STORAGE_KEYS.RESTAURANT_TABLE_ORDERS, orders);
+
+    if (updatedCount > 0) {
+      const msgs = this.read<RestaurantTableMessage[]>(
+        STORAGE_KEYS.RESTAURANT_TABLE_MESSAGES,
+        [],
+      );
+      msgs.push({
+        id: `tmsg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        businessId: business.id,
+        tableId: tbl.id,
+        tableNumber: tbl.tableNumber,
+        tableKey: tbl.tableKey,
+        locationType: tbl.locationType ?? 'table',
+        senderRole: 'system',
+        senderName: params.guestName?.trim() || 'Guest',
+        messageText:
+          'UPI payment submitted — staff verifying payment for checkout',
+        isRead: false,
+        createdAt: now,
+      });
+      this.write(STORAGE_KEYS.RESTAURANT_TABLE_MESSAGES, msgs);
+    }
+
+    return this.getOpenTableBillSummary({
+      businessSlug: business.slug,
+      tableKey: tbl.tableKey,
+    });
+  }
+
+  async completeTableBillCheckout(params: {
+    businessId: string;
+    tableId: string;
+    paymentMethod: RestaurantPaymentMethod;
+    staffLabel?: string;
+    staffPinHash?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<CompleteTableBillCheckoutResult> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+
+    const profileStore = this.read<Record<string, RestaurantProfile>>(
+      STORAGE_KEYS.RESTAURANT_PROFILES,
+      {},
+    );
+    const profile = normalizeRestaurantProfile(
+      cleanId,
+      profileStore[cleanId],
+      'local',
+    );
+    this.assertOwnerOrStaffPin(
+      business,
+      profile,
+      params.staffPinHash,
+      params.options,
+    );
+
+    const tableStore = this.read<Record<string, RestaurantTable[]>>(
+      STORAGE_KEYS.RESTAURANT_TABLES,
+      {},
+    );
+    const tblList = tableStore[cleanId] ?? [];
+    const tblIdx = tblList.findIndex((t) => t.id === params.tableId);
+    if (tblIdx === -1) {
+      throw new Error('Table or room not found for this business.');
+    }
+    const tbl = tblList[tblIdx];
+    const staffLabel = this.resolveAuditStaffLabel(
+      cleanId,
+      params.staffPinHash,
+      params.staffLabel ?? 'Owner',
+    );
+    const now = new Date().toISOString();
+
+    const orders = this.read<RestaurantTableOrder[]>(
+      STORAGE_KEYS.RESTAURANT_TABLE_ORDERS,
+      [],
+    );
+    const existingSession = [...orders]
+      .reverse()
+      .find(
+        (o) =>
+          o.businessId === cleanId &&
+          o.tableId === tbl.id &&
+          o.status !== 'cancelled' &&
+          (o.paymentStatus ?? 'unpaid') !== 'paid' &&
+          Boolean(o.billSessionId),
+      )?.billSessionId;
+    const sessionId =
+      existingSession ??
+      `bsess-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    let settledOrdersCount = 0;
+    for (let i = 0; i < orders.length; i++) {
+      const o = orders[i];
+      if (
+        o.businessId === cleanId &&
+        o.tableId === tbl.id &&
+        o.status !== 'cancelled' &&
+        (o.paymentStatus ?? 'unpaid') !== 'paid'
+      ) {
+        orders[i] = {
+          ...o,
+          status: 'served',
+          paymentStatus: 'paid',
+          paymentMethod: params.paymentMethod,
+          paidAt: now,
+          billSessionId: o.billSessionId ?? sessionId,
+          approvedBy: o.approvedBy ?? staffLabel,
+          updatedAt: now,
+        };
+        settledOrdersCount++;
+      }
+    }
+    this.write(STORAGE_KEYS.RESTAURANT_TABLE_ORDERS, orders);
+
+    // Resolve open bill requests on this table/room
+    const calls = this.read<RestaurantTableCall[]>(
+      STORAGE_KEYS.RESTAURANT_TABLE_CALLS,
+      [],
+    );
+    for (let i = 0; i < calls.length; i++) {
+      if (
+        calls[i].businessId === cleanId &&
+        calls[i].tableId === tbl.id &&
+        isBillRequestCallType(calls[i].callType) &&
+        (calls[i].status === 'open' || calls[i].status === 'acknowledged')
+      ) {
+        calls[i] = { ...calls[i], status: 'resolved', resolvedAt: now };
+      }
+    }
+    this.write(STORAGE_KEYS.RESTAURANT_TABLE_CALLS, calls);
+
+    // Reset occupiedSince -> Available / Ready for Guests
+    tblList[tblIdx] = { ...tbl, occupiedSince: null, updatedAt: now };
+    tableStore[cleanId] = tblList;
+    this.write(STORAGE_KEYS.RESTAURANT_TABLES, tableStore);
+
+    // Post checkout confirmation message into live table chat
+    const msgs = this.read<RestaurantTableMessage[]>(
+      STORAGE_KEYS.RESTAURANT_TABLE_MESSAGES,
+      [],
+    );
+    msgs.push({
+      id: `tmsg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      businessId: cleanId,
+      tableId: tbl.id,
+      tableNumber: tbl.tableNumber,
+      tableKey: tbl.tableKey,
+      locationType: tbl.locationType ?? 'table',
+      senderRole: 'system',
+      senderName: staffLabel,
+      messageText:
+        'Checkout approved — your final bill is ready to download under View Bill',
+      isRead: true,
+      createdAt: now,
+    });
+    this.write(STORAGE_KEYS.RESTAURANT_TABLE_MESSAGES, msgs);
+
+    const billSummary = await this.getOpenTableBillSummary({
+      businessSlug: business.slug,
+      tableKey: tbl.tableKey,
+    });
+
+    return { settledOrdersCount, billSummary };
+  }
+
+  subscribeToHospitalityRealtime(
+    _businessId: string,
+    onChange: (event: {
+      table:
+        | 'restaurant_table_orders'
+        | 'restaurant_table_calls'
+        | 'restaurant_table_messages';
+    }) => void,
+  ): () => void {
+    // Graceful local/mock fallback: listen for cross-tab localStorage updates
+    if (typeof window === 'undefined') {
+      return () => {};
+    }
+    const handler = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEYS.RESTAURANT_TABLE_ORDERS) {
+        onChange({ table: 'restaurant_table_orders' });
+      } else if (e.key === STORAGE_KEYS.RESTAURANT_TABLE_CALLS) {
+        onChange({ table: 'restaurant_table_calls' });
+      } else if (e.key === STORAGE_KEYS.RESTAURANT_TABLE_MESSAGES) {
+        onChange({ table: 'restaurant_table_messages' });
+      }
+    };
+    window.addEventListener('storage', handler);
+    return () => window.removeEventListener('storage', handler);
   }
 
   // ---------------------------------------------------------------------------

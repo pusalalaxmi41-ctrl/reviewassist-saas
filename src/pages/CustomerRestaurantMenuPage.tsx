@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   UtensilsCrossed,
@@ -8,6 +8,7 @@ import {
   SearchX,
   Loader2,
   MessageSquareHeart,
+  MessageSquare,
   Wifi,
   BellRing,
   ChevronRight,
@@ -21,20 +22,25 @@ import {
 } from 'lucide-react';
 import type {
   MenuThemeTemplate,
+  OpenTableBillSummary,
   PublicRestaurantMenuPayload,
   RestaurantCustomerWalletState,
   RestaurantTableCall,
   RestaurantTableCallType,
+  RestaurantTableMessage,
 } from '../types/restaurant';
 import { businessRepository } from '../services/storage';
 import { MENU_THEME_LIST } from '../config/menuPresets';
 import { copyText } from '../utils/clipboard';
+import { formatPriceFromPaise } from '../utils/restaurantValidation';
+import { TABLE_CALL_TYPE_METADATA } from '../utils/hospitalityHelpers';
 import { CustomerGameArena } from '../components/restaurant/CustomerGameArena';
 import {
   CustomerLoyaltyHeroCard,
   CustomerRewardsAndExtrasView,
 } from '../components/restaurant/CustomerLoyaltyAndExtrasHub';
 import { CustomerDigitalMenuView } from '../components/restaurant/CustomerDigitalMenuView';
+import { CustomerChatAndBillDrawer } from '../components/restaurant/CustomerChatAndBillDrawer';
 
 const CUSTOMER_STORAGE_KEY = 'vitaran_diner_session_v1';
 
@@ -252,7 +258,7 @@ export default function CustomerRestaurantMenuPage() {
   const [showWifiModal, setShowWifiModal] = useState(false);
   const [copiedWifi, setCopiedWifi] = useState(false);
 
-  // 2-Button Call Waiter / Ready for Bill Pop-up
+  // 2-Button Call Waiter / Ready for Bill Pop-up & 4-Pill Instant Service Bar
   const [showCallModal, setShowCallModal] = useState(false);
   const [activeCall, setActiveCall] = useState<RestaurantTableCall | null>(
     null,
@@ -260,6 +266,40 @@ export default function CustomerRestaurantMenuPage() {
   const [callingType, setCallingType] =
     useState<RestaurantTableCallType | null>(null);
   const [callError, setCallError] = useState<string | null>(null);
+  const [serviceToast, setServiceToast] = useState<string | null>(null);
+
+  // Live Open Bill, 4-Stage Order Progress Stepper & 2-Way Table Chat
+  const [billSummary, setBillSummary] = useState<OpenTableBillSummary | null>(
+    null,
+  );
+  const [chatMessages, setChatMessages] = useState<RestaurantTableMessage[]>(
+    [],
+  );
+  const [chatDrawerTab, setChatDrawerTab] = useState<null | 'chat' | 'bill'>(
+    null,
+  );
+
+  const resolvedTableKey = payload?.table?.tableKey ?? tableKey ?? null;
+
+  const refreshLiveTableState = useCallback(async () => {
+    if (!businessSlug || !resolvedTableKey) return;
+    try {
+      const [bill, msgs] = await Promise.all([
+        businessRepository.getOpenTableBillSummary({
+          businessSlug,
+          tableKey: resolvedTableKey,
+        }),
+        businessRepository.getTableChatMessages({
+          businessSlug,
+          tableKey: resolvedTableKey,
+        }),
+      ]);
+      setBillSummary(bill);
+      setChatMessages(msgs);
+    } catch {
+      // ignore transient guest poll errors
+    }
+  }, [businessSlug, resolvedTableKey]);
 
   useEffect(() => {
     async function loadMenuAndWallet() {
@@ -294,6 +334,27 @@ export default function CustomerRestaurantMenuPage() {
     }
     void loadMenuAndWallet();
   }, [businessSlug, tableKey]);
+
+  useEffect(() => {
+    if (!payload?.business.id || !resolvedTableKey) return;
+    const initTimer = window.setTimeout(() => {
+      void refreshLiveTableState();
+    }, 0);
+    const unsub = businessRepository.subscribeToHospitalityRealtime(
+      payload.business.id,
+      () => {
+        void refreshLiveTableState();
+      },
+    );
+    const poll = window.setInterval(() => {
+      void refreshLiveTableState();
+    }, 6000);
+    return () => {
+      window.clearTimeout(initTimer);
+      unsub();
+      window.clearInterval(poll);
+    };
+  }, [payload?.business.id, resolvedTableKey, refreshLiveTableState]);
 
   async function ensureCustomerWallet(): Promise<RestaurantCustomerWalletState | null> {
     if (wallet) return wallet;
@@ -378,6 +439,15 @@ export default function CustomerRestaurantMenuPage() {
         callType,
       });
       setActiveCall(created);
+      const meta =
+        TABLE_CALL_TYPE_METADATA[callType] ??
+        TABLE_CALL_TYPE_METADATA.assistance;
+      const msg = `${meta.emoji} ${meta.label} sent to staff!`;
+      setServiceToast(msg);
+      window.setTimeout(() => {
+        setServiceToast((prev) => (prev === msg ? null : prev));
+      }, 3500);
+      await refreshLiveTableState();
     } catch (err) {
       setCallError((err as Error).message);
     } finally {
@@ -438,18 +508,41 @@ export default function CustomerRestaurantMenuPage() {
   // Full-Screen Culturally Themed Digital Menu Sub-View
   if (activeView === 'menu') {
     return (
-      <CustomerDigitalMenuView
-        businessSlug={business.slug}
-        businessName={business.name}
-        businessCity={business.city}
-        profile={profile}
-        table={table}
-        tableKey={tableKey}
-        categories={categories}
-        items={items}
-        wallet={wallet}
-        onBackToHub={() => setActiveView('launcher')}
-      />
+      <>
+        <CustomerDigitalMenuView
+          businessSlug={business.slug}
+          businessName={business.name}
+          businessCity={business.city}
+          profile={profile}
+          table={table}
+          tableKey={tableKey}
+          categories={categories}
+          items={items}
+          wallet={wallet}
+          onBackToHub={() => setActiveView('launcher')}
+          onOrderSubmitted={() => {
+            void refreshLiveTableState();
+          }}
+          onOpenChatAndBill={
+            resolvedTableKey ? (tab) => setChatDrawerTab(tab) : undefined
+          }
+        />
+        {chatDrawerTab && resolvedTableKey && (
+          <CustomerChatAndBillDrawer
+            businessSlug={business.slug}
+            businessName={business.name}
+            tableKey={resolvedTableKey}
+            tableNumber={table?.tableNumber ?? resolvedTableKey}
+            customerName={wallet?.customer.displayName ?? null}
+            initialTab={chatDrawerTab}
+            billSummary={billSummary}
+            messages={chatMessages}
+            onClose={() => setChatDrawerTab(null)}
+            onRefresh={refreshLiveTableState}
+            onQuickServiceCall={handleRequestStaff}
+          />
+        )}
+      </>
     );
   }
 
@@ -552,7 +645,7 @@ export default function CustomerRestaurantMenuPage() {
             </div>
           </div>
 
-          {/* Table Pill Badge */}
+          {/* Table / Room Pill Badge */}
           {table ? (
             <div
               data-testid="detected-table-badge"
@@ -570,6 +663,165 @@ export default function CustomerRestaurantMenuPage() {
             )
           )}
         </header>
+
+        {/* 1B. 4-PILL INSTANT SERVICE BAR (Waiter | Water | Bill | Clean) */}
+        {resolvedTableKey && (
+          <div className="space-y-2">
+            <div
+              className="grid grid-cols-4 gap-2"
+              role="group"
+              aria-label="1-Tap Instant Table Service"
+            >
+              {(
+                [
+                  { type: 'assistance' as const, emoji: '🙋', label: 'Waiter' },
+                  { type: 'water' as const, emoji: '💧', label: 'Water' },
+                  { type: 'bill_request' as const, emoji: '🧾', label: 'Bill' },
+                  { type: 'clean_table' as const, emoji: '🧹', label: 'Clean' },
+                ] as const
+              ).map((pill) => {
+                const isSending = callingType === pill.type;
+                return (
+                  <button
+                    key={pill.type}
+                    type="button"
+                    disabled={callingType !== null}
+                    onClick={() => void handleRequestStaff(pill.type)}
+                    className={`flex flex-col items-center justify-center gap-0.5 rounded-2xl border py-2.5 px-1.5 text-center shadow-2xs transition-all active:scale-[0.96] cursor-pointer ${
+                      pill.type === 'bill_request'
+                        ? 'border-rose-200 bg-[#FEF2F2] text-[#991B1B] hover:bg-rose-100'
+                        : 'border-[#1E1B4B]/12 bg-[#FFFFFF] text-[#1E1B4B] hover:bg-[#F8F9FA]'
+                    }`}
+                  >
+                    <span className="text-[16px] leading-none" aria-hidden>
+                      {pill.emoji}
+                    </span>
+                    <span className="text-[11px] font-extrabold leading-tight">
+                      {isSending ? 'Sent…' : pill.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {serviceToast && (
+              <div
+                role="status"
+                className="flex items-center justify-between gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-[12px] font-extrabold text-[#065F46] animate-fadeSlideUp"
+              >
+                <span>{serviceToast}</span>
+                <button
+                  type="button"
+                  onClick={() => setServiceToast(null)}
+                  className="p-0.5 cursor-pointer"
+                  aria-label="Dismiss"
+                >
+                  <X className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 1C. LIVE 4-STAGE ORDER PROGRESS STEPPER & OPEN BILL CARD */}
+        {resolvedTableKey && billSummary && billSummary.orderCount > 0 && (() => {
+          const latestOrder =
+            billSummary.orders[billSummary.orders.length - 1] ?? null;
+          const activeStepIdx = billSummary.isCheckedOut
+            ? 3
+            : latestOrder?.status === 'served'
+              ? 3
+              : latestOrder?.status === 'ready'
+                ? 2
+                : latestOrder?.status === 'preparing'
+                  ? 1
+                  : 0;
+          const steps = ['Received', 'Preparing', 'Ready', 'Served'];
+
+          return (
+            <div className="rounded-2xl border-2 border-[#1E1B4B]/15 bg-[#FFFFFF] p-4 shadow-sm space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#6B7280]">
+                    {billSummary.isCheckedOut
+                      ? 'Checkout Approved ✓'
+                      : `Live Order Tracker • ${billSummary.orderCount} Order${billSummary.orderCount === 1 ? '' : 's'}`}
+                  </p>
+                  <p className="text-[17px] font-black text-[#1E1B4B] tabular-nums">
+                    {formatPriceFromPaise(
+                      billSummary.grandTotalPaise,
+                      billSummary.currencyCode,
+                    )}
+                  </p>
+                </div>
+                <span
+                  className={`rounded-full px-2.5 py-1 text-[10.5px] font-extrabold ${
+                    billSummary.isCheckedOut
+                      ? 'bg-emerald-100 text-[#065F46]'
+                      : billSummary.paymentStatus === 'upi_pending_verify'
+                        ? 'bg-amber-100 text-[#92400E]'
+                        : 'bg-[#F8F9FA] border border-[#1E1B4B]/12 text-[#1E1B4B]'
+                  }`}
+                >
+                  {billSummary.isCheckedOut
+                    ? '✓ Paid & Verified'
+                    : billSummary.paymentStatus === 'upi_pending_verify'
+                      ? 'UPI Paid — Staff Checking'
+                      : 'Pay at Checkout'}
+                </span>
+              </div>
+
+              {/* 4-Stage Stepper */}
+              <div className="grid grid-cols-4 gap-1.5">
+                {steps.map((label, idx) => {
+                  const reached = idx <= activeStepIdx;
+                  const isCurrent = idx === activeStepIdx;
+                  return (
+                    <div key={label} className="space-y-1 text-center">
+                      <div
+                        className={`h-2 rounded-full transition-colors ${
+                          reached
+                            ? isCurrent
+                              ? 'bg-[#D2DB76] ring-1 ring-[#1E1B4B]/40'
+                              : 'bg-[#059669]'
+                            : 'bg-[#E5E7EB]'
+                        }`}
+                      />
+                      <p
+                        className={`text-[10.5px] font-extrabold ${
+                          reached ? 'text-[#1E1B4B]' : 'text-[#9CA3AF]'
+                        }`}
+                      >
+                        {label}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-2 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => setChatDrawerTab('bill')}
+                  className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#1E1B4B] px-3 text-[12px] font-extrabold text-white hover:bg-[#2E2A6E] cursor-pointer"
+                >
+                  <Receipt className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
+                  {billSummary.isCheckedOut
+                    ? 'Download Receipt →'
+                    : 'View Bill & Pay →'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChatDrawerTab('chat')}
+                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-[#1E1B4B]/20 bg-[#F8F9FA] px-3 text-[12px] font-extrabold text-[#1E1B4B] hover:bg-white cursor-pointer"
+                >
+                  <MessageSquare className="h-3.5 w-3.5" aria-hidden />
+                  Chat
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* 2. LOYALTY STATUS & QUICK JOIN CARD */}
         {profile.loyaltyEnabled &&
@@ -1079,6 +1331,44 @@ export default function CustomerRestaurantMenuPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Floating 2-Way Table Chat & Open Bill Button */}
+      {resolvedTableKey && (
+        <button
+          type="button"
+          onClick={() =>
+            setChatDrawerTab(
+              billSummary && billSummary.orderCount > 0 ? 'bill' : 'chat',
+            )
+          }
+          className="fixed bottom-4 right-4 z-40 inline-flex h-12 items-center gap-2 rounded-full bg-[#1E1B4B] px-4 text-[13px] font-extrabold text-white shadow-xl ring-2 ring-[#D2DB76] hover:bg-[#2E2A6E] active:scale-[0.97] transition-all cursor-pointer"
+        >
+          <MessageSquare className="h-4 w-4 text-[#D2DB76]" aria-hidden />
+          <span>Chat &amp; Bill</span>
+          {chatMessages.length > 0 && (
+            <span className="rounded-full bg-[#D2DB76] px-1.5 py-0.5 text-[10.5px] font-black text-[#1E1B4B] tabular-nums">
+              {chatMessages.length}
+            </span>
+          )}
+        </button>
+      )}
+
+      {/* Live 2-Way Chat & Bill Checkout Drawer */}
+      {chatDrawerTab && resolvedTableKey && (
+        <CustomerChatAndBillDrawer
+          businessSlug={business.slug}
+          businessName={business.name}
+          tableKey={resolvedTableKey}
+          tableNumber={table?.tableNumber ?? resolvedTableKey}
+          customerName={wallet?.customer.displayName ?? null}
+          initialTab={chatDrawerTab}
+          billSummary={billSummary}
+          messages={chatMessages}
+          onClose={() => setChatDrawerTab(null)}
+          onRefresh={refreshLiveTableState}
+          onQuickServiceCall={handleRequestStaff}
+        />
       )}
     </div>
   );

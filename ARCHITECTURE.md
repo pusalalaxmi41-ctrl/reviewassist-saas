@@ -32,7 +32,7 @@ flowchart TB
 
     subgraph Backend["Supabase Cloud Backend (jwgofsrubthumuymhzva)"]
         Auth["Supabase Auth (JWT + auth.uid)"]
-        DB["PostgreSQL 15+ (Migrations 001–018)\nFORCE RLS + SECURITY DEFINER RPCs"]
+        DB["PostgreSQL 15+ (Migrations 001–019)\nFORCE RLS + SECURITY DEFINER RPCs + Realtime"]
         Edge["Supabase Edge Functions (Deno)\nAI Drafts, Public Lookup, Event Tracking, Account Deletion"]
     end
 
@@ -72,6 +72,7 @@ flowchart TB
 | `/r/:businessSlug/menu` | `CustomerLayout` | Public | `src/pages/CustomerRestaurantMenuPage.tsx` | General Customer Table Hub & Digital Menu |
 | `/r/:businessSlug/table/:tableKey` | `CustomerLayout` | Public | `src/pages/CustomerRestaurantMenuPage.tsx` | Table-aware QR Hub (pre-binds table for orders & waiter calls) |
 | `/r/:businessSlug/staff` | `CustomerLayout` | Staff PIN Gate | `src/pages/RestaurantStaffVerificationPage.tsx` | Waiter Mobile Floor App (Personal Staff ID + PIN) |
+| `/r/:businessSlug/kitchen` | Standalone Dark Mode | Chef/Manager PIN or Owner | `src/pages/RestaurantKitchenDisplayPage.tsx` | **Dark-Mode Kitchen Display System (KDS)** (`#0B1120`) with live `MM:SS` urgency timers, channel filters, KOT print & touch actions |
 | `/r/:businessSlug/queue` | `CustomerLayout` | Public | `src/pages/CustomerBarberQueuePage.tsx` | Barber & Salon Customer Live Queue & Countdown Pass |
 | `/r/:businessSlug/barber-staff` | `CustomerLayout` | Barber PIN Gate | `src/pages/BarberStaffQueuePage.tsx` | Standalone Barber Chair Mobile App (Personal `BAR-01` PIN) |
 | `/barber/dashboard` | `MainLayout` | `RequireAuth` | `src/pages/BarberOwnerDashboardPage.tsx` | Dedicated 4-Tab BarberOS Owner Studio (Obsidian & Brass) |
@@ -105,9 +106,9 @@ Every feature MUST work identically in **both** modes via `src/services/storage/
 
 ---
 
-## 4. Complete Database Schema & Migrations (`001` – `018`)
+## 4. Complete Database Schema & Migrations (`001` – `019`)
 
-Migrations `001` – `017` are live on Supabase Cloud (`jwgofsrubthumuymhzva`), with Migration `018` upgrading Module 5 (GymOS Daily QR Attendance, Fitness Targets, Workout Split Tracking, Trainer Notes & Monthly Revenue Forecasting):
+Migrations `001` – `018` are live on Supabase Cloud (`jwgofsrubthumuymhzva`), with Migration `019` completing the end-to-end **Hospitality OS Upgrade** (Unified Restaurant Tables + Hotel Rooms, Multi-Order Open Bills with CGST/SGST + Dynamic UPI QR, 2-Way Live Table/Room Chat, Spoken Voice Alerts, 3-Column Counter POS, Swiggy/Zomato Platform Intake, Dark-Mode Kitchen KDS, Supabase Realtime, and 1-Tap NFC Standee Links):
 
 | Migration | Scope & Tables / Columns Added |
 | :--- | :--- |
@@ -126,6 +127,7 @@ Migrations `001` – `017` are live on Supabase Cloud (`jwgofsrubthumuymhzva`), 
 | `015` | Module 5 (GymOS Membership & 3-Day Expiry Tracker): `'gym'` category constraint update, `gym_configs`, `gym_members`, `gym_check_ins`, plus 6 hardened RPCs (`get_public_gym_portal`, `submit_gym_member_registration`, `lookup_gym_member_pass`, `gym_member_daily_check_in`, `get_gym_owner_dashboard`, `owner_approve_or_renew_gym_member`) |
 | `017` | Module 4B (BarberOS Hybrid Queue & Revenue Ledger): `booking_type` (`walk_in`/`appointment`), `display_code` (`W-01`/`B-01`), `scheduled_time`, `scheduled_at`, `price_paise` on `barber_queue_tickets`; Fair Slot-Weaving merge + `bookedSlotsToday` in `get_public_barber_queue_status`; 6-arg `join_barber_queue` with daily `#1` reset & 15-min collision guard; `get_barber_revenue_and_service_summary(p_business_id, p_month_key)` |
 | `018` | Module 5B (GymOS Attendance, Goals & Revenue Forecast): `fitness_goal`, `starting_weight_kg`, `target_weight_kg`, `trainer_notes`, `last_check_in_at` on `gym_members`; `workout_focus` & `member_note` on `gym_check_ins`; new `gym_payment_logs` table (FORCE RLS + backfill); upgraded 7-arg `submit_gym_member_registration`, 4-arg `gym_member_daily_check_in`, 2-arg `get_gym_owner_dashboard` (`todaysAttendance`, `monthlyRevenuePaise`, `projectedNextMonthRevenuePaise`, `inactiveAlertMembers`); new `get_gym_member_progress_history` & `owner_update_gym_member_profile` RPCs |
+| `019` | **Complete Hospitality OS Upgrade (BistroOS + Hotel Rooms + Kitchen KDS)**: Extended `restaurant_profiles` (`upi_id`, `upi_payee_name`, `gstin`, `gst_percent`, `service_charge_percent`, `voice_alerts_enabled`, `accepting_orders`, `hotel_rooms_enabled`), `restaurant_tables` (`location_type`, `seat_capacity`, `occupied_since`), `restaurant_menu_items` (`show_on_table`, `show_on_room`, `spice_level`, `ingredients_summary`, `prep_time_minutes`), `restaurant_table_calls` (`water`, `bill_request`, `clean_table`, `assigned_staff_label`), `restaurant_table_orders` (`ready` status, `order_source`, `platform_order_number`, `packaging_paise`, `kitchen_note`, `bill_session_id`, `payment_status`, `payment_method`, `paid_at`, `customer_repeat_visit_count`); new `restaurant_table_messages` table (ENABLE + FORCE RLS, REVOKE ALL FROM public/anon); Supabase Realtime publication (`restaurant_table_orders`, `restaurant_table_calls`, `restaurant_table_messages`); 7 new/upgraded RPCs (`create_pos_or_platform_order`, `send_table_chat_message`, `get_table_chat_messages`, `get_open_table_bill_summary`, `mark_table_bill_upi_pending`, `complete_table_bill_checkout`, upgraded `submit_customer_table_order` & `get_restaurant_floor_and_analytics`) |
 
 ### Core Entity Relationships (Restaurant & Cafe Suite)
 
@@ -240,7 +242,7 @@ Run these commands from `C:\work\review-saas` after every change:
 npm run lint
 npm run build
 
-# 2. All 14 automated Deno verification suites (404 checks total)
+# 2. All 15 automated Deno verification suites (439 checks total)
 npm run test:qr              # 45 checks — QR URLs, scan tracking, poster rendering
 npm run test:ai-config       # 34 checks — AI tone/length/language config & tenant isolation
 npm run test:knowledge       # 28 checks — Business Knowledge, SEO, prompt-injection defense
@@ -255,6 +257,7 @@ npm run test:barber          # 39 checks — Module 4: Barber/Salon live queue, 
 npm run test:gym             # 27 checks — Module 5 & Multi-Industry Router: Industry locking, Barber Token QR, GymOS signup, payment approval, 3-day expiry radar, daily check-in idempotency & tenant isolation
 npm run test:barber-hybrid   # 30 checks — Module 4B: Daily #1 token reset, W-XX/B-XX hybrid slot-weaving merge, double-booking guard, broadcast delay sync, daily & monthly service revenue ledger & tenant isolation
 npm run test:gym-attendance  # 21 checks — Module 5B: Fitness targets & weights, daily QR attendance timestamps, workout split tracking, same-day duplicate prevention, member progress history, trainer notes, monthly + projected 30d revenue & tenant isolation
+npm run test:hospitality     # 35 checks — Complete Hospitality OS (Migration 019): Unified Tables + Hotel Rooms, Table/Room dish visibility, 1-tap guest requests + waiter assignment, 2-way live chat, multi-order open bills + CGST/SGST + UPI QR + checkout reset, Counter POS & Swiggy/Zomato isolation, repeat visit detection, tenant isolation & SQL guardrails
 
 # 3. Git push (both remotes) & Production Vercel Deploy
 git push origin main
