@@ -33,6 +33,7 @@ import {
   formatElapsedTimerMMSS,
   isPlatformOrOffPremiseSource,
   ORDER_SOURCE_METADATA,
+  playNotificationChime,
   printKitchenKotTicket,
   speakHospitalityAlert,
 } from '../utils/hospitalityHelpers';
@@ -58,6 +59,7 @@ export default function RestaurantKitchenDisplayPage() {
     useState<VerifiedStaffMemberSession | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [kdsError, setKdsError] = useState<string | null>(null);
 
   // KDS Live State
   const [orders, setOrders] = useState<RestaurantTableOrder[]>([]);
@@ -145,6 +147,7 @@ export default function RestaurantKitchenDisplayPage() {
             const loc = ticket.platformOrderNumber
               ? `${src.shortLabel} order ${ticket.platformOrderNumber}`
               : ticket.tableNumber || src.shortLabel;
+            playNotificationChime('order', soundEnabledRef.current);
             speakHospitalityAlert(
               `New kitchen ticket for ${loc}`,
               soundEnabledRef.current,
@@ -212,6 +215,7 @@ export default function RestaurantKitchenDisplayPage() {
   ) {
     if (!business) return;
     setUpdatingOrderId(orderId);
+    setKdsError(null);
     try {
       await businessRepository.updateTableOrderStatus({
         businessSlug: business.slug,
@@ -232,7 +236,7 @@ export default function RestaurantKitchenDisplayPage() {
         setStatusBanner((prev) => (prev === msg ? null : prev));
       }, 3000);
     } catch (err) {
-      setAuthError((err as Error).message);
+      setKdsError((err as Error).message);
     } finally {
       setUpdatingOrderId(null);
     }
@@ -464,7 +468,10 @@ export default function RestaurantKitchenDisplayPage() {
               onClick={() => {
                 const next = !soundEnabled;
                 setSoundEnabled(next);
-                if (next) speakHospitalityAlert('Kitchen sound alerts on', true);
+                if (next) {
+                  playNotificationChime('order', true);
+                  speakHospitalityAlert('Kitchen sound alerts on', true);
+                }
               }}
               className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-[12px] font-extrabold cursor-pointer ${
                 soundEnabled
@@ -508,6 +515,24 @@ export default function RestaurantKitchenDisplayPage() {
 
       {/* Main KOT Grid Canvas */}
       <main className="mx-auto w-full max-w-[1600px] flex-1 p-4 sm:p-6 space-y-4">
+        {kdsError && (
+          <div
+            role="alert"
+            className="flex items-center justify-between gap-2 rounded-2xl border border-rose-500/50 bg-rose-500/15 px-4 py-2.5 text-[13px] font-bold text-rose-200"
+          >
+            <span className="flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" aria-hidden />
+              <span>{kdsError}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setKdsError(null)}
+              className="text-xs underline cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
         {statusBanner && (
           <div className="flex items-center gap-2 rounded-2xl border border-emerald-500/40 bg-emerald-500/15 px-4 py-2.5 text-[13px] font-extrabold text-emerald-200">
             <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   UtensilsCrossed,
@@ -33,7 +33,10 @@ import { businessRepository } from '../services/storage';
 import { MENU_THEME_LIST } from '../config/menuPresets';
 import { copyText } from '../utils/clipboard';
 import { formatPriceFromPaise } from '../utils/restaurantValidation';
-import { TABLE_CALL_TYPE_METADATA } from '../utils/hospitalityHelpers';
+import {
+  playNotificationChime,
+  TABLE_CALL_TYPE_METADATA,
+} from '../utils/hospitalityHelpers';
 import { CustomerGameArena } from '../components/restaurant/CustomerGameArena';
 import {
   CustomerLoyaltyHeroCard,
@@ -278,6 +281,8 @@ export default function CustomerRestaurantMenuPage() {
   const [chatDrawerTab, setChatDrawerTab] = useState<null | 'chat' | 'bill'>(
     null,
   );
+  const seenGuestMsgIdsRef = useRef<Set<string>>(new Set());
+  const guestChatHydratedRef = useRef(false);
 
   const resolvedTableKey = payload?.table?.tableKey ?? tableKey ?? null;
 
@@ -295,6 +300,19 @@ export default function CustomerRestaurantMenuPage() {
         }),
       ]);
       setBillSummary(bill);
+      if (!guestChatHydratedRef.current) {
+        for (const m of msgs) seenGuestMsgIdsRef.current.add(m.id);
+        guestChatHydratedRef.current = true;
+      } else {
+        for (const m of msgs) {
+          if (!seenGuestMsgIdsRef.current.has(m.id)) {
+            seenGuestMsgIdsRef.current.add(m.id);
+            if (m.senderRole === 'manager') {
+              playNotificationChime('chat', true);
+            }
+          }
+        }
+      }
       setChatMessages(msgs);
     } catch {
       // ignore transient guest poll errors

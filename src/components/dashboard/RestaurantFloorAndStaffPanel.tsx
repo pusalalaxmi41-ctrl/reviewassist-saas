@@ -44,6 +44,7 @@ import {
 import {
   formatElapsedOccupancy,
   ORDER_SOURCE_METADATA,
+  playNotificationChime,
   speakHospitalityAlert,
   TABLE_CALL_TYPE_METADATA,
 } from '../../utils/hospitalityHelpers';
@@ -405,6 +406,7 @@ export function RestaurantFloorAndStaffPanel({
         const meta =
           TABLE_CALL_TYPE_METADATA[call.callType] ??
           TABLE_CALL_TYPE_METADATA.assistance;
+        playNotificationChime('alert', voiceAlertsOn);
         speakHospitalityAlert(
           `Attention ${waiterFirstName}! Manager assigned you to ${call.tableNumber || 'a table'} — ${meta.spokenPhrase}.`,
           voiceAlertsOn,
@@ -415,6 +417,7 @@ export function RestaurantFloorAndStaffPanel({
     for (const ord of readyOrders) {
       if (!announcedReadyOrderIdsRef.current.has(ord.id)) {
         announcedReadyOrderIdsRef.current.add(ord.id);
+        playNotificationChime('order', voiceAlertsOn);
         speakHospitalityAlert(
           `Order ready at kitchen for ${ord.tableNumber || ord.guestName || 'pickup'}. Please pick up and serve!`,
           voiceAlertsOn,

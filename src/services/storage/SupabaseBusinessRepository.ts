@@ -60,6 +60,7 @@ import type {
   RestaurantMenuItemInput,
   RestaurantMonthlyInventoryInput,
   RestaurantMonthlyInventoryItem,
+  RestaurantOrderSource,
   RestaurantPaymentMethod,
   RestaurantPointToStarExchangeResponse,
   RestaurantProfile,
@@ -3491,11 +3492,73 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       return data as RestaurantTableOrder;
     }
 
-    if (
-      error &&
-      (error.message.includes('Unauthorized') ||
-        error.message.includes('not found'))
-    ) {
+    // Resilient owner-session fallback if an older DB RPC fails on NULL table_id (e.g. before Migration 021)
+    if (error && !params.staffPinHash) {
+      const nextApproved =
+        statusCheck.value === 'approved_for_kitchen' ||
+        statusCheck.value === 'preparing' ||
+        statusCheck.value === 'ready' ||
+        statusCheck.value === 'served';
+      const { data: directRow, error: directErr } = await client
+        .from('restaurant_table_orders')
+        .update({
+          status: statusCheck.value,
+          ...(nextApproved
+            ? { approved_by: params.staffLabel ?? 'Owner' }
+            : {}),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', params.orderId)
+        .select('*')
+        .single();
+
+      if (!directErr && directRow) {
+        const row = directRow as {
+          id: string;
+          business_id: string;
+          table_id: string | null;
+          customer_id: string | null;
+          guest_name: string | null;
+          items: RestaurantTableOrder['items'];
+          status: RestaurantTableOrderStatus;
+          order_source?: RestaurantOrderSource;
+          platform_order_number?: string | null;
+          packaging_paise?: number | null;
+          kitchen_note?: string | null;
+          bill_session_id?: string | null;
+          payment_status?: RestaurantTableOrder['paymentStatus'];
+          payment_method?: RestaurantPaymentMethod | null;
+          paid_at?: string | null;
+          customer_repeat_visit_count?: number | null;
+          approved_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        return {
+          id: row.id,
+          businessId: row.business_id,
+          tableId: row.table_id,
+          customerId: row.customer_id,
+          guestName: row.guest_name,
+          items: row.items,
+          status: row.status,
+          orderSource: row.order_source ?? 'qr_table',
+          platformOrderNumber: row.platform_order_number ?? null,
+          packagingPaise: row.packaging_paise ?? 0,
+          kitchenNote: row.kitchen_note ?? null,
+          billSessionId: row.bill_session_id ?? null,
+          paymentStatus: row.payment_status ?? 'unpaid',
+          paymentMethod: row.payment_method ?? null,
+          paidAt: row.paid_at ?? null,
+          customerRepeatVisitCount: row.customer_repeat_visit_count ?? 1,
+          approvedBy: row.approved_by,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        };
+      }
+    }
+
+    if (error) {
       throw new Error(error.message);
     }
 

@@ -101,6 +101,7 @@ import {
   isBillRequestCallType,
   isPlatformOrOffPremiseSource,
   ORDER_SOURCE_METADATA,
+  playNotificationChime,
   printKitchenKotTicket,
   speakHospitalityAlert,
   SPICE_LEVEL_METADATA,
@@ -268,10 +269,11 @@ export function RestaurantManagerView({
   const [dispatchWaiterLabel, setDispatchWaiterLabel] = useState<string>('');
   const [dispatchingTask, setDispatchingTask] = useState(false);
 
-  // Voice Alert dedup refs (skip initial load; speak only newly arrived calls & orders)
+  // Voice & Chime Alert dedup refs (skip initial load; notify only newly arrived calls, orders & guest chat)
   const initializedAlertsRef = useRef(false);
   const seenCallIdsRef = useRef<Set<string>>(new Set());
   const seenOrderIdsRef = useRef<Set<string>>(new Set());
+  const seenMessageIdsRef = useRef<Set<string>>(new Set());
   const voiceAlertsEnabledRef = useRef(true);
   useEffect(() => {
     voiceAlertsEnabledRef.current = voiceAlertsEnabled;
@@ -404,8 +406,9 @@ export function RestaurantManagerView({
       }
 
       const liveOrders = payload.tableOrders ?? [];
+      const liveMessages = payload.tableMessages ?? [];
 
-      // Speak voice alerts for newly arriving calls or orders (after initial mount)
+      // Play subtle notification chimes + optional voice alerts for newly arriving calls, orders & chat messages
       if (!initializedAlertsRef.current) {
         for (const c of payload.activeTableCalls) {
           seenCallIdsRef.current.add(c.id);
@@ -413,12 +416,20 @@ export function RestaurantManagerView({
         for (const o of liveOrders) {
           seenOrderIdsRef.current.add(o.id);
         }
+        for (const m of liveMessages) {
+          seenMessageIdsRef.current.add(m.id);
+        }
         initializedAlertsRef.current = true;
       } else {
         let spoken = false;
+        let chimed = false;
         for (const call of payload.activeTableCalls) {
           if (!seenCallIdsRef.current.has(call.id)) {
             seenCallIdsRef.current.add(call.id);
+            if (!chimed) {
+              playNotificationChime('alert', true);
+              chimed = true;
+            }
             if (!spoken) {
               const meta =
                 TABLE_CALL_TYPE_METADATA[call.callType] ??
@@ -434,6 +445,10 @@ export function RestaurantManagerView({
         for (const ord of liveOrders) {
           if (!seenOrderIdsRef.current.has(ord.id)) {
             seenOrderIdsRef.current.add(ord.id);
+            if (!chimed) {
+              playNotificationChime('order', true);
+              chimed = true;
+            }
             if (!spoken) {
               const sourceMeta =
                 ORDER_SOURCE_METADATA[ord.orderSource ?? 'qr_table'] ??
@@ -446,6 +461,21 @@ export function RestaurantManagerView({
                 voiceAlertsEnabledRef.current,
               );
               spoken = true;
+            }
+          }
+        }
+        for (const msg of liveMessages) {
+          if (!seenMessageIdsRef.current.has(msg.id)) {
+            seenMessageIdsRef.current.add(msg.id);
+            if (msg.senderRole === 'customer') {
+              if (!chimed) {
+                playNotificationChime('chat', true);
+                chimed = true;
+              }
+              const preview = msg.messageText.slice(0, 60);
+              setStatusMessage(
+                `New chat from ${msg.tableNumber || 'Guest'}: "${preview}"`,
+              );
             }
           }
         }
@@ -524,10 +554,13 @@ export function RestaurantManagerView({
         setStaffMembers(staffList);
         setInventoryEntries(invList);
 
-        // Seed voice-alert dedup sets with already-existing calls/orders
+        // Seed alert/chime dedup sets with already-existing calls, orders & messages
         seenCallIdsRef.current = new Set(flr.activeTableCalls.map((c) => c.id));
         seenOrderIdsRef.current = new Set(
           (flr.tableOrders ?? []).map((o) => o.id),
+        );
+        seenMessageIdsRef.current = new Set(
+          (flr.tableMessages ?? []).map((m) => m.id),
         );
         initializedAlertsRef.current = true;
 

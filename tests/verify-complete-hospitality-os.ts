@@ -853,6 +853,87 @@ assert(
 );
 
 // ---------------------------------------------------------------------------
+// 9. Migration 021 Regression: NULL table_id Orders (Swiggy + General Menu QR)
+//    Advancing Smoothly on Main Dashboard & Chef Kitchen KDS
+// ---------------------------------------------------------------------------
+console.log(
+  '\n9. NULL table_id Order Progression (Swiggy / General QR) & Migration 021 SQL Guardrails',
+);
+
+const generalQrOrder = await repo.submitCustomerTableOrder({
+  businessSlug: restaurant.slug,
+  tableKey: null,
+  guestName: 'General QR Guest',
+  kitchenNote: 'Good spice',
+  items: [{ itemId: dishShared.id, quantity: 1 }],
+});
+
+const approvedGeneralQr = await repo.updateTableOrderStatus(
+  {
+    businessSlug: restaurant.slug,
+    orderId: generalQrOrder.id,
+    status: 'approved_for_kitchen',
+    staffLabel: 'Owner',
+  },
+  ownerA,
+);
+const preparingGeneralQr = await repo.updateTableOrderStatus({
+  businessSlug: restaurant.slug,
+  orderId: generalQrOrder.id,
+  status: 'preparing',
+  staffLabel: 'Chef',
+  staffPinHash: rahulPinHash,
+});
+const readyGeneralQr = await repo.updateTableOrderStatus({
+  businessSlug: restaurant.slug,
+  orderId: generalQrOrder.id,
+  status: 'ready',
+  staffLabel: 'Chef',
+  staffPinHash: rahulPinHash,
+});
+
+assert(
+  generalQrOrder.tableId === null &&
+    approvedGeneralQr.status === 'approved_for_kitchen' &&
+    preparingGeneralQr.status === 'preparing' &&
+    readyGeneralQr.status === 'ready',
+  'General QR order (tableId === null) progresses cleanly through Approve -> Chef Preparing -> Ready',
+);
+
+const preparingZomato = await repo.updateTableOrderStatus({
+  businessSlug: restaurant.slug,
+  orderId: zomatoOrder.id,
+  status: 'preparing',
+  staffLabel: 'Chef',
+  staffPinHash: rahulPinHash,
+});
+const readyZomato = await repo.updateTableOrderStatus({
+  businessSlug: restaurant.slug,
+  orderId: zomatoOrder.id,
+  status: 'ready',
+  staffLabel: 'Chef',
+  staffPinHash: rahulPinHash,
+});
+
+assert(
+  zomatoOrder.tableId === null &&
+    preparingZomato.status === 'preparing' &&
+    readyZomato.status === 'ready',
+  'Swiggy/Zomato off-premise order (tableId === null) advances cleanly on Chef KDS (Preparing -> Ready)',
+);
+
+const sql021Text = await Deno.readTextFile(
+  'supabase/migrations/021_fix_order_status_null_table_and_kds.sql',
+);
+assert(
+  !/substring\s*\(/i.test(sql021Text) &&
+    !/v_table\s+record/i.test(sql021Text) &&
+    /v_table_number\s+text/i.test(sql021Text) &&
+    /set search_path = pg_catalog, public, pg_temp/i.test(sql021Text),
+  'Migration 021 eliminates unassigned v_table record bug (uses nullable scalars) & obeys SQL guardrails',
+);
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 console.log(

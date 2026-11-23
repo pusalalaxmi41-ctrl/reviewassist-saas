@@ -319,6 +319,68 @@ export function formatElapsedTimerMMSS(isoCreatedAt: string, nowMs: number): {
   };
 }
 
+/**
+ * Soft, pleasant browser-native Web Audio API notification chime (zero external audio files).
+ * - 'chat':  gentle crystalline 2-note ping for incoming guest/staff chat messages
+ * - 'order': warm kitchen double chime for new orders or ready dishes
+ * - 'alert': crisp attention chime for water / clean / bill / waiter requests
+ */
+export function playNotificationChime(
+  kind: 'chat' | 'order' | 'alert' = 'chat',
+  enabled = true,
+): void {
+  if (!enabled) return;
+  try {
+    if (typeof window === 'undefined') return;
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioCtx) return;
+
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
+
+    const notes: Array<{ freq: number; start: number; dur: number; peak: number }> =
+      kind === 'chat'
+        ? [
+            { freq: 880, start: 0, dur: 0.11, peak: 0.08 },
+            { freq: 1174.66, start: 0.09, dur: 0.16, peak: 0.09 },
+          ]
+        : kind === 'order'
+          ? [
+              { freq: 659.25, start: 0, dur: 0.12, peak: 0.11 },
+              { freq: 987.77, start: 0.11, dur: 0.22, peak: 0.12 },
+            ]
+          : [
+              { freq: 783.99, start: 0, dur: 0.11, peak: 0.11 },
+              { freq: 1046.5, start: 0.1, dur: 0.2, peak: 0.12 },
+            ];
+
+    for (const n of notes) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(n.freq, now + n.start);
+      gain.gain.setValueAtTime(0.0001, now + n.start);
+      gain.gain.exponentialRampToValueAtTime(n.peak, now + n.start + 0.018);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + n.start + n.dur);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + n.start);
+      osc.stop(now + n.start + n.dur + 0.02);
+    }
+
+    window.setTimeout(() => {
+      void ctx.close().catch(() => {
+        // ignore audio context cleanup error
+      });
+    }, 500);
+  } catch {
+    // ignore autoplay policy restrictions before user gesture
+  }
+}
+
 /** Browser-native Web Speech API TTS announcement for incoming floor alerts & orders. */
 export function speakHospitalityAlert(text: string, enabled: boolean): void {
   if (!enabled || !text.trim()) return;
