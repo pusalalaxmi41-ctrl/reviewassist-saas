@@ -1,6 +1,6 @@
 import type { BusinessCategory } from './business';
 
-export type IndustryWorkspaceType = 'restaurant' | 'barber' | 'gym';
+export type IndustryWorkspaceType = 'restaurant' | 'cafe' | 'barber' | 'gym';
 
 export type GymMemberStatus =
   | 'pending_approval'

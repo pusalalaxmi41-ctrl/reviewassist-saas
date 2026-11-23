@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Coffee,
   Dumbbell,
   ExternalLink,
   KeyRound,
@@ -94,6 +95,7 @@ function getDaysRemaining(scheduledIso: string | null): number | null {
 type AdminNavSection =
   | 'dashboard'
   | 'restaurants'
+  | 'cafes'
   | 'barbers'
   | 'gyms'
   | 'clients'
@@ -152,7 +154,7 @@ export default function AdminPanelPage() {
   const [clientStatusTab, setClientStatusTab] =
     useState<ClientFilterTab>('all');
   const [clientIndustryFilter, setClientIndustryFilter] = useState<
-    'all' | 'restaurant' | 'barber' | 'gym'
+    'all' | 'restaurant' | 'cafe' | 'barber' | 'gym'
   >('all');
 
   // Accounts filters
@@ -235,12 +237,17 @@ export default function AdminPanelPage() {
     [clients, selectedClientId],
   );
 
-  // Separate industry slices so Admin approves Restaurants, Barbers, and Gyms cleanly
+  // Separate industry slices so Admin approves Restaurants, Cafes, Barbers, and Gyms cleanly
   const restaurantClients = useMemo(
     () =>
       clients.filter(
         (c) => getIndustryWorkspaceType(c.category) === 'restaurant',
       ),
+    [clients],
+  );
+  const cafeClients = useMemo(
+    () =>
+      clients.filter((c) => getIndustryWorkspaceType(c.category) === 'cafe'),
     [clients],
   );
   const barberClients = useMemo(
@@ -257,6 +264,10 @@ export default function AdminPanelPage() {
     () => restaurantClients.filter((c) => c.status === 'pending').length,
     [restaurantClients],
   );
+  const pendingCafesCount = useMemo(
+    () => cafeClients.filter((c) => c.status === 'pending').length,
+    [cafeClients],
+  );
   const pendingBarbersCount = useMemo(
     () => barberClients.filter((c) => c.status === 'pending').length,
     [barberClients],
@@ -266,12 +277,14 @@ export default function AdminPanelPage() {
     [gymClients],
   );
 
-  // Scoped list for the active directory tab ('restaurants' | 'barbers' | 'gyms' | 'clients')
+  // Scoped list for the active directory tab ('restaurants' | 'cafes' | 'barbers' | 'gyms' | 'clients')
   const scopedClientsForDirectory = useMemo(() => {
     if (activeNav === 'restaurants') return restaurantClients;
+    if (activeNav === 'cafes') return cafeClients;
     if (activeNav === 'barbers') return barberClients;
     if (activeNav === 'gyms') return gymClients;
     if (clientIndustryFilter === 'restaurant') return restaurantClients;
+    if (clientIndustryFilter === 'cafe') return cafeClients;
     if (clientIndustryFilter === 'barber') return barberClients;
     if (clientIndustryFilter === 'gym') return gymClients;
     return clients;
@@ -280,6 +293,7 @@ export default function AdminPanelPage() {
     clientIndustryFilter,
     clients,
     restaurantClients,
+    cafeClients,
     barberClients,
     gymClients,
   ]);
@@ -599,9 +613,15 @@ export default function AdminPanelPage() {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     {
       id: 'restaurants',
-      label: 'Restaurants & Cafes',
+      label: 'Restaurants & Hotels',
       icon: UtensilsCrossed,
       badge: pendingRestaurantsCount || undefined,
+    },
+    {
+      id: 'cafes',
+      label: 'Cafes & Coffee',
+      icon: Coffee,
+      badge: pendingCafesCount || undefined,
     },
     {
       id: 'barbers',
@@ -785,14 +805,17 @@ export default function AdminPanelPage() {
               {activeNav === 'activity'
                 ? 'Activity Log'
                 : activeNav === 'restaurants'
-                  ? '🍽️ Restaurant & Cafe Approvals (BistroOS)'
-                  : activeNav === 'barbers'
-                    ? '✂️ Barber & Salon Approvals (BarberOS)'
-                    : activeNav === 'gyms'
-                      ? '🏋️ Gym & Fitness Approvals (GymOS)'
-                      : activeNav === 'clients'
-                        ? 'All Businesses'
-                        : activeNav.charAt(0).toUpperCase() + activeNav.slice(1)}
+                  ? '🍽️ Restaurant & Hotel Approvals (BistroOS)'
+                  : activeNav === 'cafes'
+                    ? '☕ Cafe & Coffee Shop Approvals (CafeOS)'
+                    : activeNav === 'barbers'
+                      ? '✂️ Barber & Salon Approvals (BarberOS)'
+                      : activeNav === 'gyms'
+                        ? '🏋️ Gym & Fitness Approvals (GymOS)'
+                        : activeNav === 'clients'
+                          ? 'All Businesses'
+                          : activeNav.charAt(0).toUpperCase() +
+                            activeNav.slice(1)}
             </h1>
             <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-medium text-slate-600">
               <span
@@ -1042,6 +1065,7 @@ export default function AdminPanelPage() {
           {/* ==================== 2. SEPARATE INDUSTRY & ALL BUSINESSES APPROVAL VIEWS ==================== */}
           {(activeNav === 'clients' ||
             activeNav === 'restaurants' ||
+            activeNav === 'cafes' ||
             activeNav === 'barbers' ||
             activeNav === 'gyms') && (
             <div className="rounded-lg border border-slate-200 bg-white shadow-2xs">
@@ -1057,8 +1081,13 @@ export default function AdminPanelPage() {
                         { id: 'all', label: 'All Industries', count: clients.length },
                         {
                           id: 'restaurant',
-                          label: '🍽️ Restaurant / Cafe',
+                          label: '🍽️ Restaurant / Hotel',
                           count: restaurantClients.length,
+                        },
+                        {
+                          id: 'cafe',
+                          label: '☕ Cafe & Coffee',
+                          count: cafeClients.length,
                         },
                         {
                           id: 'barber',
@@ -1101,10 +1130,12 @@ export default function AdminPanelPage() {
                   <div>
                     <p className="text-xs font-bold text-slate-900">
                       {activeNav === 'restaurants'
-                        ? '🍽️ Restaurant & Cafe Approval Queue — Unlocks BistroOS (Menu, Tables, Waiters, Loyalty)'
-                        : activeNav === 'barbers'
-                          ? '✂️ Barber & Salon Approval Queue — Unlocks BarberOS (Live Queue Timer, Broadcast Delays, Token QRs)'
-                          : '🏋️ Gym & Fitness Approval Queue — Unlocks GymOS (Member Signup QR, 3-Day Renewal Radar, Daily Check-In)'}
+                        ? '🍽️ Restaurant & Hotel Approval Queue — Unlocks BistroOS (Menu, Floors, Rooms, Waiters, KDS)'
+                        : activeNav === 'cafes'
+                          ? '☕ Cafe & Coffee Shop Approval Queue — Unlocks CafeOS (Wallet Stamp Card, Birthday Free Coffee, Counter Inventory & Quick Order)'
+                          : activeNav === 'barbers'
+                            ? '✂️ Barber & Salon Approval Queue — Unlocks BarberOS (Live Queue Timer, Broadcast Delays, Token QRs)'
+                            : '🏋️ Gym & Fitness Approval Queue — Unlocks GymOS (Member Signup QR, 3-Day Renewal Radar, Daily Check-In)'}
                     </p>
                   </div>
                   <span className="rounded-full bg-white border border-slate-200 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">

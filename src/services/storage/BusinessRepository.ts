@@ -92,6 +92,21 @@ import type {
   PublicGymPortalPayload,
   SubmitGymRegistrationInput,
 } from '../../types/gym';
+import type {
+  CafeConfig,
+  CafeConfigInput,
+  CafeCounterOrder,
+  CafeCounterOrderStatus,
+  CafeInventoryActionType,
+  CafeInventoryItem,
+  CafeInventoryItemInput,
+  CafeInventoryLog,
+  CafeOwnerDashboardPayload,
+  CafeRewardRedemptionType,
+  CafeStampPass,
+  ClaimCafeStampResponse,
+  PublicCafeHubPayload,
+} from '../../types/cafe';
 
 export interface AIConfigAccessOptions {
   /** Optional explicit owner ID used to verify tenant isolation. */
@@ -843,4 +858,97 @@ export interface IBusinessRepository {
     staffLabel?: string;
     options?: AIConfigAccessOptions;
   }): Promise<GymMember>;
+
+  // ---------------------------------------------------------------------------
+  // Module 7: Dedicated CafeOS (Stamp Pass, Birthday Coffee, Inventory & Counter)
+  // ---------------------------------------------------------------------------
+
+  /** Owner dashboard: Cafe config, stamp passes, raw ingredient inventory, audit logs & pickup queue. */
+  getCafeOwnerDashboard(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<CafeOwnerDashboardPayload>;
+
+  /** Owner update for CafeOS stamp card rules, birthday free coffee toggle & UPI ID. */
+  updateCafeConfig(
+    businessId: string,
+    input: CafeConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CafeConfig>;
+
+  /** Adds a raw ingredient or packaging item (beans, milk, syrups, cups, bakery). */
+  createCafeInventoryItem(
+    businessId: string,
+    input: CafeInventoryItemInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CafeInventoryItem>;
+
+  /** Removes a raw ingredient item from the cafe's inventory tracker. */
+  deleteCafeInventoryItem(
+    businessId: string,
+    itemId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void>;
+
+  /** 1-tap seeds the 6 essential cafe ingredients if not already present. */
+  seedCafeInventoryStarterPack(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<CafeInventoryItem[]>;
+
+  /** Atomically records a restock, shift usage, or wastage adjustment with audit log. */
+  adjustCafeInventoryStock(params: {
+    businessId: string;
+    itemId: string;
+    actionType: CafeInventoryActionType;
+    quantity: number;
+    costPaise?: number;
+    note?: string | null;
+    loggedBy?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<{ item: CafeInventoryItem; log: CafeInventoryLog }>;
+
+  /** Owner 1-tap redemption of a free stamp drink or annual birthday free coffee. */
+  redeemCafePassReward(params: {
+    businessId: string;
+    passId: string;
+    rewardType: CafeRewardRedemptionType;
+    options?: AIConfigAccessOptions;
+  }): Promise<CafeStampPass>;
+
+  /** Updates a CafeOS counter pickup order token (#C-01) status (queued -> preparing -> ready -> picked_up). */
+  updateCafeCounterOrderStatus(params: {
+    businessId: string;
+    orderId: string;
+    status: CafeCounterOrderStatus;
+    options?: AIConfigAccessOptions;
+  }): Promise<CafeCounterOrder>;
+
+  /** Public customer cafe hub: stamp rules, active drinks menu, and live digital coffee stamp card. */
+  getPublicCafeHub(
+    businessSlug: string,
+    phone?: string | null,
+  ): Promise<PublicCafeHubPayload | null>;
+
+  /** Public 30s rotating counter QR stamp claim (validates time bucket + signature + 3h cooldown). */
+  claimCafeCounterStamp(params: {
+    businessSlug: string;
+    customerName: string;
+    phone: string;
+    birthMonth?: number | null;
+    birthDay?: number | null;
+    timeBucket: number;
+    tokenSig: string;
+    /** Optional bypass for deterministic multi-stamp unit tests in Mock mode only. */
+    bypassCooldownForTest?: boolean;
+  }): Promise<ClaimCafeStampResponse>;
+
+  /** Public guest counter quick-order generating a daily #C-01 pickup token. */
+  submitCafeCounterOrder(params: {
+    businessSlug: string;
+    customerName: string;
+    phone?: string | null;
+    items: Array<{ itemId: string; quantity: number }>;
+    orderNote?: string | null;
+  }): Promise<CafeCounterOrder>;
 }

@@ -121,6 +121,30 @@ import type {
   PublicGymPortalPayload,
   SubmitGymRegistrationInput,
 } from '../../types/gym';
+import type {
+  CafeConfig,
+  CafeConfigInput,
+  CafeCounterOrder,
+  CafeCounterOrderStatus,
+  CafeInventoryActionType,
+  CafeInventoryItem,
+  CafeInventoryItemInput,
+  CafeInventoryLog,
+  CafeOwnerDashboardPayload,
+  CafeRewardRedemptionType,
+  CafeStampPass,
+  ClaimCafeStampResponse,
+  PublicCafeHubPayload,
+} from '../../types/cafe';
+import {
+  CAFE_INVENTORY_STARTER_PACK,
+  createDefaultCafeConfig,
+  isBirthdayTodayForPass,
+  normalizeCafePhone,
+  validateCafeConfigInput,
+  validateCafeInventoryAction,
+  validateCafeInventoryItemInput,
+} from '../../utils/cafeValidation';
 import {
   normalizeGymConfig,
   normalizeGymFitnessGoal,
@@ -5109,5 +5133,658 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     }
 
     return mockBusinessRepository.ownerApproveOrRenewGymMember(params);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Module 7: Dedicated CafeOS (Stamp Pass, Birthday Coffee, Inventory & Counter)
+  // ---------------------------------------------------------------------------
+
+  async getCafeOwnerDashboard(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<CafeOwnerDashboardPayload> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    // Ensure cafe_configs row exists
+    const { data: cfgRow, error: cfgErr } = await client
+      .from('cafe_configs')
+      .select('*')
+      .eq('business_id', cleanId)
+      .maybeSingle();
+
+    if (cfgErr) {
+      return mockBusinessRepository.getCafeOwnerDashboard(cleanId, options);
+    }
+
+    let config: CafeConfig;
+    if (cfgRow) {
+      const r = cfgRow as {
+        business_id: string;
+        stamps_required: number;
+        reward_drink_name: string;
+        birthday_free_coffee_enabled: boolean;
+        birthday_drink_name: string;
+        counter_qr_secret: string;
+        upi_id: string | null;
+        created_at: string;
+        updated_at: string;
+      };
+      config = {
+        businessId: r.business_id,
+        stampsRequired: r.stamps_required,
+        rewardDrinkName: r.reward_drink_name,
+        birthdayFreeCoffeeEnabled: r.birthday_free_coffee_enabled,
+        birthdayDrinkName: r.birthday_drink_name,
+        counterQrSecret: r.counter_qr_secret,
+        upiId: r.upi_id,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      };
+    } else {
+      const def = createDefaultCafeConfig(cleanId);
+      const { data: insertedCfg } = await client
+        .from('cafe_configs')
+        .insert({
+          business_id: cleanId,
+          stamps_required: def.stampsRequired,
+          reward_drink_name: def.rewardDrinkName,
+          birthday_free_coffee_enabled: def.birthdayFreeCoffeeEnabled,
+          birthday_drink_name: def.birthdayDrinkName,
+          counter_qr_secret: def.counterQrSecret,
+        })
+        .select('*')
+        .single();
+      if (insertedCfg) {
+        const r = insertedCfg as {
+          business_id: string;
+          stamps_required: number;
+          reward_drink_name: string;
+          birthday_free_coffee_enabled: boolean;
+          birthday_drink_name: string;
+          counter_qr_secret: string;
+          upi_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        config = {
+          businessId: r.business_id,
+          stampsRequired: r.stamps_required,
+          rewardDrinkName: r.reward_drink_name,
+          birthdayFreeCoffeeEnabled: r.birthday_free_coffee_enabled,
+          birthdayDrinkName: r.birthday_drink_name,
+          counterQrSecret: r.counter_qr_secret,
+          upiId: r.upi_id,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+        };
+      } else {
+        config = def;
+      }
+    }
+
+    const todayDate = new Date().toISOString().slice(0, 10);
+    const [passesRes, itemsRes, logsRes, ordersRes] = await Promise.all([
+      client
+        .from('cafe_stamp_passes')
+        .select('*')
+        .eq('business_id', cleanId)
+        .order('updated_at', { ascending: false })
+        .limit(200),
+      client
+        .from('cafe_inventory_items')
+        .select('*')
+        .eq('business_id', cleanId)
+        .order('item_name', { ascending: true }),
+      client
+        .from('cafe_inventory_logs')
+        .select('*')
+        .eq('business_id', cleanId)
+        .order('created_at', { ascending: false })
+        .limit(80),
+      client
+        .from('cafe_counter_orders')
+        .select('*')
+        .eq('business_id', cleanId)
+        .eq('order_date', todayDate)
+        .order('created_at', { ascending: false }),
+    ]);
+
+    const passes: CafeStampPass[] = ((passesRes.data ?? []) as Array<{
+      id: string;
+      business_id: string;
+      pass_code: string;
+      customer_name: string;
+      phone: string;
+      birth_month: number | null;
+      birth_day: number | null;
+      current_stamps: number;
+      lifetime_stamps: number;
+      free_drinks_available: number;
+      last_birthday_redeemed_year: number | null;
+      last_stamped_at: string | null;
+      created_at: string;
+      updated_at: string;
+    }>).map((p) => ({
+      id: p.id,
+      businessId: p.business_id,
+      passCode: p.pass_code,
+      customerName: p.customer_name,
+      phone: p.phone,
+      birthMonth: p.birth_month,
+      birthDay: p.birth_day,
+      currentStamps: p.current_stamps,
+      lifetimeStamps: p.lifetime_stamps,
+      freeDrinksAvailable: p.free_drinks_available,
+      lastBirthdayRedeemedYear: p.last_birthday_redeemed_year,
+      lastStampedAt: p.last_stamped_at,
+      isBirthdayToday: isBirthdayTodayForPass({
+        birthMonth: p.birth_month,
+        birthDay: p.birth_day,
+        lastBirthdayRedeemedYear: p.last_birthday_redeemed_year,
+        birthdayEnabled: config.birthdayFreeCoffeeEnabled,
+      }),
+      createdAt: p.created_at,
+      updatedAt: p.updated_at,
+    }));
+
+    const inventoryItems: CafeInventoryItem[] = (
+      (itemsRes.data ?? []) as Array<{
+        id: string;
+        business_id: string;
+        item_name: string;
+        category: CafeInventoryItem['category'];
+        unit: CafeInventoryItem['unit'];
+        current_stock: number | string;
+        low_stock_threshold: number | string;
+        unit_cost_paise: number;
+        supplier_note: string | null;
+        updated_at: string;
+      }>
+    ).map((i) => ({
+      id: i.id,
+      businessId: i.business_id,
+      itemName: i.item_name,
+      category: i.category,
+      unit: i.unit,
+      currentStock: Number(i.current_stock),
+      lowStockThreshold: Number(i.low_stock_threshold),
+      unitCostPaise: Number(i.unit_cost_paise || 0),
+      supplierNote: i.supplier_note,
+      updatedAt: i.updated_at,
+    }));
+
+    const invMap = new Map(inventoryItems.map((i) => [i.id, i]));
+    const inventoryLogs: CafeInventoryLog[] = (
+      (logsRes.data ?? []) as Array<{
+        id: string;
+        business_id: string;
+        inventory_item_id: string;
+        action_type: CafeInventoryActionType;
+        quantity_delta: number | string;
+        cost_paise: number;
+        note: string | null;
+        logged_by: string | null;
+        created_at: string;
+      }>
+    ).map((l) => {
+      const it = invMap.get(l.inventory_item_id);
+      return {
+        id: l.id,
+        businessId: l.business_id,
+        inventoryItemId: l.inventory_item_id,
+        itemName: it?.itemName ?? 'Ingredient',
+        unit: it?.unit,
+        actionType: l.action_type,
+        quantityDelta: Number(l.quantity_delta),
+        costPaise: Number(l.cost_paise || 0),
+        note: l.note,
+        loggedBy: l.logged_by,
+        createdAt: l.created_at,
+      };
+    });
+
+    const counterOrders: CafeCounterOrder[] = (
+      (ordersRes.data ?? []) as Array<{
+        id: string;
+        business_id: string;
+        order_date: string;
+        token_code: string;
+        customer_name: string;
+        phone: string | null;
+        items: CafeCounterOrder['items'];
+        subtotal_paise: number;
+        status: CafeCounterOrderStatus;
+        order_note: string | null;
+        created_at: string;
+        updated_at: string;
+      }>
+    ).map((o) => ({
+      id: o.id,
+      businessId: o.business_id,
+      orderDate: o.order_date,
+      tokenCode: o.token_code,
+      customerName: o.customer_name,
+      phone: o.phone,
+      items: o.items ?? [],
+      subtotalPaise: Number(o.subtotal_paise || 0),
+      status: o.status,
+      orderNote: o.order_note,
+      createdAt: o.created_at,
+      updatedAt: o.updated_at,
+    }));
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    return {
+      config,
+      passes,
+      inventoryItems,
+      inventoryLogs,
+      counterOrders,
+      stats: {
+        lowStockCount: inventoryItems.filter(
+          (i) => i.currentStock <= i.lowStockThreshold,
+        ).length,
+        activeStampHolders: passes.length,
+        stampsIssuedToday: passes.filter(
+          (p) =>
+            p.lastStampedAt &&
+            new Date(p.lastStampedAt).getTime() >= startOfToday.getTime(),
+        ).length,
+        counterOrdersToday: counterOrders.filter(
+          (o) => o.status !== 'cancelled',
+        ).length,
+        birthdaysTodayCount: passes.filter((p) => p.isBirthdayToday).length,
+      },
+    };
+  }
+
+  async updateCafeConfig(
+    businessId: string,
+    input: CafeConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CafeConfig> {
+    const check = validateCafeConfigInput(businessId, input);
+    if (!check.ok) throw new Error(check.error);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('cafe_configs')
+      .upsert(
+        {
+          business_id: cleanId,
+          stamps_required: check.value.stampsRequired,
+          reward_drink_name: check.value.rewardDrinkName,
+          birthday_free_coffee_enabled: check.value.birthdayFreeCoffeeEnabled,
+          birthday_drink_name: check.value.birthdayDrinkName,
+          upi_id: check.value.upiId ?? null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'business_id' },
+      )
+      .select('*')
+      .single();
+
+    if (!error && data) {
+      const r = data as {
+        business_id: string;
+        stamps_required: number;
+        reward_drink_name: string;
+        birthday_free_coffee_enabled: boolean;
+        birthday_drink_name: string;
+        counter_qr_secret: string;
+        upi_id: string | null;
+        created_at: string;
+        updated_at: string;
+      };
+      return {
+        businessId: r.business_id,
+        stampsRequired: r.stamps_required,
+        rewardDrinkName: r.reward_drink_name,
+        birthdayFreeCoffeeEnabled: r.birthday_free_coffee_enabled,
+        birthdayDrinkName: r.birthday_drink_name,
+        counterQrSecret: r.counter_qr_secret,
+        upiId: r.upi_id,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      };
+    }
+
+    return mockBusinessRepository.updateCafeConfig(cleanId, input, options);
+  }
+
+  async createCafeInventoryItem(
+    businessId: string,
+    input: CafeInventoryItemInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CafeInventoryItem> {
+    const check = validateCafeInventoryItemInput(businessId, input);
+    if (!check.ok) throw new Error(check.error);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('cafe_inventory_items')
+      .insert({
+        business_id: cleanId,
+        item_name: check.value.itemName,
+        category: check.value.category,
+        unit: check.value.unit,
+        current_stock: check.value.currentStock,
+        low_stock_threshold: check.value.lowStockThreshold,
+        unit_cost_paise: check.value.unitCostPaise,
+        supplier_note: check.value.supplierNote ?? null,
+      })
+      .select('*')
+      .single();
+
+    if (!error && data) {
+      const r = data as {
+        id: string;
+        business_id: string;
+        item_name: string;
+        category: CafeInventoryItem['category'];
+        unit: CafeInventoryItem['unit'];
+        current_stock: number | string;
+        low_stock_threshold: number | string;
+        unit_cost_paise: number;
+        supplier_note: string | null;
+        updated_at: string;
+      };
+      return {
+        id: r.id,
+        businessId: r.business_id,
+        itemName: r.item_name,
+        category: r.category,
+        unit: r.unit,
+        currentStock: Number(r.current_stock),
+        lowStockThreshold: Number(r.low_stock_threshold),
+        unitCostPaise: Number(r.unit_cost_paise || 0),
+        supplierNote: r.supplier_note,
+        updatedAt: r.updated_at,
+      };
+    }
+
+    return mockBusinessRepository.createCafeInventoryItem(
+      cleanId,
+      input,
+      options,
+    );
+  }
+
+  async deleteCafeInventoryItem(
+    businessId: string,
+    itemId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { error } = await client
+      .from('cafe_inventory_items')
+      .delete()
+      .eq('id', itemId)
+      .eq('business_id', cleanId);
+
+    if (error) {
+      await mockBusinessRepository.deleteCafeInventoryItem(
+        cleanId,
+        itemId,
+        options,
+      );
+    }
+  }
+
+  async seedCafeInventoryStarterPack(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<CafeInventoryItem[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+
+    const dash = await this.getCafeOwnerDashboard(cleanId, options);
+    const existingNames = new Set(
+      dash.inventoryItems.map((i) => i.itemName.toLowerCase()),
+    );
+    const added: CafeInventoryItem[] = [];
+    for (const preset of CAFE_INVENTORY_STARTER_PACK) {
+      if (!existingNames.has(preset.itemName.toLowerCase())) {
+        const created = await this.createCafeInventoryItem(
+          cleanId,
+          preset,
+          options,
+        );
+        added.push(created);
+      }
+    }
+    return added;
+  }
+
+  async adjustCafeInventoryStock(params: {
+    businessId: string;
+    itemId: string;
+    actionType: CafeInventoryActionType;
+    quantity: number;
+    costPaise?: number;
+    note?: string | null;
+    loggedBy?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<{ item: CafeInventoryItem; log: CafeInventoryLog }> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const check = validateCafeInventoryAction(
+      params.actionType,
+      params.quantity,
+    );
+    if (!check.ok) throw new Error(check.error);
+
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('adjust_cafe_inventory_stock', {
+      p_business_id: cleanId,
+      p_item_id: params.itemId,
+      p_action_type: check.action,
+      p_quantity: check.quantity,
+      p_cost_paise: Math.max(0, Math.round(params.costPaise ?? 0)),
+      p_note: params.note ?? null,
+      p_logged_by: params.loggedBy ?? 'Owner',
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as { item: CafeInventoryItem; log: CafeInventoryLog };
+    }
+    if (error && error.message.includes('Unauthorized')) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.adjustCafeInventoryStock(params);
+  }
+
+  async redeemCafePassReward(params: {
+    businessId: string;
+    passId: string;
+    rewardType: CafeRewardRedemptionType;
+    options?: AIConfigAccessOptions;
+  }): Promise<CafeStampPass> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('redeem_cafe_pass_reward', {
+      p_business_id: cleanId,
+      p_pass_id: params.passId,
+      p_reward_type: params.rewardType,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as CafeStampPass;
+    }
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('Birthday') ||
+        error.message.includes('No free stamp'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.redeemCafePassReward(params);
+  }
+
+  async updateCafeCounterOrderStatus(params: {
+    businessId: string;
+    orderId: string;
+    status: CafeCounterOrderStatus;
+    options?: AIConfigAccessOptions;
+  }): Promise<CafeCounterOrder> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('cafe_counter_orders')
+      .update({
+        status: params.status,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', params.orderId)
+      .eq('business_id', cleanId)
+      .select('*')
+      .single();
+
+    if (!error && data) {
+      const o = data as {
+        id: string;
+        business_id: string;
+        order_date: string;
+        token_code: string;
+        customer_name: string;
+        phone: string | null;
+        items: CafeCounterOrder['items'];
+        subtotal_paise: number;
+        status: CafeCounterOrderStatus;
+        order_note: string | null;
+        created_at: string;
+        updated_at: string;
+      };
+      return {
+        id: o.id,
+        businessId: o.business_id,
+        orderDate: o.order_date,
+        tokenCode: o.token_code,
+        customerName: o.customer_name,
+        phone: o.phone,
+        items: o.items ?? [],
+        subtotalPaise: Number(o.subtotal_paise || 0),
+        status: o.status,
+        orderNote: o.order_note,
+        createdAt: o.created_at,
+        updatedAt: o.updated_at,
+      };
+    }
+
+    return mockBusinessRepository.updateCafeCounterOrderStatus(params);
+  }
+
+  async getPublicCafeHub(
+    businessSlug: string,
+    phone?: string | null,
+  ): Promise<PublicCafeHubPayload | null> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('get_public_cafe_hub', {
+      p_slug: businessSlug.trim().toLowerCase(),
+      p_phone: phone ? normalizeCafePhone(phone) : null,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as PublicCafeHubPayload;
+    }
+    if (!error && data === null) {
+      return null;
+    }
+
+    return mockBusinessRepository.getPublicCafeHub(businessSlug, phone);
+  }
+
+  async claimCafeCounterStamp(params: {
+    businessSlug: string;
+    customerName: string;
+    phone: string;
+    birthMonth?: number | null;
+    birthDay?: number | null;
+    timeBucket: number;
+    tokenSig: string;
+    bypassCooldownForTest?: boolean;
+  }): Promise<ClaimCafeStampResponse> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('claim_cafe_counter_stamp', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_customer_name: params.customerName.trim().slice(0, 80),
+      p_phone: normalizeCafePhone(params.phone),
+      p_birth_month: params.birthMonth ?? null,
+      p_birth_day: params.birthDay ?? null,
+      p_time_bucket: params.timeBucket,
+      p_token_sig: params.tokenSig.trim().toLowerCase(),
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as ClaimCafeStampResponse;
+    }
+    if (
+      error &&
+      (error.message.includes('expired') ||
+        error.message.includes('Invalid counter QR') ||
+        error.message.includes('already collected') ||
+        error.message.includes('valid'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.claimCafeCounterStamp(params);
+  }
+
+  async submitCafeCounterOrder(params: {
+    businessSlug: string;
+    customerName: string;
+    phone?: string | null;
+    items: Array<{ itemId: string; quantity: number }>;
+    orderNote?: string | null;
+  }): Promise<CafeCounterOrder> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('submit_cafe_counter_order', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_customer_name: params.customerName.trim().slice(0, 80),
+      p_phone: params.phone ? normalizeCafePhone(params.phone) : null,
+      p_items: params.items,
+      p_order_note: params.orderNote?.trim().slice(0, 200) || null,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as CafeCounterOrder;
+    }
+    if (error && error.message.includes('unavailable')) {
+      throw new Error(error.message);
+    }
+
+    return mockBusinessRepository.submitCafeCounterOrder(params);
   }
 }

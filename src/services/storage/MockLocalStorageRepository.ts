@@ -152,6 +152,32 @@ import {
   validateGymRegistrationInput,
   validateGymWeightKg,
 } from '../../utils/gymValidation';
+import type {
+  CafeConfig,
+  CafeConfigInput,
+  CafeCounterOrder,
+  CafeCounterOrderStatus,
+  CafeInventoryActionType,
+  CafeInventoryItem,
+  CafeInventoryItemInput,
+  CafeInventoryLog,
+  CafeOwnerDashboardPayload,
+  CafeRewardRedemptionType,
+  CafeStampPass,
+  ClaimCafeStampResponse,
+  PublicCafeHubPayload,
+} from '../../types/cafe';
+import {
+  CAFE_INVENTORY_STARTER_PACK,
+  computeCafeCounterTokenSig,
+  createDefaultCafeConfig,
+  getCafeRotatingTimeBucket,
+  isBirthdayTodayForPass,
+  normalizeCafePhone,
+  validateCafeConfigInput,
+  validateCafeInventoryAction,
+  validateCafeInventoryItemInput,
+} from '../../utils/cafeValidation';
 import { MENU_PRESET_PACKS } from '../../config/menuPresets';
 import {
   buildServerSeedAndClientChallenge,
@@ -215,6 +241,11 @@ const STORAGE_KEYS = {
   GYM_MEMBERS: 'reviewassist_mock_gym_members_v1',
   GYM_CHECK_INS: 'reviewassist_mock_gym_check_ins_v1',
   GYM_PAYMENT_LOGS: 'reviewassist_mock_gym_payment_logs_v1',
+  CAFE_CONFIGS: 'reviewassist_mock_cafe_configs_v1',
+  CAFE_STAMP_PASSES: 'reviewassist_mock_cafe_stamp_passes_v1',
+  CAFE_INVENTORY_ITEMS: 'reviewassist_mock_cafe_inventory_items_v1',
+  CAFE_INVENTORY_LOGS: 'reviewassist_mock_cafe_inventory_logs_v1',
+  CAFE_COUNTER_ORDERS: 'reviewassist_mock_cafe_counter_orders_v1',
 };
 
 // Initial seed businesses for development & preview
@@ -7055,6 +7086,718 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     members[idx] = hydrated;
     this.write(STORAGE_KEYS.GYM_MEMBERS, members);
     return hydrated;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Module 7: Dedicated CafeOS (Stamp Pass, Birthday Coffee, Inventory & Counter)
+  // ---------------------------------------------------------------------------
+
+  private getOrCreateCafeConfigRecord(businessId: string): CafeConfig {
+    const store = this.read<Record<string, CafeConfig>>(
+      STORAGE_KEYS.CAFE_CONFIGS,
+      {},
+    );
+    const existing = store[businessId];
+    if (existing) return existing;
+    const created = createDefaultCafeConfig(businessId);
+    store[businessId] = created;
+    this.write(STORAGE_KEYS.CAFE_CONFIGS, store);
+    return created;
+  }
+
+  private hydrateCafePass(
+    pass: CafeStampPass,
+    birthdayEnabled: boolean,
+  ): CafeStampPass {
+    return {
+      ...pass,
+      isBirthdayToday: isBirthdayTodayForPass({
+        birthMonth: pass.birthMonth,
+        birthDay: pass.birthDay,
+        lastBirthdayRedeemedYear: pass.lastBirthdayRedeemedYear,
+        birthdayEnabled,
+      }),
+    };
+  }
+
+  async getCafeOwnerDashboard(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<CafeOwnerDashboardPayload> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const config = this.getOrCreateCafeConfigRecord(cleanId);
+    const passes = this.read<CafeStampPass[]>(
+      STORAGE_KEYS.CAFE_STAMP_PASSES,
+      [],
+    )
+      .filter((p) => p.businessId === cleanId)
+      .map((p) => this.hydrateCafePass(p, config.birthdayFreeCoffeeEnabled))
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      );
+
+    const inventoryItems = this.read<CafeInventoryItem[]>(
+      STORAGE_KEYS.CAFE_INVENTORY_ITEMS,
+      [],
+    )
+      .filter((i) => i.businessId === cleanId)
+      .sort((a, b) => a.itemName.localeCompare(b.itemName));
+
+    const itemMap = new Map(inventoryItems.map((i) => [i.id, i]));
+    const inventoryLogs = this.read<CafeInventoryLog[]>(
+      STORAGE_KEYS.CAFE_INVENTORY_LOGS,
+      [],
+    )
+      .filter((l) => l.businessId === cleanId)
+      .map((l) => {
+        const it = itemMap.get(l.inventoryItemId);
+        return {
+          ...l,
+          itemName: l.itemName ?? it?.itemName ?? 'Ingredient',
+          unit: l.unit ?? it?.unit,
+        };
+      })
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )
+      .slice(0, 80);
+
+    const todayKey = getTodayIsoDateKey();
+    const counterOrders = this.read<CafeCounterOrder[]>(
+      STORAGE_KEYS.CAFE_COUNTER_ORDERS,
+      [],
+    )
+      .filter((o) => o.businessId === cleanId && o.orderDate === todayKey)
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+
+    const lowStockCount = inventoryItems.filter(
+      (i) => i.currentStock <= i.lowStockThreshold,
+    ).length;
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const stampsIssuedToday = passes.filter(
+      (p) =>
+        p.lastStampedAt &&
+        new Date(p.lastStampedAt).getTime() >= startOfToday.getTime(),
+    ).length;
+
+    return {
+      config,
+      passes,
+      inventoryItems,
+      inventoryLogs,
+      counterOrders,
+      stats: {
+        lowStockCount,
+        activeStampHolders: passes.length,
+        stampsIssuedToday,
+        counterOrdersToday: counterOrders.filter(
+          (o) => o.status !== 'cancelled',
+        ).length,
+        birthdaysTodayCount: passes.filter((p) => p.isBirthdayToday).length,
+      },
+    };
+  }
+
+  async updateCafeConfig(
+    businessId: string,
+    input: CafeConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CafeConfig> {
+    const check = validateCafeConfigInput(businessId, input);
+    if (!check.ok) throw new Error(check.error);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const existing = this.getOrCreateCafeConfigRecord(cleanId);
+    const updated: CafeConfig = {
+      ...existing,
+      stampsRequired: check.value.stampsRequired,
+      rewardDrinkName: check.value.rewardDrinkName,
+      birthdayFreeCoffeeEnabled: check.value.birthdayFreeCoffeeEnabled,
+      birthdayDrinkName: check.value.birthdayDrinkName,
+      upiId: check.value.upiId ?? null,
+      updatedAt: new Date().toISOString(),
+    };
+    const store = this.read<Record<string, CafeConfig>>(
+      STORAGE_KEYS.CAFE_CONFIGS,
+      {},
+    );
+    store[cleanId] = updated;
+    this.write(STORAGE_KEYS.CAFE_CONFIGS, store);
+    return updated;
+  }
+
+  async createCafeInventoryItem(
+    businessId: string,
+    input: CafeInventoryItemInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CafeInventoryItem> {
+    const check = validateCafeInventoryItemInput(businessId, input);
+    if (!check.ok) throw new Error(check.error);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const items = this.read<CafeInventoryItem[]>(
+      STORAGE_KEYS.CAFE_INVENTORY_ITEMS,
+      [],
+    );
+    const created: CafeInventoryItem = {
+      id: `cafe-inv-${crypto.randomUUID()}`,
+      businessId: cleanId,
+      itemName: check.value.itemName,
+      category: check.value.category,
+      unit: check.value.unit,
+      currentStock: check.value.currentStock,
+      lowStockThreshold: check.value.lowStockThreshold,
+      unitCostPaise: check.value.unitCostPaise,
+      supplierNote: check.value.supplierNote ?? null,
+      updatedAt: new Date().toISOString(),
+    };
+    items.push(created);
+    this.write(STORAGE_KEYS.CAFE_INVENTORY_ITEMS, items);
+    return created;
+  }
+
+  async deleteCafeInventoryItem(
+    businessId: string,
+    itemId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const items = this.read<CafeInventoryItem[]>(
+      STORAGE_KEYS.CAFE_INVENTORY_ITEMS,
+      [],
+    );
+    this.write(
+      STORAGE_KEYS.CAFE_INVENTORY_ITEMS,
+      items.filter((i) => !(i.businessId === cleanId && i.id === itemId)),
+    );
+  }
+
+  async seedCafeInventoryStarterPack(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<CafeInventoryItem[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const existing = this.read<CafeInventoryItem[]>(
+      STORAGE_KEYS.CAFE_INVENTORY_ITEMS,
+      [],
+    ).filter((i) => i.businessId === cleanId);
+    const existingNames = new Set(
+      existing.map((e) => e.itemName.toLowerCase()),
+    );
+
+    const added: CafeInventoryItem[] = [];
+    for (const preset of CAFE_INVENTORY_STARTER_PACK) {
+      if (!existingNames.has(preset.itemName.toLowerCase())) {
+        const created = await this.createCafeInventoryItem(
+          cleanId,
+          preset,
+          options,
+        );
+        added.push(created);
+      }
+    }
+    return added;
+  }
+
+  async adjustCafeInventoryStock(params: {
+    businessId: string;
+    itemId: string;
+    actionType: CafeInventoryActionType;
+    quantity: number;
+    costPaise?: number;
+    note?: string | null;
+    loggedBy?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<{ item: CafeInventoryItem; log: CafeInventoryLog }> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const check = validateCafeInventoryAction(
+      params.actionType,
+      params.quantity,
+    );
+    if (!check.ok) throw new Error(check.error);
+
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    const items = this.read<CafeInventoryItem[]>(
+      STORAGE_KEYS.CAFE_INVENTORY_ITEMS,
+      [],
+    );
+    const idx = items.findIndex(
+      (i) => i.id === params.itemId && i.businessId === cleanId,
+    );
+    if (idx === -1) throw new Error('Cafe inventory item not found.');
+
+    const delta =
+      check.action === 'restock' ? check.quantity : -check.quantity;
+    const now = new Date().toISOString();
+    const updatedItem: CafeInventoryItem = {
+      ...items[idx],
+      currentStock: Math.max(
+        0,
+        Math.round((items[idx].currentStock + delta) * 100) / 100,
+      ),
+      updatedAt: now,
+    };
+    items[idx] = updatedItem;
+    this.write(STORAGE_KEYS.CAFE_INVENTORY_ITEMS, items);
+
+    const logs = this.read<CafeInventoryLog[]>(
+      STORAGE_KEYS.CAFE_INVENTORY_LOGS,
+      [],
+    );
+    const createdLog: CafeInventoryLog = {
+      id: `cafe-log-${crypto.randomUUID()}`,
+      businessId: cleanId,
+      inventoryItemId: updatedItem.id,
+      itemName: updatedItem.itemName,
+      unit: updatedItem.unit,
+      actionType: check.action,
+      quantityDelta: delta,
+      costPaise: Math.max(0, Math.round(params.costPaise ?? 0)),
+      note: params.note?.trim().slice(0, 200) || null,
+      loggedBy: params.loggedBy?.trim().slice(0, 80) || 'Owner',
+      createdAt: now,
+    };
+    logs.push(createdLog);
+    this.write(STORAGE_KEYS.CAFE_INVENTORY_LOGS, logs);
+
+    return { item: updatedItem, log: createdLog };
+  }
+
+  async redeemCafePassReward(params: {
+    businessId: string;
+    passId: string;
+    rewardType: CafeRewardRedemptionType;
+    options?: AIConfigAccessOptions;
+  }): Promise<CafeStampPass> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    const config = this.getOrCreateCafeConfigRecord(cleanId);
+    const passes = this.read<CafeStampPass[]>(
+      STORAGE_KEYS.CAFE_STAMP_PASSES,
+      [],
+    );
+    const idx = passes.findIndex(
+      (p) => p.id === params.passId && p.businessId === cleanId,
+    );
+    if (idx === -1) throw new Error('Customer coffee stamp pass not found.');
+
+    const current = passes[idx];
+    const now = new Date();
+    const nowIso = now.toISOString();
+    let updated: CafeStampPass;
+
+    if (params.rewardType === 'stamp_free_drink') {
+      if (current.freeDrinksAvailable < 1) {
+        throw new Error('No free stamp drinks available to redeem yet.');
+      }
+      updated = {
+        ...current,
+        freeDrinksAvailable: current.freeDrinksAvailable - 1,
+        updatedAt: nowIso,
+      };
+    } else {
+      const bdayEligible = isBirthdayTodayForPass({
+        birthMonth: current.birthMonth,
+        birthDay: current.birthDay,
+        lastBirthdayRedeemedYear: current.lastBirthdayRedeemedYear,
+        birthdayEnabled: config.birthdayFreeCoffeeEnabled,
+        now,
+      });
+      if (!bdayEligible) {
+        throw new Error(
+          'Birthday free coffee is either not today or has already been redeemed this year.',
+        );
+      }
+      updated = {
+        ...current,
+        lastBirthdayRedeemedYear: now.getFullYear(),
+        updatedAt: nowIso,
+      };
+    }
+
+    const hydrated = this.hydrateCafePass(
+      updated,
+      config.birthdayFreeCoffeeEnabled,
+    );
+    passes[idx] = hydrated;
+    this.write(STORAGE_KEYS.CAFE_STAMP_PASSES, passes);
+    return hydrated;
+  }
+
+  async updateCafeCounterOrderStatus(params: {
+    businessId: string;
+    orderId: string;
+    status: CafeCounterOrderStatus;
+    options?: AIConfigAccessOptions;
+  }): Promise<CafeCounterOrder> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    const orders = this.read<CafeCounterOrder[]>(
+      STORAGE_KEYS.CAFE_COUNTER_ORDERS,
+      [],
+    );
+    const idx = orders.findIndex(
+      (o) => o.id === params.orderId && o.businessId === cleanId,
+    );
+    if (idx === -1) throw new Error('Counter order not found.');
+
+    const updated: CafeCounterOrder = {
+      ...orders[idx],
+      status: params.status,
+      updatedAt: new Date().toISOString(),
+    };
+    orders[idx] = updated;
+    this.write(STORAGE_KEYS.CAFE_COUNTER_ORDERS, orders);
+    return updated;
+  }
+
+  async getPublicCafeHub(
+    businessSlug: string,
+    phone?: string | null,
+  ): Promise<PublicCafeHubPayload | null> {
+    const business = await this.getBusinessBySlug(businessSlug);
+    if (
+      !business ||
+      (business.status ?? 'active') !== 'active' ||
+      (business.accountState ?? 'active') !== 'active'
+    ) {
+      return null;
+    }
+
+    const config = this.getOrCreateCafeConfigRecord(business.id);
+    const profileStore = this.read<Record<string, RestaurantProfile>>(
+      STORAGE_KEYS.RESTAURANT_PROFILES,
+      {},
+    );
+    const prof = profileStore[business.id];
+    const cleanPhone = normalizeCafePhone(phone ?? '');
+
+    let pass: CafeStampPass | null = null;
+    let todayOrders: CafeCounterOrder[] = [];
+    if (cleanPhone) {
+      const foundPass =
+        this.read<CafeStampPass[]>(STORAGE_KEYS.CAFE_STAMP_PASSES, []).find(
+          (p) => p.businessId === business.id && p.phone === cleanPhone,
+        ) ?? null;
+      if (foundPass) {
+        pass = this.hydrateCafePass(foundPass, config.birthdayFreeCoffeeEnabled);
+      }
+      const todayKey = getTodayIsoDateKey();
+      todayOrders = this.read<CafeCounterOrder[]>(
+        STORAGE_KEYS.CAFE_COUNTER_ORDERS,
+        [],
+      )
+        .filter(
+          (o) =>
+            o.businessId === business.id &&
+            o.phone === cleanPhone &&
+            o.orderDate === todayKey,
+        )
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
+    }
+
+    const catStore = this.read<Record<string, RestaurantMenuCategory[]>>(
+      STORAGE_KEYS.RESTAURANT_CATEGORIES,
+      {},
+    );
+    const itemStore = this.read<Record<string, RestaurantMenuItem[]>>(
+      STORAGE_KEYS.RESTAURANT_ITEMS,
+      {},
+    );
+    const categories = (catStore[business.id] ?? []).filter((c) => c.isActive);
+    const activeCatIds = new Set(categories.map((c) => c.id));
+    const items = (itemStore[business.id] ?? []).filter(
+      (i) => i.isAvailable && activeCatIds.has(i.categoryId),
+    );
+
+    const { counterQrSecret: _hidden, ...publicConfig } = config;
+    void _hidden;
+
+    return {
+      business: {
+        id: business.id,
+        name: business.name,
+        slug: business.slug,
+        city: business.city,
+        category: business.category,
+      },
+      config: publicConfig,
+      currencyCode: prof?.currencyCode ?? 'INR',
+      tagline: prof?.tagline ?? null,
+      pass,
+      categories,
+      items,
+      todayOrders,
+    };
+  }
+
+  async claimCafeCounterStamp(params: {
+    businessSlug: string;
+    customerName: string;
+    phone: string;
+    birthMonth?: number | null;
+    birthDay?: number | null;
+    timeBucket: number;
+    tokenSig: string;
+    bypassCooldownForTest?: boolean;
+  }): Promise<ClaimCafeStampResponse> {
+    const cleanName = params.customerName.trim().slice(0, 80);
+    if (cleanName.length < 2) {
+      throw new Error('Please enter your name (at least 2 characters).');
+    }
+    const cleanPhone = normalizeCafePhone(params.phone);
+    if (cleanPhone.length < 7) {
+      throw new Error('Please enter a valid mobile number.');
+    }
+    if (
+      (params.birthMonth !== undefined &&
+        params.birthMonth !== null &&
+        (params.birthMonth < 1 || params.birthMonth > 12)) ||
+      (params.birthDay !== undefined &&
+        params.birthDay !== null &&
+        (params.birthDay < 1 || params.birthDay > 31))
+    ) {
+      throw new Error('Please enter a valid birthday month and day.');
+    }
+
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (
+      !business ||
+      (business.status ?? 'active') !== 'active' ||
+      (business.accountState ?? 'active') !== 'active'
+    ) {
+      throw new Error('Cafe not found or inactive.');
+    }
+
+    const config = this.getOrCreateCafeConfigRecord(business.id);
+    const nowBucket = getCafeRotatingTimeBucket();
+    if (Math.abs(nowBucket - params.timeBucket) > 1) {
+      throw new Error(
+        'Counter QR expired — please scan the live counter screen again.',
+      );
+    }
+
+    const expectedSig = await computeCafeCounterTokenSig(
+      config.counterQrSecret,
+      params.timeBucket,
+    );
+    if (
+      !params.tokenSig ||
+      params.tokenSig.trim().toLowerCase() !== expectedSig
+    ) {
+      throw new Error(
+        'Invalid counter QR code — please scan the live QR at the counter.',
+      );
+    }
+
+    const passes = this.read<CafeStampPass[]>(
+      STORAGE_KEYS.CAFE_STAMP_PASSES,
+      [],
+    );
+    const idx = passes.findIndex(
+      (p) => p.businessId === business.id && p.phone === cleanPhone,
+    );
+    const now = new Date();
+    const nowIso = now.toISOString();
+    let earnedFree = 0;
+    let savedPass: CafeStampPass;
+
+    if (idx !== -1) {
+      const existing = passes[idx];
+      if (
+        !params.bypassCooldownForTest &&
+        existing.lastStampedAt &&
+        now.getTime() - new Date(existing.lastStampedAt).getTime() <
+          3 * 60 * 60 * 1000
+      ) {
+        throw new Error(
+          'Stamp already collected! You can earn your next coffee stamp after 3 hours.',
+        );
+      }
+
+      let nextStamps = existing.currentStamps + 1;
+      if (nextStamps >= config.stampsRequired) {
+        earnedFree = Math.floor(nextStamps / config.stampsRequired);
+        nextStamps = nextStamps % config.stampsRequired;
+      }
+
+      savedPass = this.hydrateCafePass(
+        {
+          ...existing,
+          customerName: cleanName,
+          birthMonth: params.birthMonth ?? existing.birthMonth,
+          birthDay: params.birthDay ?? existing.birthDay,
+          currentStamps: nextStamps,
+          lifetimeStamps: existing.lifetimeStamps + 1,
+          freeDrinksAvailable: existing.freeDrinksAvailable + earnedFree,
+          lastStampedAt: nowIso,
+          updatedAt: nowIso,
+        },
+        config.birthdayFreeCoffeeEnabled,
+      );
+      passes[idx] = savedPass;
+    } else {
+      const bizCount = passes.filter(
+        (p) => p.businessId === business.id,
+      ).length;
+      const passCode = `BREW-${String(bizCount + 1).padStart(3, '0')}`;
+      let nextStamps = 1;
+      if (nextStamps >= config.stampsRequired) {
+        earnedFree = 1;
+        nextStamps = 0;
+      }
+      savedPass = this.hydrateCafePass(
+        {
+          id: `cafe-pass-${crypto.randomUUID()}`,
+          businessId: business.id,
+          passCode,
+          customerName: cleanName,
+          phone: cleanPhone,
+          birthMonth: params.birthMonth ?? null,
+          birthDay: params.birthDay ?? null,
+          currentStamps: nextStamps,
+          lifetimeStamps: 1,
+          freeDrinksAvailable: earnedFree,
+          lastBirthdayRedeemedYear: null,
+          lastStampedAt: nowIso,
+          isBirthdayToday: false,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        },
+        config.birthdayFreeCoffeeEnabled,
+      );
+      passes.push(savedPass);
+    }
+
+    this.write(STORAGE_KEYS.CAFE_STAMP_PASSES, passes);
+    return {
+      pass: savedPass,
+      justUnlockedFreeDrink: earnedFree > 0,
+      stampsRequired: config.stampsRequired,
+    };
+  }
+
+  async submitCafeCounterOrder(params: {
+    businessSlug: string;
+    customerName: string;
+    phone?: string | null;
+    items: Array<{ itemId: string; quantity: number }>;
+    orderNote?: string | null;
+  }): Promise<CafeCounterOrder> {
+    if (!Array.isArray(params.items) || params.items.length === 0) {
+      throw new Error('Please add at least one drink or snack.');
+    }
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (
+      !business ||
+      (business.status ?? 'active') !== 'active' ||
+      (business.accountState ?? 'active') !== 'active'
+    ) {
+      throw new Error('Cafe not found or inactive.');
+    }
+
+    const itemStore = this.read<Record<string, RestaurantMenuItem[]>>(
+      STORAGE_KEYS.RESTAURANT_ITEMS,
+      {},
+    );
+    const catalog = itemStore[business.id] ?? [];
+    const byId = new Map(catalog.map((i) => [i.id, i]));
+
+    let subtotalPaise = 0;
+    const validatedItems = params.items.map((line) => {
+      const dish = byId.get(line.itemId);
+      if (!dish || !dish.isAvailable) {
+        throw new Error(
+          'One or more selected menu items are currently unavailable.',
+        );
+      }
+      const qty = Math.max(1, Math.min(20, Math.round(line.quantity || 1)));
+      subtotalPaise += dish.pricePaise * qty;
+      return {
+        itemId: dish.id,
+        name: dish.name,
+        quantity: qty,
+        pricePaise: dish.pricePaise,
+      };
+    });
+
+    const orders = this.read<CafeCounterOrder[]>(
+      STORAGE_KEYS.CAFE_COUNTER_ORDERS,
+      [],
+    );
+    const todayKey = getTodayIsoDateKey();
+    const todayCount = orders.filter(
+      (o) => o.businessId === business.id && o.orderDate === todayKey,
+    ).length;
+    const now = new Date().toISOString();
+    const cleanPhone = normalizeCafePhone(params.phone ?? '') || null;
+
+    const created: CafeCounterOrder = {
+      id: `cafe-ord-${crypto.randomUUID()}`,
+      businessId: business.id,
+      orderDate: todayKey,
+      tokenCode: `#C-${String(todayCount + 1).padStart(2, '0')}`,
+      customerName: params.customerName.trim().slice(0, 80) || 'Counter Guest',
+      phone: cleanPhone,
+      items: validatedItems,
+      subtotalPaise,
+      status: 'queued',
+      orderNote: params.orderNote?.trim().slice(0, 200) || null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    orders.push(created);
+    this.write(STORAGE_KEYS.CAFE_COUNTER_ORDERS, orders);
+    return created;
   }
 }
 

@@ -80,20 +80,21 @@ console.log('1. Multi-Industry Router, Standee Router & Barber Token QR');
 
 assert(
   getIndustryWorkspaceType('restaurant') === 'restaurant' &&
-    getIndustryWorkspaceType('cafe') === 'restaurant' &&
+    getIndustryWorkspaceType('cafe') === 'cafe' &&
     getIndustryWorkspaceType('barber') === 'barber' &&
     getIndustryWorkspaceType('salon') === 'barber' &&
     getIndustryWorkspaceType('gym') === 'gym' &&
     isGymCategory('gym') &&
     !isGymCategory('barber'),
-  'getIndustryWorkspaceType locks restaurant/cafe -> BistroOS, barber/salon -> BarberOS, gym -> GymOS',
+  'getIndustryWorkspaceType locks restaurant -> BistroOS, cafe -> CafeOS, barber/salon -> BarberOS, gym -> GymOS',
 );
 
 assert(
   getIndustryBadgeMeta('restaurant').moduleName === 'BistroOS' &&
+    getIndustryBadgeMeta('cafe').moduleName === 'CafeOS' &&
     getIndustryBadgeMeta('barber').moduleName === 'BarberOS' &&
     getIndustryBadgeMeta('gym').moduleName === 'GymOS',
-  'Admin Industry Badges cleanly identify BistroOS, BarberOS, and GymOS',
+  'Admin Industry Badges cleanly identify BistroOS, CafeOS, BarberOS, and GymOS',
 );
 
 assert(

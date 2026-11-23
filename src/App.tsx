@@ -12,9 +12,11 @@ import RestaurantKitchenDisplayPage from './pages/RestaurantKitchenDisplayPage';
 import CustomerBarberQueuePage from './pages/CustomerBarberQueuePage';
 import BarberStaffQueuePage from './pages/BarberStaffQueuePage';
 import CustomerGymPage from './pages/CustomerGymPage';
+import CustomerCafeHubPage from './pages/CustomerCafeHubPage';
 import BusinessDashboard from './pages/BusinessDashboard';
 import BarberOwnerDashboardPage from './pages/BarberOwnerDashboardPage';
 import GymOwnerDashboardPage from './pages/GymOwnerDashboardPage';
+import CafeOwnerDashboardPage from './pages/CafeOwnerDashboardPage';
 import BusinessSetupPage from './pages/BusinessSetupPage';
 import AdminPanelPage from './pages/admin/AdminPanelPage';
 
@@ -39,6 +41,14 @@ export default function App() {
               element={
                 <RequireAuth>
                   <BusinessDashboard />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/cafe/dashboard"
+              element={
+                <RequireAuth>
+                  <CafeOwnerDashboardPage />
                 </RequireAuth>
               }
             />
@@ -96,6 +106,10 @@ export default function App() {
             <Route
               path="/r/:businessSlug/gym"
               element={<CustomerGymPage />}
+            />
+            <Route
+              path="/r/:businessSlug/cafe"
+              element={<CustomerCafeHubPage />}
             />
           </Route>
         </Routes>

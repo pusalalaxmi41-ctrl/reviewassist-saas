@@ -1,6 +1,7 @@
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import {
   UtensilsCrossed,
+  Coffee,
   Scissors,
   Dumbbell,
   LogOut,
@@ -48,6 +49,11 @@ export function Header() {
             <UtensilsCrossed className="h-3.5 w-3.5" aria-hidden />
             <span className="hidden sm:inline">Restaurants</span>
             <span className="sm:hidden">Bistro</span>
+          </NavLink>
+          <NavLink to="/cafe/dashboard" className={navClass}>
+            <Coffee className="h-3.5 w-3.5" aria-hidden />
+            <span className="hidden sm:inline">CafeOS</span>
+            <span className="sm:hidden">Cafe</span>
           </NavLink>
           <NavLink to="/barber/dashboard" className={navClass}>
             <Scissors className="h-3.5 w-3.5" aria-hidden />

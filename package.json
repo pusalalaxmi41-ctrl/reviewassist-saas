@@ -23,6 +23,7 @@
     "test:gym": "deno run --allow-read --allow-env tests/verify-gym-membership.ts",
     "test:gym-attendance": "deno run --allow-read --allow-env tests/verify-gym-attendance-and-goals.ts",
     "test:hospitality": "deno run --allow-read --allow-env tests/verify-complete-hospitality-os.ts",
+    "test:cafe": "deno run --allow-read --allow-env tests/verify-cafe-os.ts",
     "preview": "vite preview"
   },
   "dependencies": {

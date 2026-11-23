@@ -12,6 +12,7 @@ import type {
 } from '../types/gym';
 import { validateBusinessId } from './aiConfigValidation';
 import { isBarberOrSalonCategory } from './barberQueueValidation';
+import { isCafeCategory } from './cafeValidation';
 import { formatPriceFromPaise } from './restaurantValidation';
 
 // eslint-disable-next-line no-control-regex
@@ -183,6 +184,7 @@ export function getIndustryWorkspaceType(
 ): IndustryWorkspaceType {
   if (isGymCategory(category)) return 'gym';
   if (isBarberOrSalonCategory(category)) return 'barber';
+  if (isCafeCategory(category)) return 'cafe';
   return 'restaurant';
 }
 
@@ -213,10 +215,19 @@ export function getIndustryBadgeMeta(
       badgeClass: 'bg-amber-100 text-amber-950 border-amber-300',
     };
   }
+  if (isCafeCategory(category)) {
+    return {
+      workspace: 'cafe',
+      emoji: '☕',
+      label: 'Cafe & Coffee Shop',
+      moduleName: 'CafeOS',
+      badgeClass: 'bg-amber-50 text-amber-950 border-amber-300',
+    };
+  }
   return {
     workspace: 'restaurant',
     emoji: '🍽️',
-    label: category === 'cafe' ? 'Cafe / Bakery' : 'Restaurant / Bistro',
+    label: 'Restaurant / Bistro',
     moduleName: 'BistroOS',
     badgeClass: 'bg-indigo-50 text-indigo-900 border-indigo-200',
   };
@@ -251,6 +262,9 @@ export function getPrimaryCustomerQrUrlForBusiness(
   }
   if (isBarberOrSalonCategory(business.category)) {
     return `${host}/r/${slug}/queue`;
+  }
+  if (isCafeCategory(business.category)) {
+    return `${host}/r/${slug}/cafe`;
   }
   return `${host}/r/${slug}/menu`;
 }

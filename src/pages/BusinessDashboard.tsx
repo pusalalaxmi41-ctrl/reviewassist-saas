@@ -42,7 +42,9 @@ import {
 } from '../components/dashboard/RestaurantManagerView';
 import { BarberOwnerWorkspace } from '../components/barber/BarberOwnerWorkspace';
 import { GymOwnerWorkspace } from '../components/gym/GymOwnerWorkspace';
+import { CafeManagerView } from '../components/cafe/CafeManagerView';
 import { getIndustryWorkspaceType } from '../utils/gymValidation';
+import { isCafeCategory } from '../utils/cafeValidation';
 import {
   loadWorkspaceModules,
   saveWorkspaceModules,
@@ -244,6 +246,18 @@ export default function BusinessDashboard() {
 
   // SMART MULTI-INDUSTRY WORKSPACE ROUTER
   const workspaceType = getIndustryWorkspaceType(currentBusiness.category);
+  if (workspaceType === 'cafe') {
+    return (
+      <CafeManagerView
+        key={currentBusiness.id}
+        business={currentBusiness}
+        cafeBusinesses={businesses}
+        hasOtherBusinesses={businesses.some((b) => !isCafeCategory(b.category))}
+        onSelectBusiness={handleSelectBusiness}
+        onBusinessUpdated={handleBusinessUpdated}
+      />
+    );
+  }
   if (workspaceType === 'barber') {
     return (
       <div className="px-4 py-5 sm:px-6">

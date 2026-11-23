@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import {
   UtensilsCrossed,
+  Coffee,
   Scissors,
   Dumbbell,
   CheckCircle2,
@@ -28,6 +29,7 @@ import { copyText } from '../utils/clipboard';
 import { getCustomerReviewUrl, getWhatsAppShareLink } from '../utils/sharing';
 import { isBarberOrSalonCategory } from '../utils/barberQueueValidation';
 import { getIndustryWorkspaceType, isGymCategory } from '../utils/gymValidation';
+import { isCafeCategory } from '../utils/cafeValidation';
 import { Button } from '../components/common/Button';
 import { TextField } from '../components/common/TextField';
 import { Alert } from '../components/common/Alert';
@@ -50,11 +52,13 @@ export default function BusinessSetupPage() {
   const [step, setStep] = useState<1 | 2>(1);
   const [name, setName] = useState('');
   const [category, setCategory] = useState<BusinessCategory>(() =>
-    initialType === 'barber'
-      ? 'barber'
-      : initialType === 'gym'
-        ? 'gym'
-        : 'restaurant',
+    initialType === 'cafe'
+      ? 'cafe'
+      : initialType === 'barber'
+        ? 'barber'
+        : initialType === 'gym'
+          ? 'gym'
+          : 'restaurant',
   );
   const [city, setCity] = useState('');
   const [slug, setSlug] = useState('');
@@ -234,19 +238,23 @@ export default function BusinessSetupPage() {
                 onClick={() => {
                   const ws = getIndustryWorkspaceType(createdBusiness.category);
                   const path =
-                    ws === 'barber'
-                      ? `/barber/dashboard?slug=${createdBusiness.slug}`
-                      : ws === 'gym'
-                        ? `/gym/dashboard?slug=${createdBusiness.slug}`
-                        : `/dashboard?slug=${createdBusiness.slug}`;
+                    ws === 'cafe'
+                      ? `/cafe/dashboard?slug=${createdBusiness.slug}`
+                      : ws === 'barber'
+                        ? `/barber/dashboard?slug=${createdBusiness.slug}`
+                        : ws === 'gym'
+                          ? `/gym/dashboard?slug=${createdBusiness.slug}`
+                          : `/dashboard?slug=${createdBusiness.slug}`;
                   navigate(path);
                 }}
               >
-                {getIndustryWorkspaceType(createdBusiness.category) === 'barber'
-                  ? 'Open BarberOS Queue Studio'
-                  : getIndustryWorkspaceType(createdBusiness.category) === 'gym'
-                    ? 'Open GymOS Studio'
-                    : 'Open Restaurant Workspace'}{' '}
+                {getIndustryWorkspaceType(createdBusiness.category) === 'cafe'
+                  ? 'Open CafeOS Studio'
+                  : getIndustryWorkspaceType(createdBusiness.category) === 'barber'
+                    ? 'Open BarberOS Queue Studio'
+                    : getIndustryWorkspaceType(createdBusiness.category) === 'gym'
+                      ? 'Open GymOS Studio'
+                      : 'Open Restaurant Workspace'}{' '}
                 <ArrowRight className="h-4 w-4" aria-hidden />
               </Button>
             </div>
@@ -303,33 +311,39 @@ export default function BusinessSetupPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <a
                 href={
-                  isGymCategory(createdBusiness.category)
-                    ? `/r/${createdBusiness.slug}/gym`
-                    : isBarberOrSalonCategory(createdBusiness.category)
-                      ? `/r/${createdBusiness.slug}/queue`
-                      : `/r/${createdBusiness.slug}/menu`
+                  isCafeCategory(createdBusiness.category)
+                    ? `/r/${createdBusiness.slug}/cafe`
+                    : isGymCategory(createdBusiness.category)
+                      ? `/r/${createdBusiness.slug}/gym`
+                      : isBarberOrSalonCategory(createdBusiness.category)
+                        ? `/r/${createdBusiness.slug}/queue`
+                        : `/r/${createdBusiness.slug}/menu`
                 }
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-4 py-2.5 text-[14px] font-semibold text-[#111827] hover:border-[#1E1B4B] hover:bg-[#F8F9FA]"
               >
                 <ExternalLink className="h-4 w-4" aria-hidden />{' '}
-                {isGymCategory(createdBusiness.category)
-                  ? 'Open Gym Pass QR'
-                  : isBarberOrSalonCategory(createdBusiness.category)
-                    ? 'Open Live Queue'
-                    : 'Open Customer Menu'}
+                {isCafeCategory(createdBusiness.category)
+                  ? 'Open Coffee Stamp Pass'
+                  : isGymCategory(createdBusiness.category)
+                    ? 'Open Gym Pass QR'
+                    : isBarberOrSalonCategory(createdBusiness.category)
+                      ? 'Open Live Queue'
+                      : 'Open Customer Menu'}
               </a>
               <Button
                 variant="primary"
                 onClick={() => {
                   const ws = getIndustryWorkspaceType(createdBusiness.category);
                   const path =
-                    ws === 'barber'
-                      ? `/barber/dashboard?slug=${createdBusiness.slug}`
-                      : ws === 'gym'
-                        ? `/gym/dashboard?slug=${createdBusiness.slug}`
-                        : `/dashboard?slug=${createdBusiness.slug}`;
+                    ws === 'cafe'
+                      ? `/cafe/dashboard?slug=${createdBusiness.slug}`
+                      : ws === 'barber'
+                        ? `/barber/dashboard?slug=${createdBusiness.slug}`
+                        : ws === 'gym'
+                          ? `/gym/dashboard?slug=${createdBusiness.slug}`
+                          : `/dashboard?slug=${createdBusiness.slug}`;
                   navigate(path);
                 }}
               >
@@ -349,14 +363,18 @@ export default function BusinessSetupPage() {
       <div className="text-center">
         <div
           className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl mb-3 shadow-sm ${
-            selectedWorkspace === 'barber'
-              ? 'bg-[#111318] text-[#F3E3B8]'
-              : selectedWorkspace === 'gym'
-                ? 'bg-[#0F172A] text-[#A3E635]'
-                : 'bg-[#1E1B4B] text-[#D2DB76]'
+            selectedWorkspace === 'cafe'
+              ? 'bg-[#1E1B4B] text-[#D2DB76]'
+              : selectedWorkspace === 'barber'
+                ? 'bg-[#111318] text-[#F3E3B8]'
+                : selectedWorkspace === 'gym'
+                  ? 'bg-[#0F172A] text-[#A3E635]'
+                  : 'bg-[#1E1B4B] text-[#D2DB76]'
           }`}
         >
-          {selectedWorkspace === 'barber' ? (
+          {selectedWorkspace === 'cafe' ? (
+            <Coffee className="h-5 w-5" aria-hidden />
+          ) : selectedWorkspace === 'barber' ? (
             <Scissors className="h-5 w-5" aria-hidden />
           ) : selectedWorkspace === 'gym' ? (
             <Dumbbell className="h-5 w-5" aria-hidden />
@@ -365,18 +383,22 @@ export default function BusinessSetupPage() {
           )}
         </div>
         <h1 className="text-[26px] font-extrabold tracking-tight text-[#111827] sm:text-[30px]">
-          {selectedWorkspace === 'barber'
-            ? 'Launch Your BarberOS Queue Studio'
-            : selectedWorkspace === 'gym'
-              ? 'Launch Your GymOS Membership Studio'
-              : 'Set Up Your Business Workspace'}
+          {selectedWorkspace === 'cafe'
+            ? 'Launch Your CafeOS Stamp & Stock Studio'
+            : selectedWorkspace === 'barber'
+              ? 'Launch Your BarberOS Queue Studio'
+              : selectedWorkspace === 'gym'
+                ? 'Launch Your GymOS Membership Studio'
+                : 'Set Up Your Business Workspace'}
         </h1>
         <p className="mt-1.5 text-[15px] text-[#6B7280]">
-          {selectedWorkspace === 'barber'
-            ? 'Live chair countdown timers, 1-tap +5/+10/+15m broadcasts, customer Token QR passes, and barber PINs.'
-            : selectedWorkspace === 'gym'
-              ? 'Replace paper gym registers with 10-second QR signups, 1-tap payment approvals, and 3-day expiry radar.'
-              : 'Launch your digital table menu, waiter roster, guest loyalty stars, and Google review flow in under a minute.'}
+          {selectedWorkspace === 'cafe'
+            ? 'Phone-wallet Digital Coffee Stamp Cards, automatic Birthday Free Coffee, 30s rotating counter QR, and raw beans/milk/cup stock alerts.'
+            : selectedWorkspace === 'barber'
+              ? 'Live chair countdown timers, 1-tap +5/+10/+15m broadcasts, customer Token QR passes, and barber PINs.'
+              : selectedWorkspace === 'gym'
+                ? 'Replace paper gym registers with 10-second QR signups, 1-tap payment approvals, and 3-day expiry radar.'
+                : 'Launch your digital table menu, waiter roster, guest loyalty stars, and Google review flow in under a minute.'}
         </p>
       </div>
 
@@ -413,12 +435,12 @@ export default function BusinessSetupPage() {
           noValidate
           className="bistro-card p-6 sm:p-8 space-y-5"
         >
-          {/* Dedicated 3-Industry OS Selector */}
+          {/* Dedicated 4-Industry OS Selector */}
           <div className="space-y-2">
             <span className="block text-[12px] font-extrabold uppercase tracking-wider text-[#6B7280]">
               Choose Your Dedicated Industry System
             </span>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <button
                 type="button"
                 onClick={() => setCategory('restaurant')}
@@ -433,7 +455,24 @@ export default function BusinessSetupPage() {
                   aria-hidden
                 />
                 <span className="text-[12px] font-extrabold">BistroOS</span>
-                <span className="text-[10px] opacity-75">Restaurant / Cafe</span>
+                <span className="text-[10px] opacity-75">Restaurant / Hotel</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCategory('cafe')}
+                className={`flex flex-col items-center gap-1 rounded-2xl border p-3 text-center transition-all cursor-pointer ${
+                  selectedWorkspace === 'cafe'
+                    ? 'border-2 border-[#1E1B4B] bg-[#1E1B4B] text-white shadow-sm'
+                    : 'border-[#1E1B4B]/15 bg-[#F8F9FA] text-[#111827] hover:border-amber-500'
+                }`}
+              >
+                <Coffee
+                  className={`h-4.5 w-4.5 ${selectedWorkspace === 'cafe' ? 'text-[#D2DB76]' : 'text-amber-700'}`}
+                  aria-hidden
+                />
+                <span className="text-[12px] font-extrabold">CafeOS</span>
+                <span className="text-[10px] opacity-75">Cafe &amp; Coffee</span>
               </button>
 
               <button
@@ -474,18 +513,22 @@ export default function BusinessSetupPage() {
 
           <TextField
             label={
-              selectedWorkspace === 'barber'
-                ? 'Barber Shop / Salon Name'
-                : selectedWorkspace === 'gym'
-                  ? 'Gym / Fitness Studio Name'
-                  : 'Restaurant / Business Name'
+              selectedWorkspace === 'cafe'
+                ? 'Cafe / Coffee Shop Name'
+                : selectedWorkspace === 'barber'
+                  ? 'Barber Shop / Salon Name'
+                  : selectedWorkspace === 'gym'
+                    ? 'Gym / Fitness Studio Name'
+                    : 'Restaurant / Business Name'
             }
             placeholder={
-              selectedWorkspace === 'barber'
-                ? 'e.g. Crown Cuts Barbershop, Blade & Fade'
-                : selectedWorkspace === 'gym'
-                  ? 'e.g. Iron Pulse Fitness, Gold Core Gym'
-                  : 'e.g. The Urban Kitchen, Bistro Botanica'
+              selectedWorkspace === 'cafe'
+                ? 'e.g. Blue Tokai Roasters, Brew & Bloom Cafe'
+                : selectedWorkspace === 'barber'
+                  ? 'e.g. Crown Cuts Barbershop, Blade & Fade'
+                  : selectedWorkspace === 'gym'
+                    ? 'e.g. Iron Pulse Fitness, Gold Core Gym'
+                    : 'e.g. The Urban Kitchen, Bistro Botanica'
             }
             value={name}
             onChange={(e) => handleNameChange(e.target.value)}

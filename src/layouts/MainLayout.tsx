@@ -5,6 +5,7 @@ export function MainLayout() {
   const location = useLocation();
   const isFullBleedWorkspace =
     location.pathname.startsWith('/dashboard') ||
+    location.pathname.startsWith('/cafe/dashboard') ||
     location.pathname.startsWith('/barber/dashboard') ||
     location.pathname.startsWith('/gym/dashboard');
 

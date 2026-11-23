@@ -10,6 +10,7 @@ import {
   QrCode,
   RotateCcw,
   Scissors,
+  Coffee,
   Dumbbell,
   UtensilsCrossed,
   Share2,
@@ -28,6 +29,7 @@ import {
   isBarberOrSalonCategory,
 } from '../../utils/barberQueueValidation';
 import { getGymPortalUrl, isGymCategory } from '../../utils/gymValidation';
+import { getCafeHubUrl, isCafeCategory } from '../../utils/cafeValidation';
 import {
   generatePrintablePdfBlobFromCanvas,
   getDefaultQRDesignSettings,
@@ -43,7 +45,7 @@ import { Button } from '../common/Button';
 
 interface Props {
   business: Business;
-  defaultMode?: 'review' | 'barber_queue' | 'gym' | 'restaurant_menu';
+  defaultMode?: 'review' | 'barber_queue' | 'gym' | 'cafe' | 'restaurant_menu';
 }
 
 export function QRCodeManager({ business, defaultMode }: Props) {
@@ -61,18 +63,28 @@ export function QRCodeManager({ business, defaultMode }: Props) {
 
   const supportsBarberQueue = isBarberOrSalonCategory(business.category);
   const supportsGymPortal = isGymCategory(business.category);
+  const supportsCafeHub = isCafeCategory(business.category);
   const supportsRestaurantMenu =
-    business.category === 'restaurant' || business.category === 'cafe';
-  const resolvedDefault: 'review' | 'barber_queue' | 'gym' | 'restaurant_menu' =
+    business.category === 'restaurant' ||
+    business.category === 'hotel' ||
+    business.category === 'pg';
+  const resolvedDefault:
+    | 'review'
+    | 'barber_queue'
+    | 'gym'
+    | 'cafe'
+    | 'restaurant_menu' =
     defaultMode ??
-    (supportsGymPortal
-      ? 'gym'
-      : supportsBarberQueue
-        ? 'barber_queue'
-        : 'review');
+    (supportsCafeHub
+      ? 'cafe'
+      : supportsGymPortal
+        ? 'gym'
+        : supportsBarberQueue
+          ? 'barber_queue'
+          : 'review');
 
   const [qrMode, setQrMode] = useState<
-    'review' | 'barber_queue' | 'gym' | 'restaurant_menu'
+    'review' | 'barber_queue' | 'gym' | 'cafe' | 'restaurant_menu'
   >(resolvedDefault);
   const [queueHeading, setQueueHeading] = useState('Scan to Join the Live Queue');
   const [queueInstruction, setQueueInstruction] = useState(
@@ -82,6 +94,12 @@ export function QRCodeManager({ business, defaultMode }: Props) {
   const [gymInstruction, setGymInstruction] = useState(
     'Join in 10 seconds, track your plan expiry & tap Daily Check-In at the desk',
   );
+  const [cafeHeading, setCafeHeading] = useState(
+    'Scan for Coffee Stamp Card & Quick Menu',
+  );
+  const [cafeInstruction, setCafeInstruction] = useState(
+    'Collect coffee stamps, unlock your Birthday Free Coffee & skip the line',
+  );
   const [menuHeading, setMenuHeading] = useState('Scan for Digital Menu & Loyalty');
   const [menuInstruction, setMenuInstruction] = useState(
     'Browse our live menu, play table games & collect Loyalty Stars',
@@ -89,6 +107,7 @@ export function QRCodeManager({ business, defaultMode }: Props) {
 
   const isQueueMode = supportsBarberQueue && qrMode === 'barber_queue';
   const isGymMode = supportsGymPortal && qrMode === 'gym';
+  const isCafeMode = supportsCafeHub && qrMode === 'cafe';
   const isMenuMode = supportsRestaurantMenu && qrMode === 'restaurant_menu';
   const originHost =
     typeof window !== 'undefined'
@@ -96,74 +115,94 @@ export function QRCodeManager({ business, defaultMode }: Props) {
       : 'http://localhost:5173';
   const menuHubUrl = `${originHost}/r/${business.slug}/menu`;
 
-  const qrUrl = isGymMode
-    ? getGymPortalUrl(business.slug)
-    : isQueueMode
-      ? getBarberQueueUrl(business.slug)
-      : isMenuMode
-        ? menuHubUrl
-        : getCustomerReviewUrl(business.slug, 'qr');
-  const directUrl = isGymMode
-    ? getGymPortalUrl(business.slug)
-    : isQueueMode
-      ? getBarberQueueUrl(business.slug)
-      : isMenuMode
-        ? menuHubUrl
-        : getCustomerReviewUrl(business.slug, 'direct');
+  const qrUrl = isCafeMode
+    ? getCafeHubUrl(business.slug)
+    : isGymMode
+      ? getGymPortalUrl(business.slug)
+      : isQueueMode
+        ? getBarberQueueUrl(business.slug)
+        : isMenuMode
+          ? menuHubUrl
+          : getCustomerReviewUrl(business.slug, 'qr');
+  const directUrl = isCafeMode
+    ? getCafeHubUrl(business.slug)
+    : isGymMode
+      ? getGymPortalUrl(business.slug)
+      : isQueueMode
+        ? getBarberQueueUrl(business.slug)
+        : isMenuMode
+          ? menuHubUrl
+          : getCustomerReviewUrl(business.slug, 'direct');
   const whatsAppMsg = buildWhatsAppMessage(business);
   const whatsAppLink = getWhatsAppShareLink(business, customPhone);
 
-  const effectivePosterSettings: QRDesignSettings = isGymMode
+  const effectivePosterSettings: QRDesignSettings = isCafeMode
     ? {
         ...settings,
         template: 'table_standee',
-        heading: gymHeading,
-        instruction: gymInstruction,
+        heading: cafeHeading,
+        instruction: cafeInstruction,
       }
-    : isQueueMode
+    : isGymMode
       ? {
           ...settings,
           template: 'table_standee',
-          heading: queueHeading,
-          instruction: queueInstruction,
+          heading: gymHeading,
+          instruction: gymInstruction,
         }
-      : isMenuMode
+      : isQueueMode
         ? {
             ...settings,
             template: 'table_standee',
-            heading: menuHeading,
-            instruction: menuInstruction,
+            heading: queueHeading,
+            instruction: queueInstruction,
           }
-        : settings;
+        : isMenuMode
+          ? {
+              ...settings,
+              template: 'table_standee',
+              heading: menuHeading,
+              instruction: menuInstruction,
+            }
+          : settings;
 
-  const effectiveRenderOptions = isGymMode
+  const effectiveRenderOptions = isCafeMode
     ? {
         targetUrl: qrUrl,
         customSteps: [
-          'Scan QR at the gym desk',
-          'Pick plan or enter phone',
-          'Tap Daily Check-In & view days left',
+          'Scan QR at the coffee counter',
+          'Save your Coffee Stamp Card to Home Screen',
+          'Collect stamps & unlock Birthday Free Coffee',
         ] as [string, string, string],
       }
-    : isQueueMode
+    : isGymMode
       ? {
           targetUrl: qrUrl,
           customSteps: [
-            'Scan QR with phone camera',
-            'Check live wait & select service',
-            'Get your Personal Token QR & walk in on time',
+            'Scan QR at the gym desk',
+            'Pick plan or enter phone',
+            'Tap Daily Check-In & view days left',
           ] as [string, string, string],
         }
-      : isMenuMode
+      : isQueueMode
         ? {
             targetUrl: qrUrl,
             customSteps: [
               'Scan QR with phone camera',
-              'Explore dishes & table games',
-              'Collect Loyalty Stars & rewards',
+              'Check live wait & select service',
+              'Get your Personal Token QR & walk in on time',
             ] as [string, string, string],
           }
-        : undefined;
+        : isMenuMode
+          ? {
+              targetUrl: qrUrl,
+              customSteps: [
+                'Scan QR with phone camera',
+                'Explore dishes & table games',
+                'Collect Loyalty Stars & rewards',
+              ] as [string, string, string],
+            }
+          : undefined;
 
   // Persist per-business settings & re-render high-resolution live preview canvas
   useEffect(() => {
@@ -172,56 +211,72 @@ export function QRCodeManager({ business, defaultMode }: Props) {
       void renderQrPosterToCanvas(
         canvasRef.current,
         business,
-        isGymMode
+        isCafeMode
           ? {
               ...settings,
               template: 'table_standee',
-              heading: gymHeading,
-              instruction: gymInstruction,
+              heading: cafeHeading,
+              instruction: cafeInstruction,
             }
-          : isQueueMode
+          : isGymMode
             ? {
                 ...settings,
                 template: 'table_standee',
-                heading: queueHeading,
-                instruction: queueInstruction,
+                heading: gymHeading,
+                instruction: gymInstruction,
               }
-            : isMenuMode
+            : isQueueMode
               ? {
                   ...settings,
                   template: 'table_standee',
-                  heading: menuHeading,
-                  instruction: menuInstruction,
+                  heading: queueHeading,
+                  instruction: queueInstruction,
                 }
-              : settings,
-        isGymMode
+              : isMenuMode
+                ? {
+                    ...settings,
+                    template: 'table_standee',
+                    heading: menuHeading,
+                    instruction: menuInstruction,
+                  }
+                : settings,
+        isCafeMode
           ? {
               targetUrl: qrUrl,
               customSteps: [
-                'Scan QR at the gym desk',
-                'Pick plan or enter phone',
-                'Tap Daily Check-In & view days left',
+                'Scan QR at the coffee counter',
+                'Save your Coffee Stamp Card to Home Screen',
+                'Collect stamps & unlock Birthday Free Coffee',
               ],
             }
-          : isQueueMode
+          : isGymMode
             ? {
                 targetUrl: qrUrl,
                 customSteps: [
-                  'Scan QR with phone camera',
-                  'Check live wait & select service',
-                  'Get your Personal Token QR & walk in on time',
+                  'Scan QR at the gym desk',
+                  'Pick plan or enter phone',
+                  'Tap Daily Check-In & view days left',
                 ],
               }
-            : isMenuMode
+            : isQueueMode
               ? {
                   targetUrl: qrUrl,
                   customSteps: [
                     'Scan QR with phone camera',
-                    'Explore dishes & table games',
-                    'Collect Loyalty Stars & rewards',
+                    'Check live wait & select service',
+                    'Get your Personal Token QR & walk in on time',
                   ],
                 }
-              : undefined,
+              : isMenuMode
+                ? {
+                    targetUrl: qrUrl,
+                    customSteps: [
+                      'Scan QR with phone camera',
+                      'Explore dishes & table games',
+                      'Collect Loyalty Stars & rewards',
+                    ],
+                  }
+                : undefined,
       );
     }
   }, [
@@ -229,11 +284,14 @@ export function QRCodeManager({ business, defaultMode }: Props) {
     settings,
     isQueueMode,
     isGymMode,
+    isCafeMode,
     isMenuMode,
     queueHeading,
     queueInstruction,
     gymHeading,
     gymInstruction,
+    cafeHeading,
+    cafeInstruction,
     menuHeading,
     menuInstruction,
     qrUrl,
@@ -283,7 +341,12 @@ export function QRCodeManager({ business, defaultMode }: Props) {
 
   function handleResetDefaults() {
     setLogoError(null);
-    if (isQueueMode) {
+    if (isCafeMode) {
+      setCafeHeading('Scan for Coffee Stamp Card & Quick Menu');
+      setCafeInstruction(
+        'Collect coffee stamps, unlock your Birthday Free Coffee & skip the line',
+      );
+    } else if (isQueueMode) {
       setQueueHeading('Scan to Join the Live Queue');
       setQueueInstruction(
         'See live wait time, claim your token & track your turn from your phone',
@@ -301,11 +364,13 @@ export function QRCodeManager({ business, defaultMode }: Props) {
       effectiveRenderOptions,
     );
     const pngUrl = canvasRef.current.toDataURL('image/png');
-    const filename = isGymMode
-      ? `${business.slug}-gym-pass-qr.png`
-      : isQueueMode
-        ? `${business.slug}-live-queue-qr.png`
-        : `${business.slug}-${settings.template}-qr.png`;
+    const filename = isCafeMode
+      ? `${business.slug}-cafe-stamp-qr.png`
+      : isGymMode
+        ? `${business.slug}-gym-pass-qr.png`
+        : isQueueMode
+          ? `${business.slug}-live-queue-qr.png`
+          : `${business.slug}-${settings.template}-qr.png`;
     const link = document.createElement('a');
     link.download = filename;
     link.href = pngUrl;
@@ -325,11 +390,13 @@ export function QRCodeManager({ business, defaultMode }: Props) {
     );
     const pdfBlob = generatePrintablePdfBlobFromCanvas(canvasRef.current);
     const blobUrl = URL.createObjectURL(pdfBlob);
-    const filename = isGymMode
-      ? `${business.slug}-gym-pass-qr.pdf`
-      : isQueueMode
-        ? `${business.slug}-live-queue-qr.pdf`
-        : `${business.slug}-${settings.template}-qr.pdf`;
+    const filename = isCafeMode
+      ? `${business.slug}-cafe-stamp-qr.pdf`
+      : isGymMode
+        ? `${business.slug}-gym-pass-qr.pdf`
+        : isQueueMode
+          ? `${business.slug}-live-queue-qr.pdf`
+          : `${business.slug}-${settings.template}-qr.pdf`;
     const link = document.createElement('a');
     link.download = filename;
     link.href = blobUrl;
@@ -362,9 +429,29 @@ export function QRCodeManager({ business, defaultMode }: Props) {
 
   return (
     <div className="space-y-8">
-      {/* Industry Standee Mode Switcher: Restaurant Menu / Barber Live Queue / Gym Desk Pass vs Google Review QR */}
-      {(supportsRestaurantMenu || supportsBarberQueue || supportsGymPortal) && (
+      {/* Industry Standee Mode Switcher: Restaurant Menu / Cafe Stamp Card / Barber Live Queue / Gym Desk Pass vs Google Review QR */}
+      {(supportsRestaurantMenu ||
+        supportsCafeHub ||
+        supportsBarberQueue ||
+        supportsGymPortal) && (
         <div className="inline-flex flex-wrap items-center gap-1.5 rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-2 shadow-2xs">
+          {supportsCafeHub && (
+            <button
+              type="button"
+              onClick={() => setQrMode('cafe')}
+              className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
+                isCafeMode
+                  ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
+                  : 'text-[#626B65] hover:bg-[#F7F7F2] hover:text-[#252B29]'
+              }`}
+            >
+              <Coffee
+                className={`h-4 w-4 ${isCafeMode ? 'text-[#D2DB76]' : ''}`}
+                aria-hidden
+              />
+              <span>Coffee Stamp Card &amp; Quick Menu QR</span>
+            </button>
+          )}
           {supportsRestaurantMenu && (
             <button
               type="button"
@@ -420,7 +507,7 @@ export function QRCodeManager({ business, defaultMode }: Props) {
             type="button"
             onClick={() => setQrMode('review')}
             className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
-              !isQueueMode && !isGymMode && !isMenuMode
+              !isCafeMode && !isQueueMode && !isGymMode && !isMenuMode
                 ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
                 : 'text-[#626B65] hover:bg-[#F7F7F2] hover:text-[#252B29]'
             }`}
@@ -435,13 +522,15 @@ export function QRCodeManager({ business, defaultMode }: Props) {
       <div className="flex flex-col gap-4 rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-5 sm:flex-row sm:items-center sm:justify-between shadow-2xs">
         <div className="space-y-1">
           <p className="text-[12px] font-semibold uppercase tracking-wider text-[#626B65]">
-            {isGymMode
-              ? 'Front-Desk Gym Membership & Check-In URL (Encoded in QR)'
-              : isQueueMode
-                ? 'Live Queue & Wait-Time Standee URL (Encoded in QR)'
-                : isMenuMode
-                  ? 'Digital Menu & Loyalty Hub URL (Encoded in QR)'
-                  : 'Business-Specific Customer Review URL (Encoded in QR)'}
+            {isCafeMode
+              ? 'Counter Coffee Stamp Card & Quick Menu URL (Encoded in QR)'
+              : isGymMode
+                ? 'Front-Desk Gym Membership & Check-In URL (Encoded in QR)'
+                : isQueueMode
+                  ? 'Live Queue & Wait-Time Standee URL (Encoded in QR)'
+                  : isMenuMode
+                    ? 'Digital Menu & Loyalty Hub URL (Encoded in QR)'
+                    : 'Business-Specific Customer Review URL (Encoded in QR)'}
           </p>
           <p className="break-all font-mono text-[14px] font-medium text-[#244B40]">{qrUrl}</p>
         </div>
@@ -571,16 +660,20 @@ export function QRCodeManager({ business, defaultMode }: Props) {
                   type="text"
                   maxLength={70}
                   value={
-                    isGymMode
-                      ? gymHeading
-                      : isQueueMode
-                        ? queueHeading
-                        : isMenuMode
-                          ? menuHeading
-                          : settings.heading
+                    isCafeMode
+                      ? cafeHeading
+                      : isGymMode
+                        ? gymHeading
+                        : isQueueMode
+                          ? queueHeading
+                          : isMenuMode
+                            ? menuHeading
+                            : settings.heading
                   }
                   onChange={(e) => {
-                    if (isGymMode) {
+                    if (isCafeMode) {
+                      setCafeHeading(e.target.value);
+                    } else if (isGymMode) {
                       setGymHeading(e.target.value);
                     } else if (isQueueMode) {
                       setQueueHeading(e.target.value);
@@ -609,16 +702,20 @@ export function QRCodeManager({ business, defaultMode }: Props) {
                   type="text"
                   maxLength={90}
                   value={
-                    isGymMode
-                      ? gymInstruction
-                      : isQueueMode
-                        ? queueInstruction
-                        : isMenuMode
-                          ? menuInstruction
-                          : settings.instruction
+                    isCafeMode
+                      ? cafeInstruction
+                      : isGymMode
+                        ? gymInstruction
+                        : isQueueMode
+                          ? queueInstruction
+                          : isMenuMode
+                            ? menuInstruction
+                            : settings.instruction
                   }
                   onChange={(e) => {
-                    if (isGymMode) {
+                    if (isCafeMode) {
+                      setCafeInstruction(e.target.value);
+                    } else if (isGymMode) {
                       setGymInstruction(e.target.value);
                     } else if (isQueueMode) {
                       setQueueInstruction(e.target.value);
