@@ -51,6 +51,7 @@ import {
   Minimize2,
   PanelRightOpen,
   CheckSquare,
+  Layers,
 } from 'lucide-react';
 import type { Business } from '../../types/business';
 import type {
@@ -128,6 +129,15 @@ import {
   DEFAULT_WORKSPACE_MODULES,
   type WorkspaceModuleVisibility,
 } from '../../utils/workspaceModules';
+import {
+  buildEffectiveBuildingFloors,
+  loadSavedBuildingFloors,
+  resolveTableFloorName,
+  saveBuildingFloors,
+  slugifyFloorName,
+  type BuildingFloor,
+  type BuildingFloorType,
+} from '../../utils/buildingFloors';
 
 export type RestaurantWorkspaceSection =
   | 'overview'
@@ -261,6 +271,21 @@ export function RestaurantManagerView({
     'compact' | 'medium' | 'large'
   >('medium');
   const [chatWindowMinimized, setChatWindowMinimized] = useState(false);
+
+  // Multi-Floor Building System (Separate Restaurant Floors vs. Hotel Room Floors)
+  const [savedBuildingFloors, setSavedBuildingFloors] = useState<
+    BuildingFloor[]
+  >(() => loadSavedBuildingFloors(business.id));
+  const [activeFloorId, setActiveFloorId] = useState<string>('');
+  const [showAddFloorModal, setShowAddFloorModal] = useState(false);
+  const [newFloorName, setNewFloorName] = useState('');
+  const [newFloorType, setNewFloorType] = useState<BuildingFloorType>('hotel');
+  const [newFloorWidthFt, setNewFloorWidthFt] = useState(40);
+  const [newFloorHeightFt, setNewFloorHeightFt] = useState(28);
+
+  // Separate Tables vs. Hotel Rooms QR Standee Sections
+  const [qrSectionTab, setQrSectionTab] = useState<'tables' | 'rooms'>('tables');
+  const [qrFloorFilter, setQrFloorFilter] = useState<string>('all');
 
   // Manager -> Waiter proactive task dispatch bar state
   const [dispatchTableKey, setDispatchTableKey] = useState<string>('');
@@ -626,8 +651,9 @@ export function RestaurantManagerView({
       !qrCanvasRef.current
     )
       return;
+    const isRoomStandee = activeQrTable?.locationType === 'room';
     const tableHeading = activeQrTable
-      ? `${activeQrTable.tableNumber}${activeQrTable.tableLabel ? ` · ${activeQrTable.tableLabel}` : ''} — Scan for Menu`
+      ? `${activeQrTable.tableNumber}${activeQrTable.tableLabel ? ` · ${activeQrTable.tableLabel}` : ''} — ${isRoomStandee ? 'Scan for Room Service' : 'Scan for Menu'}`
       : qrSettings.heading;
 
     void renderQrPosterToCanvas(
@@ -639,11 +665,17 @@ export function RestaurantManagerView({
       },
       {
         targetUrl: activeQrUrl,
-        customSteps: [
-          '1. Scan this table QR code with your phone camera',
-          '2. Browse the live Digital Menu & tell your server',
-          '3. Play table games & collect loyalty stars',
-        ],
+        customSteps: isRoomStandee
+          ? [
+              '1. Scan this room QR code with your phone camera',
+              '2. Order in-room dining or request water & housekeeping',
+              '3. Track live order status & pay easily at checkout',
+            ]
+          : [
+              '1. Scan this table QR code with your phone camera',
+              '2. Browse the live Digital Menu & place orders',
+              '3. Play table games & collect loyalty stars',
+            ],
       },
     );
   }, [
@@ -1276,12 +1308,157 @@ export function RestaurantManagerView({
     }
   }
 
+  // Multi-Floor Building Derived State (Strictly Separates Restaurant Tables & Hotel Rooms!)
+  const buildingFloors = useMemo<BuildingFloor[]>(
+    () =>
+      buildEffectiveBuildingFloors({
+        savedFloors: savedBuildingFloors,
+        tables,
+        hotelRoomsEnabled:
+          hotelRoomsEnabled ||
+          business.category === 'hotel' ||
+          business.category === 'pg',
+        defaultWidthFt: floorData?.floorWidthFt ?? profile?.floorWidthFt ?? 40,
+        defaultHeightFt:
+          floorData?.floorHeightFt ?? profile?.floorHeightFt ?? 28,
+      }),
+    [
+      savedBuildingFloors,
+      tables,
+      hotelRoomsEnabled,
+      business.category,
+      floorData?.floorWidthFt,
+      floorData?.floorHeightFt,
+      profile?.floorWidthFt,
+      profile?.floorHeightFt,
+    ],
+  );
+
+  const selectedBuildingFloor = useMemo<BuildingFloor>(
+    () =>
+      buildingFloors.find((f) => f.id === activeFloorId) ??
+      buildingFloors[0] ?? {
+        id: 'restaurant-ground-floor',
+        name: 'Ground Floor',
+        floorType: 'restaurant',
+        widthFt: 40,
+        heightFt: 28,
+      },
+    [buildingFloors, activeFloorId],
+  );
+
+  const tablesByFloorId = useMemo(() => {
+    const map = new Map<string, RestaurantTable[]>();
+    for (const fl of buildingFloors) {
+      map.set(fl.id, []);
+    }
+    for (const tbl of tables) {
+      if (!tbl.isActive) continue;
+      const isRoom = (tbl.locationType ?? 'table') === 'room';
+      const targetType: BuildingFloorType = isRoom ? 'hotel' : 'restaurant';
+      const resolvedName = resolveTableFloorName(tbl, buildingFloors);
+      const match =
+        buildingFloors.find(
+          (f) =>
+            f.floorType === targetType &&
+            f.name.trim().toLowerCase() === resolvedName.trim().toLowerCase(),
+        ) ?? buildingFloors.find((f) => f.floorType === targetType);
+      if (match) {
+        map.get(match.id)?.push(tbl);
+      }
+    }
+    return map;
+  }, [buildingFloors, tables]);
+
+  const activeFloorTables = useMemo(
+    () => tablesByFloorId.get(selectedBuildingFloor.id) ?? [],
+    [tablesByFloorId, selectedBuildingFloor.id],
+  );
+
+  function handleCreateBuildingFloor(e: React.FormEvent) {
+    e.preventDefault();
+    const cleanName = newFloorName.trim().slice(0, 48);
+    if (!cleanName) return;
+
+    const existing = buildingFloors.find(
+      (f) =>
+        f.floorType === newFloorType &&
+        f.name.trim().toLowerCase() === cleanName.toLowerCase(),
+    );
+    if (existing) {
+      setActiveFloorId(existing.id);
+      setShowAddFloorModal(false);
+      notifyStatus(`Switched to existing floor "${existing.name}".`);
+      return;
+    }
+
+    const created: BuildingFloor = {
+      id: `${newFloorType}-${slugifyFloorName(cleanName)}-${Date.now().toString(36).slice(-3)}`,
+      name: cleanName,
+      floorType: newFloorType,
+      widthFt: Math.max(10, Math.min(300, Math.round(newFloorWidthFt || 40))),
+      heightFt: Math.max(10, Math.min(300, Math.round(newFloorHeightFt || 28))),
+    };
+
+    const nextFloors = saveBuildingFloors(business.id, [
+      ...buildingFloors,
+      created,
+    ]);
+    setSavedBuildingFloors(nextFloors);
+    setActiveFloorId(created.id);
+    setNewFloorName('');
+    setShowAddFloorModal(false);
+
+    if (newFloorType === 'hotel' && !hotelRoomsEnabled) {
+      setHotelRoomsEnabled(true);
+      void handleSaveProfile({
+        hotelRoomsEnabled: true,
+        statusMessage: `Added Hotel Floor "${created.name}" & enabled Rooms Mode ✓`,
+      });
+    } else {
+      notifyStatus(
+        `Added ${created.floorType === 'hotel' ? 'Hotel Room Floor' : 'Restaurant Floor'} "${created.name}" ✓`,
+      );
+    }
+  }
+
+  function handleDeleteEmptyFloor(floor: BuildingFloor) {
+    const count = tablesByFloorId.get(floor.id)?.length ?? 0;
+    if (count > 0) {
+      setErrorMessage(
+        `Remove or move the ${count} ${floor.floorType === 'hotel' ? 'room(s)' : 'table(s)'} on "${floor.name}" before removing this floor.`,
+      );
+      return;
+    }
+    if (buildingFloors.length <= 1) return;
+    const remaining = saveBuildingFloors(
+      business.id,
+      buildingFloors.filter((f) => f.id !== floor.id),
+    );
+    setSavedBuildingFloors(remaining);
+    if (activeFloorId === floor.id && remaining[0]) {
+      setActiveFloorId(remaining[0].id);
+    }
+    notifyStatus(`Removed empty floor "${floor.name}".`);
+  }
+
   // Tables, Rooms & NFC/Standee QR handlers
-  function openAddLocationModal(locType: RestaurantLocationType) {
+  function openAddLocationModal(
+    locType: RestaurantLocationType,
+    presetFloorName?: string,
+  ) {
     setTableLocationType(locType);
     setTableSeatCapacity(locType === 'room' ? 2 : 4);
     setTableNumber('');
-    setTableLabel('');
+    const targetType: BuildingFloorType =
+      locType === 'room' ? 'hotel' : 'restaurant';
+    const defaultFloor =
+      presetFloorName ||
+      (selectedBuildingFloor.floorType === targetType
+        ? selectedBuildingFloor.name
+        : buildingFloors.find((f) => f.floorType === targetType)?.name) ||
+      (locType === 'room' ? 'Floor 1' : 'Ground Floor');
+    setTableLabel(defaultFloor);
     setShowAddTableForm(true);
   }
 
@@ -2125,112 +2302,182 @@ export function RestaurantManagerView({
             </div>
           )}
 
-          {/* SUB-TAB 1: VISUAL FLOOR & HOTEL ROOMS MAP */}
+          {/* SUB-TAB 1: MULTI-FLOOR BUILDING SYSTEM (SEPARATE RESTAURANT FLOORS & HOTEL ROOM FLOORS!) */}
           {overviewSubTab === 'floor' && (
-            <div className="space-y-4">
-              {tables.filter((t) => t.isActive).length === 0 ? (
-                <div className="bistro-card p-10 text-center space-y-3">
-                  <LayoutGrid
-                    className="mx-auto h-8 w-8 text-[#1E1B4B]/40"
-                    aria-hidden
-                  />
-                  <h2 className="text-[18px] font-extrabold text-[#111827]">
-                    Add Your Dining Tables or Hotel Rooms
-                  </h2>
-                  <p className="text-[13px] text-[#6B7280] max-w-md mx-auto">
-                    Create tables (T1, T2) or hotel rooms (Room 101, Room 102) to start taking live orders, tracking open bills, and printing QR/NFC standees.
-                  </p>
-                  <div className="flex flex-wrap justify-center gap-2 pt-1">
-                    <Button
-                      type="button"
-                      variant="primary"
-                      onClick={() => openAddLocationModal('table')}
-                    >
-                      <Plus className="h-4 w-4" aria-hidden /> Add First Table
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => openAddLocationModal('room')}
-                    >
-                      <BedDouble className="h-4 w-4" aria-hidden /> Add First Hotel Room
-                    </Button>
-                  </div>
+            <div className="space-y-3.5">
+              {/* Building Floors Switcher Strip + "+ Add Floor" */}
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 pr-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    <Layers className="h-3.5 w-3.5" aria-hidden />
+                    Building Floors
+                  </span>
+                  {buildingFloors.map((fl) => {
+                    const isSelected = fl.id === selectedBuildingFloor.id;
+                    const count = tablesByFloorId.get(fl.id)?.length ?? 0;
+                    const isHotel = fl.floorType === 'hotel';
+
+                    return (
+                      <div key={fl.id} className="inline-flex items-center">
+                        <button
+                          type="button"
+                          onClick={() => setActiveFloorId(fl.id)}
+                          className={`inline-flex h-8.5 items-center gap-1.5 rounded-lg px-3 text-[12.5px] font-semibold transition-colors cursor-pointer ${
+                            isSelected
+                              ? 'bg-[#1E1B4B] text-white'
+                              : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                          }`}
+                        >
+                          {isHotel ? (
+                            <BedDouble
+                              className={`h-3.5 w-3.5 ${isSelected ? 'text-[#D2DB76]' : 'text-[#1E1B4B]'}`}
+                              aria-hidden
+                            />
+                          ) : (
+                            <UtensilsCrossed
+                              className={`h-3.5 w-3.5 ${isSelected ? 'text-[#D2DB76]' : 'text-[#1E1B4B]'}`}
+                              aria-hidden
+                            />
+                          )}
+                          <span>{fl.name}</span>
+                          <span
+                            className={`text-[10px] font-semibold ${
+                              isSelected ? 'text-white/75' : 'text-slate-400'
+                            }`}
+                          >
+                            ({isHotel ? 'Hotel' : 'Restaurant'})
+                          </span>
+                          <span
+                            className={`rounded px-1.5 py-0.2 text-[10.5px] font-bold tabular-nums ${
+                              isSelected
+                                ? 'bg-[#D2DB76] text-[#1E1B4B]'
+                                : 'bg-white text-slate-600 border border-slate-200'
+                            }`}
+                          >
+                            {count}
+                          </span>
+                        </button>
+                        {count === 0 && buildingFloors.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteEmptyFloor(fl)}
+                            title={`Remove empty floor "${fl.name}"`}
+                            aria-label={`Remove empty floor ${fl.name}`}
+                            className="ml-0.5 rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 cursor-pointer"
+                          >
+                            <X className="h-3 w-3" aria-hidden />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              ) : (
-                <FloorMapGrid
-                  tables={tables}
-                  recentOrders={recentOrders}
-                  activeCalls={activeCalls}
-                  currencyCode={currencyCode}
-                  gstPercent={gstPercent}
-                  serviceChargePercent={serviceChargePercent}
-                  hotelRoomsEnabled={
-                    hotelRoomsEnabled ||
-                    business.category === 'hotel' ||
-                    business.category === 'pg'
-                  }
-                  floorWidthFt={
-                    floorData?.floorWidthFt ?? profile?.floorWidthFt ?? 40
-                  }
-                  floorHeightFt={
-                    floorData?.floorHeightFt ?? profile?.floorHeightFt ?? 28
-                  }
-                  onAddLocation={openAddLocationModal}
-                  onSaveFloorLayout={async (layoutParams: {
-                    floorWidthFt: number;
-                    floorHeightFt: number;
-                    tables: FloorTableLayoutItem[];
-                  }) => {
-                    const res =
-                      await businessRepository.saveRestaurantFloorLayout({
-                        businessId: business.id,
-                        floorWidthFt: layoutParams.floorWidthFt,
-                        floorHeightFt: layoutParams.floorHeightFt,
-                        tables: layoutParams.tables,
-                      });
-                    const byId = new Map(
-                      layoutParams.tables.map((t) => [t.id, t]),
-                    );
-                    setTables((prev) =>
-                      prev.map((t) => {
-                        const patch = byId.get(t.id);
-                        return patch
-                          ? {
-                              ...t,
-                              tableShape: patch.tableShape,
-                              posX: patch.posX,
-                              posY: patch.posY,
-                              widthUnits: patch.widthUnits,
-                              heightUnits: patch.heightUnits,
-                              seatCapacity: patch.seatCapacity,
-                            }
-                          : t;
-                      }),
-                    );
-                    setProfile((prev) =>
-                      prev
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextHotelNum =
+                      buildingFloors.filter((f) => f.floorType === 'hotel')
+                        .length + 1;
+                    setNewFloorType('hotel');
+                    setNewFloorName(`Floor ${nextHotelNum}`);
+                    setNewFloorWidthFt(40);
+                    setNewFloorHeightFt(28);
+                    setShowAddFloorModal(true);
+                  }}
+                  className="inline-flex h-8.5 items-center gap-1.5 rounded-lg border border-[#1E1B4B]/25 bg-[#F8F9FA] px-3 text-[12px] font-semibold text-[#1E1B4B] hover:bg-[#1E1B4B] hover:text-white transition-colors cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5" aria-hidden />
+                  Add Floor
+                </button>
+              </div>
+
+              <FloorMapGrid
+                key={selectedBuildingFloor.id}
+                tables={activeFloorTables}
+                recentOrders={recentOrders}
+                activeCalls={activeCalls}
+                currencyCode={currencyCode}
+                gstPercent={gstPercent}
+                serviceChargePercent={serviceChargePercent}
+                floorMode={selectedBuildingFloor.floorType}
+                floorName={selectedBuildingFloor.name}
+                hotelRoomsEnabled={
+                  hotelRoomsEnabled ||
+                  business.category === 'hotel' ||
+                  business.category === 'pg'
+                }
+                floorWidthFt={selectedBuildingFloor.widthFt}
+                floorHeightFt={selectedBuildingFloor.heightFt}
+                onAddLocation={(locType) =>
+                  openAddLocationModal(locType, selectedBuildingFloor.name)
+                }
+                onSaveFloorLayout={async (layoutParams: {
+                  floorWidthFt: number;
+                  floorHeightFt: number;
+                  tables: FloorTableLayoutItem[];
+                }) => {
+                  const res =
+                    await businessRepository.saveRestaurantFloorLayout({
+                      businessId: business.id,
+                      floorWidthFt: layoutParams.floorWidthFt,
+                      floorHeightFt: layoutParams.floorHeightFt,
+                      tables: layoutParams.tables,
+                    });
+                  const updatedFloors = saveBuildingFloors(
+                    business.id,
+                    buildingFloors.map((fl) =>
+                      fl.id === selectedBuildingFloor.id
                         ? {
-                            ...prev,
-                            floorWidthFt: res.floorWidthFt,
-                            floorHeightFt: res.floorHeightFt,
+                            ...fl,
+                            widthFt: res.floorWidthFt,
+                            heightFt: res.floorHeightFt,
                           }
-                        : prev,
-                    );
-                    notifyStatus(
-                      `Saved custom ${res.floorWidthFt}ft × ${res.floorHeightFt}ft floor plan (${res.updatedTablesCount} tables updated) ✓`,
-                    );
-                    void refreshFloorData();
-                  }}
-                  onSelectAvailableTable={(tbl) => {
-                    setPosInitialTableId(tbl.id);
-                    setPosModalMode('pos');
-                  }}
-                  onSelectOccupiedTable={(tbl) => {
-                    setBillModalTable(tbl);
-                  }}
-                />
-              )}
+                        : fl,
+                    ),
+                  );
+                  setSavedBuildingFloors(updatedFloors);
+                  const byId = new Map(
+                    layoutParams.tables.map((t) => [t.id, t]),
+                  );
+                  setTables((prev) =>
+                    prev.map((t) => {
+                      const patch = byId.get(t.id);
+                      return patch
+                        ? {
+                            ...t,
+                            tableShape: patch.tableShape,
+                            posX: patch.posX,
+                            posY: patch.posY,
+                            widthUnits: patch.widthUnits,
+                            heightUnits: patch.heightUnits,
+                            seatCapacity: patch.seatCapacity,
+                          }
+                        : t;
+                    }),
+                  );
+                  setProfile((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          floorWidthFt: res.floorWidthFt,
+                          floorHeightFt: res.floorHeightFt,
+                        }
+                      : prev,
+                  );
+                  notifyStatus(
+                    `Saved ${selectedBuildingFloor.name} (${res.floorWidthFt}ft × ${res.floorHeightFt}ft · ${res.updatedTablesCount} ${selectedBuildingFloor.floorType === 'hotel' ? 'rooms' : 'tables'}) ✓`,
+                  );
+                  void refreshFloorData();
+                }}
+                onSelectAvailableTable={(tbl) => {
+                  setPosInitialTableId(tbl.id);
+                  setPosModalMode('pos');
+                }}
+                onSelectOccupiedTable={(tbl) => {
+                  setBillModalTable(tbl);
+                }}
+              />
 
               {/* Proactive Manager -> Waiter Task Dispatcher (Send instant alert to Rahul/Madhan phone!) */}
               {tables.filter((t) => t.isActive).length > 0 &&
@@ -3834,186 +4081,337 @@ export function RestaurantManagerView({
       )}
 
       {/* =====================================================================
-          5. TABLES, HOTEL ROOMS & NFC/QR STANDEES (CLEAN & FOCUSED)
+          5. TABLES & HOTEL ROOMS QR STANDEES — TWO COMPLETELY SEPARATE SECTIONS!
          ===================================================================== */}
-      {currentSection === 'tables' && (
-        <div className="space-y-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-4">
-            <div>
-              <h1 className="text-[22px] font-bold tracking-tight text-[#111827]">
-                Tables, Rooms &amp; QR Standees
-              </h1>
-              <p className="mt-0.5 text-[13px] text-slate-500">
-                Create dining tables or hotel rooms, download printable QR standees, and copy 1-tap NFC links. Configure GST &amp; UPI in Settings.
-              </p>
-            </div>
-            <div className="flex flex-wrap shrink-0 items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedQrTableId('general');
-                  setShowStandeeStudio(true);
-                }}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[12.5px] font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-              >
-                <QrCode className="h-3.5 w-3.5 text-[#1E1B4B]" aria-hidden />
-                Counter Menu QR
-              </button>
-              <button
-                type="button"
-                onClick={() => openAddLocationModal('room')}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[12.5px] font-semibold text-[#1E1B4B] hover:bg-slate-50 cursor-pointer"
-              >
-                <BedDouble className="h-3.5 w-3.5" aria-hidden />
-                + Add Hotel Room
-              </button>
-              <button
-                type="button"
-                onClick={() => openAddLocationModal('table')}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#1E1B4B] px-3.5 text-[12.5px] font-semibold text-white hover:bg-[#2E2A6E] cursor-pointer"
-              >
-                <Plus className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
-                Add Table
-              </button>
-            </div>
-          </div>
-
-          {/* Responsive Table & Room Cards Grid */}
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {tables.map((tbl) => {
-              const tblUrl = getRestaurantTableQrUrl(
-                business.slug,
-                tbl.tableKey,
+      {currentSection === 'tables' && (() => {
+        const diningTables = tables.filter(
+          (t) => (t.locationType ?? 'table') !== 'room',
+        );
+        const hotelRooms = tables.filter((t) => t.locationType === 'room');
+        const activeTabFloors = buildingFloors.filter((f) =>
+          qrSectionTab === 'rooms'
+            ? f.floorType === 'hotel'
+            : f.floorType === 'restaurant',
+        );
+        const rawList = qrSectionTab === 'rooms' ? hotelRooms : diningTables;
+        const displayedQrItems =
+          qrFloorFilter === 'all'
+            ? rawList
+            : rawList.filter(
+                (t) =>
+                  resolveTableFloorName(t, buildingFloors).toLowerCase() ===
+                  qrFloorFilter.toLowerCase(),
               );
-              const isSelected =
-                showStandeeStudio && selectedQrTableId === tbl.id;
-              const isRoom = tbl.locationType === 'room';
-              const nfcCopied = copiedNfcTableId === tbl.id;
 
-              return (
-                <div
-                  key={tbl.id}
-                  className={`bistro-card p-6 flex flex-col justify-between space-y-4 transition-all ${
-                    isSelected ? 'ring-2 ring-[#1E1B4B]' : ''
+        return (
+          <div className="space-y-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-4">
+              <div>
+                <h1 className="text-[22px] font-bold tracking-tight text-[#111827]">
+                  QR &amp; NFC Standees
+                </h1>
+                <p className="mt-0.5 text-[13px] text-slate-500">
+                  Separate QR standee workspaces for Restaurant Tables and Hotel Rooms so standees never get mixed up.
+                </p>
+              </div>
+              <div className="flex flex-wrap shrink-0 items-center gap-2">
+                {qrSectionTab === 'tables' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedQrTableId('general');
+                      setShowStandeeStudio(true);
+                    }}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[12.5px] font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    <QrCode className="h-3.5 w-3.5 text-[#1E1B4B]" aria-hidden />
+                    Counter Menu QR
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextType: BuildingFloorType =
+                      qrSectionTab === 'rooms' ? 'hotel' : 'restaurant';
+                    const nextNum =
+                      buildingFloors.filter((f) => f.floorType === nextType)
+                        .length + 1;
+                    setNewFloorType(nextType);
+                    setNewFloorName(
+                      nextType === 'hotel'
+                        ? `Floor ${nextNum}`
+                        : `Dining Floor ${nextNum}`,
+                    );
+                    setShowAddFloorModal(true);
+                  }}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[12.5px] font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  <Layers className="h-3.5 w-3.5 text-[#1E1B4B]" aria-hidden />
+                  + Add Floor
+                </button>
+                {qrSectionTab === 'rooms' ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openAddLocationModal(
+                        'room',
+                        qrFloorFilter !== 'all' ? qrFloorFilter : undefined,
+                      )
+                    }
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#1E1B4B] px-3.5 text-[12.5px] font-semibold text-white hover:bg-[#2E2A6E] cursor-pointer"
+                  >
+                    <BedDouble className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
+                    + Add Hotel Room
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openAddLocationModal(
+                        'table',
+                        qrFloorFilter !== 'all' ? qrFloorFilter : undefined,
+                      )
+                    }
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#1E1B4B] px-3.5 text-[12.5px] font-semibold text-white hover:bg-[#2E2A6E] cursor-pointer"
+                  >
+                    <Plus className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
+                    + Add Table
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* TWO COMPLETELY SEPARATE SECTIONS: DINING TABLES QR vs HOTEL ROOMS QR */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200">
+              <div className="flex items-center gap-1 -mb-px" role="tablist">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={qrSectionTab === 'tables'}
+                  onClick={() => {
+                    setQrSectionTab('tables');
+                    setQrFloorFilter('all');
+                  }}
+                  className={`inline-flex h-11 items-center gap-2 border-b-2 px-4 text-[13.5px] font-semibold transition-colors cursor-pointer ${
+                    qrSectionTab === 'tables'
+                      ? 'border-[#1E1B4B] text-[#1E1B4B]'
+                      : 'border-transparent text-slate-500 hover:text-slate-900'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-[#D2DB76]/55 px-3 py-0.5 text-[12px] font-extrabold text-[#1E1B4B]">
-                          {isRoom ? (
-                            <BedDouble className="h-3 w-3" aria-hidden />
-                          ) : (
-                            <UtensilsCrossed className="h-3 w-3" aria-hidden />
-                          )}
-                          {tbl.tableNumber}
-                        </span>
-                        <span className="rounded-full bg-[#F8F9FA] border border-[#1E1B4B]/10 px-2 py-0.5 text-[10.5px] font-bold text-[#6B7280]">
-                          {tbl.seatCapacity ?? 4} {isRoom ? 'guests' : 'seats'}
-                        </span>
+                  <UtensilsCrossed className="h-4 w-4" aria-hidden />
+                  <span>Dining Tables QRs</span>
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-700 tabular-nums">
+                    {diningTables.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={qrSectionTab === 'rooms'}
+                  onClick={() => {
+                    setQrSectionTab('rooms');
+                    setQrFloorFilter('all');
+                  }}
+                  className={`inline-flex h-11 items-center gap-2 border-b-2 px-4 text-[13.5px] font-semibold transition-colors cursor-pointer ${
+                    qrSectionTab === 'rooms'
+                      ? 'border-[#1E1B4B] text-[#1E1B4B]'
+                      : 'border-transparent text-slate-500 hover:text-slate-900'
+                  }`}
+                >
+                  <BedDouble className="h-4 w-4" aria-hidden />
+                  <span>Hotel Rooms QRs</span>
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-700 tabular-nums">
+                    {hotelRooms.length}
+                  </span>
+                </button>
+              </div>
+
+              {/* Per-Floor Filter Chips for the Active Section */}
+              {activeTabFloors.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1 pb-2">
+                  <button
+                    type="button"
+                    onClick={() => setQrFloorFilter('all')}
+                    className={`h-7.5 rounded-md px-2.5 text-[11.5px] font-semibold cursor-pointer ${
+                      qrFloorFilter === 'all'
+                        ? 'bg-[#1E1B4B] text-white'
+                        : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    All Floors ({rawList.length})
+                  </button>
+                  {activeTabFloors.map((fl) => {
+                    const flCount = rawList.filter(
+                      (t) =>
+                        resolveTableFloorName(
+                          t,
+                          buildingFloors,
+                        ).toLowerCase() === fl.name.toLowerCase(),
+                    ).length;
+                    const active =
+                      qrFloorFilter.toLowerCase() === fl.name.toLowerCase();
+                    return (
+                      <button
+                        key={fl.id}
+                        type="button"
+                        onClick={() => setQrFloorFilter(fl.name)}
+                        className={`h-7.5 rounded-md px-2.5 text-[11.5px] font-semibold cursor-pointer ${
+                          active
+                            ? 'bg-[#1E1B4B] text-white'
+                            : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        {fl.name} ({flCount})
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Dedicated Section Cards Grid (ONLY Tables OR ONLY Hotel Rooms — Never Mixed!) */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {displayedQrItems.map((tbl) => {
+                const tblUrl = getRestaurantTableQrUrl(
+                  business.slug,
+                  tbl.tableKey,
+                );
+                const isSelected =
+                  showStandeeStudio && selectedQrTableId === tbl.id;
+                const isRoom = tbl.locationType === 'room';
+                const floorDisplay = resolveTableFloorName(tbl, buildingFloors);
+                const nfcCopied = copiedNfcTableId === tbl.id;
+
+                return (
+                  <div
+                    key={tbl.id}
+                    className={`bistro-card p-5 flex flex-col justify-between space-y-4 ${
+                      isSelected ? 'ring-2 ring-[#1E1B4B]' : ''
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1 rounded-md bg-[#D2DB76]/60 px-2.5 py-0.5 text-[12px] font-bold text-[#1E1B4B]">
+                            {isRoom ? (
+                              <BedDouble className="h-3 w-3" aria-hidden />
+                            ) : (
+                              <UtensilsCrossed className="h-3 w-3" aria-hidden />
+                            )}
+                            {tbl.tableNumber}
+                          </span>
+                          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10.5px] font-semibold text-slate-600">
+                            {tbl.seatCapacity ?? (isRoom ? 2 : 4)}{' '}
+                            {isRoom ? 'guests' : 'seats'}
+                          </span>
+                        </div>
+                        <p className="mt-1.5 text-[12.5px] font-semibold text-slate-600">
+                          {floorDisplay}
+                          {tbl.tableLabel &&
+                          tbl.tableLabel.trim().toLowerCase() !==
+                            floorDisplay.trim().toLowerCase()
+                            ? ` · ${tbl.tableLabel}`
+                            : ''}
+                        </p>
                       </div>
-                      <p className="mt-1.5 text-[14px] font-semibold text-[#111827]">
-                        {tbl.tableLabel ||
-                          (isRoom ? 'Guest Suite' : 'Main Dining Room')}
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteTable(tbl)}
+                        aria-label={`Delete ${tbl.tableNumber}`}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-700 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden />
+                      </button>
+                    </div>
+
+                    <div className="flex flex-col items-center justify-center rounded-lg bg-slate-50 py-3.5 px-3 border border-slate-100">
+                      <TableQrPreviewCanvas url={tblUrl} />
+                      <p className="mt-2 font-mono text-[10.5px] text-slate-500 truncate max-w-full">
+                        /r/{business.slug}/table/{tbl.tableKey}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteTable(tbl)}
-                      aria-label={`Delete ${tbl.tableNumber}`}
-                      className="rounded-xl p-1.5 text-[#6B7280] hover:bg-red-50 hover:text-red-700 transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="h-4 w-4" aria-hidden />
-                    </button>
-                  </div>
 
-                  <div className="flex flex-col items-center justify-center rounded-2xl bg-[#F8F9FA] py-4 px-3 border border-[#1E1B4B]/[0.06]">
-                    <TableQrPreviewCanvas url={tblUrl} />
-                    <p className="mt-2 font-mono text-[11px] text-[#6B7280] truncate max-w-full">
-                      /r/{business.slug}/table/{tbl.tableKey}
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Button
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="primary"
+                          className="flex-1"
+                          onClick={() => {
+                            setSelectedQrTableId(tbl.id);
+                            setShowStandeeStudio(true);
+                          }}
+                        >
+                          <Download className="h-3.5 w-3.5" aria-hidden />
+                          {isRoom ? 'Room QR Standee' : 'Table QR Standee'}
+                        </Button>
+                        <a
+                          href={tblUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`Open ${tbl.tableNumber} Hub`}
+                          className="inline-flex h-9.5 w-9.5 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        >
+                          <ExternalLink className="h-4 w-4" aria-hidden />
+                        </a>
+                      </div>
+                      <button
                         type="button"
-                        variant="primary"
-                        className="flex-1"
-                        onClick={() => {
-                          setSelectedQrTableId(tbl.id);
-                          setShowStandeeStudio(true);
-                        }}
+                        onClick={() => void handleCopyTableNfcLink(tbl)}
+                        className={`inline-flex h-8.5 w-full items-center justify-center gap-1.5 rounded-lg border text-[11.5px] font-semibold transition-colors cursor-pointer ${
+                          nfcCopied
+                            ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                            : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-white'
+                        }`}
                       >
-                        <Download className="h-4 w-4" aria-hidden /> QR Standee
-                      </Button>
-                      <a
-                        href={tblUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title={`Open ${tbl.tableNumber} Hub`}
-                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] text-[#111827] hover:border-[#1E1B4B] hover:bg-[#F8F9FA]"
-                      >
-                        <ExternalLink className="h-4 w-4" aria-hidden />
-                      </a>
+                        {nfcCopied ? (
+                          <>
+                            <Check className="h-3.5 w-3.5" aria-hidden /> Copied NFC Tag Link!
+                          </>
+                        ) : (
+                          <>
+                            <Smartphone className="h-3.5 w-3.5" aria-hidden /> Copy NFC Tag Link
+                          </>
+                        )}
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleCopyTableNfcLink(tbl)}
-                      className={`inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-xl border text-[12px] font-extrabold transition-colors cursor-pointer ${
-                        nfcCopied
-                          ? 'border-emerald-300 bg-emerald-50 text-[#059669]'
-                          : 'border-[#1E1B4B]/15 bg-[#F8F9FA] text-[#1E1B4B] hover:bg-white'
-                      }`}
-                    >
-                      {nfcCopied ? (
-                        <>
-                          <Check className="h-3.5 w-3.5" aria-hidden /> Copied NFC Tag Link!
-                        </>
-                      ) : (
-                        <>
-                          <Smartphone className="h-3.5 w-3.5" aria-hidden /> Copy NFC Tag Link
-                        </>
-                      )}
-                    </button>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
 
-            {/* + Add Table or Hotel Room Card at End of Grid */}
-            <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center">
-              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#1E1B4B] text-[#D2DB76]">
-                <Plus className="h-5 w-5" aria-hidden />
-              </span>
-              <div>
-                <p className="text-[15px] font-bold text-[#111827]">
-                  Add Table or Room
-                </p>
-                <p className="mt-0.5 text-[12.5px] text-slate-500">
-                  Generates a dedicated QR &amp; NFC standee link instantly
-                </p>
-              </div>
-              <div className="flex flex-wrap justify-center gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => openAddLocationModal('table')}
-                  className="inline-flex h-8.5 items-center gap-1 rounded-lg bg-[#1E1B4B] px-3 text-[12px] font-semibold text-white hover:bg-[#2E2A6E] cursor-pointer"
-                >
-                  <Plus className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
-                  Table
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openAddLocationModal('room')}
-                  className="inline-flex h-8.5 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[12px] font-semibold text-[#1E1B4B] hover:bg-slate-100 cursor-pointer"
-                >
-                  <BedDouble className="h-3.5 w-3.5" aria-hidden />
-                  Hotel Room
-                </button>
-              </div>
+              {/* Dedicated + Add Card for Active Section Only */}
+              <button
+                type="button"
+                onClick={() =>
+                  openAddLocationModal(
+                    qrSectionTab === 'rooms' ? 'room' : 'table',
+                    qrFloorFilter !== 'all' ? qrFloorFilter : undefined,
+                  )
+                }
+                className="flex min-h-[260px] flex-col items-center justify-center gap-2.5 rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center hover:border-[#1E1B4B] hover:bg-slate-50/50 transition-colors cursor-pointer"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#1E1B4B] text-[#D2DB76]">
+                  {qrSectionTab === 'rooms' ? (
+                    <BedDouble className="h-5 w-5" aria-hidden />
+                  ) : (
+                    <Plus className="h-5 w-5" aria-hidden />
+                  )}
+                </span>
+                <div>
+                  <p className="text-[14.5px] font-bold text-[#111827]">
+                    {qrSectionTab === 'rooms'
+                      ? '+ Add Hotel Room QR'
+                      : '+ Add Dining Table QR'}
+                  </p>
+                  <p className="mt-0.5 text-[12px] text-slate-500">
+                    {qrSectionTab === 'rooms'
+                      ? 'Create a room service QR & NFC tag'
+                      : 'Create a dining table QR & NFC standee'}
+                  </p>
+                </div>
+              </button>
             </div>
-          </div>
 
           {/* Printable Standee Studio Drawer/Card */}
           {showStandeeStudio && (
@@ -4142,7 +4540,8 @@ export function RestaurantManagerView({
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
 
       {/* =====================================================================
           4. GAMES & LOYALTY (3 SIMPLE CARDS + COLLAPSIBLE ADVANCED ACCORDION)
@@ -5457,6 +5856,10 @@ export function RestaurantManagerView({
                   onClick={() => {
                     setTableLocationType('table');
                     setTableSeatCapacity(4);
+                    const firstRest = buildingFloors.find(
+                      (f) => f.floorType === 'restaurant',
+                    );
+                    setTableLabel(firstRest?.name ?? 'Ground Floor');
                   }}
                   className={`flex h-10 items-center justify-center gap-2 rounded-lg border text-[13px] font-semibold transition-colors cursor-pointer ${
                     tableLocationType === 'table'
@@ -5472,6 +5875,10 @@ export function RestaurantManagerView({
                   onClick={() => {
                     setTableLocationType('room');
                     setTableSeatCapacity(2);
+                    const firstHotel = buildingFloors.find(
+                      (f) => f.floorType === 'hotel',
+                    );
+                    setTableLabel(firstHotel?.name ?? 'Floor 1');
                   }}
                   className={`flex h-10 items-center justify-center gap-2 rounded-lg border text-[13px] font-semibold transition-colors cursor-pointer ${
                     tableLocationType === 'room'
@@ -5516,21 +5923,38 @@ export function RestaurantManagerView({
                     htmlFor="modalTableLabel"
                     className="block text-[12.5px] font-semibold text-[#111827]"
                   >
-                    Floor / Zone (Optional)
+                    {tableLocationType === 'room'
+                      ? 'Assign to Hotel Floor *'
+                      : 'Assign to Restaurant Floor *'}
                   </label>
-                  <input
+                  <select
                     id="modalTableLabel"
-                    type="text"
-                    maxLength={80}
-                    placeholder={
-                      tableLocationType === 'room'
-                        ? 'e.g. Deluxe Floor 1'
-                        : 'e.g. Window, AC Hall'
-                    }
                     value={tableLabel}
                     onChange={(e) => setTableLabel(e.target.value)}
-                    className="block h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-[13.5px] text-[#111827] focus:border-[#1E1B4B] focus:outline-none"
-                  />
+                    className="block h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-[13.5px] font-semibold text-[#111827] focus:border-[#1E1B4B] focus:outline-none cursor-pointer"
+                  >
+                    {buildingFloors
+                      .filter((f) =>
+                        tableLocationType === 'room'
+                          ? f.floorType === 'hotel'
+                          : f.floorType === 'restaurant',
+                      )
+                      .map((fl) => (
+                        <option key={fl.id} value={fl.name}>
+                          {fl.name}
+                        </option>
+                      ))}
+                    {!buildingFloors.some(
+                      (f) =>
+                        (tableLocationType === 'room'
+                          ? f.floorType === 'hotel'
+                          : f.floorType === 'restaurant') &&
+                        f.name.toLowerCase() === tableLabel.toLowerCase(),
+                    ) &&
+                      tableLabel.trim() && (
+                        <option value={tableLabel}>{tableLabel}</option>
+                      )}
+                  </select>
                 </div>
 
                 <div className="space-y-1">
@@ -5584,6 +6008,178 @@ export function RestaurantManagerView({
                   className="h-9.5 rounded-lg bg-[#1E1B4B] px-4 text-[13px] font-semibold text-white hover:bg-[#2E2A6E] cursor-pointer"
                 >
                   Create {tableLocationType === 'room' ? 'Room' : 'Table'} ✓
+                </button>
+              </div>
+            </form>
+          </div>,
+          document.body,
+        )}
+
+      {/* =====================================================================
+          PORTALED ADD BUILDING FLOOR MODAL (RESTAURANT FLOOR OR HOTEL FLOOR)
+         ===================================================================== */}
+      {showAddFloorModal &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Add Building Floor"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-[2px]"
+          >
+            <form
+              onSubmit={handleCreateBuildingFloor}
+              className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-2xl space-y-4"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h2 className="text-[17px] font-bold text-[#111827] flex items-center gap-2">
+                  <Layers className="h-4.5 w-4.5 text-[#1E1B4B]" aria-hidden />
+                  Add New Floor
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowAddFloorModal(false)}
+                  aria-label="Close Add Floor Modal"
+                  className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 cursor-pointer"
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                </button>
+              </div>
+
+              <div className="space-y-1.5">
+                <span className="block text-[12px] font-semibold text-[#111827]">
+                  Floor Purpose *
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewFloorType('restaurant');
+                      if (!newFloorName || /^Floor \d+$/i.test(newFloorName)) {
+                        setNewFloorName('Rooftop Dining');
+                      }
+                    }}
+                    className={`flex h-11 flex-col items-center justify-center rounded-lg border text-[12.5px] font-semibold transition-colors cursor-pointer ${
+                      newFloorType === 'restaurant'
+                        ? 'border-[#1E1B4B] bg-[#1E1B4B] text-white'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <UtensilsCrossed className="h-3.5 w-3.5" aria-hidden />
+                      Restaurant Floor
+                    </span>
+                    <span className="text-[10px] opacity-75">Tables Only</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewFloorType('hotel');
+                      const nextNum =
+                        buildingFloors.filter((f) => f.floorType === 'hotel')
+                          .length + 1;
+                      if (!newFloorName || newFloorName === 'Rooftop Dining') {
+                        setNewFloorName(`Floor ${nextNum}`);
+                      }
+                    }}
+                    className={`flex h-11 flex-col items-center justify-center rounded-lg border text-[12.5px] font-semibold transition-colors cursor-pointer ${
+                      newFloorType === 'hotel'
+                        ? 'border-[#1E1B4B] bg-[#1E1B4B] text-white'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <BedDouble className="h-3.5 w-3.5" aria-hidden />
+                      Hotel Floor
+                    </span>
+                    <span className="text-[10px] opacity-75">Rooms Only</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label
+                  htmlFor="newFloorNameInput"
+                  className="block text-[12.5px] font-semibold text-[#111827]"
+                >
+                  Floor Name *
+                </label>
+                <input
+                  id="newFloorNameInput"
+                  type="text"
+                  required
+                  autoFocus
+                  maxLength={48}
+                  placeholder={
+                    newFloorType === 'hotel'
+                      ? 'e.g. Floor 2, Floor 3, Deluxe Wing'
+                      : 'e.g. Ground Floor, Rooftop, AC Hall'
+                  }
+                  value={newFloorName}
+                  onChange={(e) => setNewFloorName(e.target.value)}
+                  className="block h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-[14px] text-[#111827] focus:border-[#1E1B4B] focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="newFloorW"
+                    className="block text-[12px] font-semibold text-[#111827]"
+                  >
+                    Width (ft)
+                  </label>
+                  <input
+                    id="newFloorW"
+                    type="number"
+                    min={10}
+                    max={300}
+                    value={newFloorWidthFt}
+                    onChange={(e) =>
+                      setNewFloorWidthFt(
+                        Math.max(10, Math.min(300, Number(e.target.value) || 40)),
+                      )
+                    }
+                    className="block h-9.5 w-full rounded-lg border border-slate-300 bg-white px-3 text-[13.5px] font-semibold tabular-nums text-[#111827]"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label
+                    htmlFor="newFloorH"
+                    className="block text-[12px] font-semibold text-[#111827]"
+                  >
+                    Length (ft)
+                  </label>
+                  <input
+                    id="newFloorH"
+                    type="number"
+                    min={10}
+                    max={300}
+                    value={newFloorHeightFt}
+                    onChange={(e) =>
+                      setNewFloorHeightFt(
+                        Math.max(10, Math.min(300, Number(e.target.value) || 28)),
+                      )
+                    }
+                    className="block h-9.5 w-full rounded-lg border border-slate-300 bg-white px-3 text-[13.5px] font-semibold tabular-nums text-[#111827]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAddFloorModal(false)}
+                  className="h-9.5 rounded-lg border border-slate-200 bg-white px-4 text-[13px] font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="h-9.5 rounded-lg bg-[#1E1B4B] px-4 text-[13px] font-semibold text-white hover:bg-[#2E2A6E] cursor-pointer"
+                >
+                  Create Floor ✓
                 </button>
               </div>
             </form>

@@ -12,6 +12,10 @@
 import { MockLocalStorageRepository } from '../src/services/storage/MockLocalStorageRepository.ts';
 import { hashStaffPin } from '../src/utils/restaurantValidation.ts';
 import {
+  buildEffectiveBuildingFloors,
+  resolveTableFloorName,
+} from '../src/utils/buildingFloors.ts';
+import {
   buildUpiPaymentUri,
   calculateBillTotals,
   formatElapsedTimerMMSS,
@@ -931,6 +935,46 @@ assert(
     /v_table_number\s+text/i.test(sql021Text) &&
     /set search_path = pg_catalog, public, pg_temp/i.test(sql021Text),
   'Migration 021 eliminates unassigned v_table record bug (uses nullable scalars) & obeys SQL guardrails',
+);
+
+// ---------------------------------------------------------------------------
+// 10. Multi-Floor Building Separation (Restaurant Floors vs. Hotel Room Floors)
+// ---------------------------------------------------------------------------
+console.log(
+  '\n10. Multi-Floor Building Architecture (Separate Restaurant & Hotel Floors)',
+);
+
+const room201 = await repo.createRestaurantTable(
+  restaurant.id,
+  {
+    tableNumber: 'Room 201',
+    tableLabel: 'Floor 2',
+    locationType: 'room',
+    seatCapacity: 2,
+    isActive: true,
+  },
+  ownerA,
+);
+
+const allVenueTables = await repo.getRestaurantTables(restaurant.id, ownerA);
+const discoveredFloors = buildEffectiveBuildingFloors({
+  savedFloors: [],
+  tables: allVenueTables,
+  hotelRoomsEnabled: true,
+});
+
+const restFloors = discoveredFloors.filter((f) => f.floorType === 'restaurant');
+const hotelFloors = discoveredFloors.filter((f) => f.floorType === 'hotel');
+
+const t1ResolvedFloor = resolveTableFloorName(tableT1, discoveredFloors);
+assert(
+  restFloors.length >= 1 &&
+    hotelFloors.some((f) => f.name === 'Floor 2') &&
+    resolveTableFloorName(room201, discoveredFloors) === 'Floor 2' &&
+    restFloors.some((f) => f.name === t1ResolvedFloor) &&
+    !hotelFloors.some((f) => f.name === t1ResolvedFloor),
+  'Separates Restaurant Dining Tables onto Restaurant Floors and Hotel Rooms onto dedicated Hotel Floors (Floor 1, Floor 2)',
+  discoveredFloors,
 );
 
 // ---------------------------------------------------------------------------

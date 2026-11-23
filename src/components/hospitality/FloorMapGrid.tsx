@@ -61,6 +61,8 @@ interface Props {
   gstPercent: number;
   serviceChargePercent: number;
   propertyViewFilter?: 'all' | 'table' | 'room';
+  floorMode?: 'restaurant' | 'hotel';
+  floorName?: string;
   hotelRoomsEnabled: boolean;
   floorWidthFt?: number;
   floorHeightFt?: number;
@@ -177,6 +179,8 @@ export function FloorMapGrid({
   gstPercent,
   serviceChargePercent,
   propertyViewFilter = 'all',
+  floorMode,
+  floorName,
   hotelRoomsEnabled,
   floorWidthFt = 40,
   floorHeightFt = 28,
@@ -325,8 +329,17 @@ export function FloorMapGrid({
   }, [tableSummaries, filter]);
 
   const filterChips: Array<{ id: FloorFilter; label: string; count: number }> = [
-    { id: 'all', label: 'All', count: counts.all },
-    ...(hotelRoomsEnabled
+    {
+      id: 'all',
+      label:
+        floorMode === 'hotel'
+          ? 'All Rooms'
+          : floorMode === 'restaurant'
+            ? 'All Tables'
+            : 'All',
+      count: counts.all,
+    },
+    ...(!floorMode && hotelRoomsEnabled
       ? [
           { id: 'tables' as const, label: 'Tables', count: counts.tables },
           { id: 'rooms' as const, label: 'Rooms', count: counts.rooms },
@@ -533,22 +546,26 @@ export function FloorMapGrid({
 
           {onAddLocation && !editMode && (
             <div className="inline-flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => onAddLocation('table')}
-                className="inline-flex h-8.5 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[12px] font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
-              >
-                <Plus className="h-3.5 w-3.5 text-[#1E1B4B]" aria-hidden />
-                Table
-              </button>
-              <button
-                type="button"
-                onClick={() => onAddLocation('room')}
-                className="inline-flex h-8.5 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[12px] font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
-              >
-                <BedDouble className="h-3.5 w-3.5 text-[#1E1B4B]" aria-hidden />
-                + Room
-              </button>
+              {floorMode !== 'hotel' && (
+                <button
+                  type="button"
+                  onClick={() => onAddLocation('table')}
+                  className="inline-flex h-8.5 items-center gap-1 rounded-lg bg-[#1E1B4B] px-3 text-[12px] font-semibold text-white hover:bg-[#2E2A6E] cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
+                  Add Table
+                </button>
+              )}
+              {floorMode !== 'restaurant' && (
+                <button
+                  type="button"
+                  onClick={() => onAddLocation('room')}
+                  className="inline-flex h-8.5 items-center gap-1 rounded-lg bg-[#1E1B4B] px-3 text-[12px] font-semibold text-white hover:bg-[#2E2A6E] cursor-pointer"
+                >
+                  <BedDouble className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
+                  Add Room
+                </button>
+              )}
             </div>
           )}
 
@@ -813,7 +830,7 @@ export function FloorMapGrid({
       {viewMode === 'canvas' ? (
         filtered.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center space-y-3">
-            {filter === 'rooms' ? (
+            {floorMode === 'hotel' || filter === 'rooms' ? (
               <BedDouble
                 className="mx-auto h-8 w-8 text-slate-400"
                 aria-hidden
@@ -825,40 +842,34 @@ export function FloorMapGrid({
               />
             )}
             <p className="text-[14px] font-semibold text-slate-800">
-              {filter === 'rooms'
-                ? 'No Hotel Rooms added yet'
-                : 'No tables or rooms match this filter'}
+              {floorMode === 'hotel'
+                ? `No rooms on ${floorName || 'this hotel floor'} yet`
+                : floorMode === 'restaurant'
+                  ? `No dining tables on ${floorName || 'this restaurant floor'} yet`
+                  : filter === 'rooms'
+                    ? 'No Hotel Rooms added yet'
+                    : 'No tables or rooms match this filter'}
             </p>
             {onAddLocation && (
               <div className="flex justify-center gap-2 pt-1">
-                {filter === 'rooms' ? (
+                {floorMode === 'hotel' || filter === 'rooms' ? (
                   <button
                     type="button"
                     onClick={() => onAddLocation('room')}
                     className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#1E1B4B] px-4 text-[12.5px] font-semibold text-white hover:bg-[#2E2A6E] cursor-pointer"
                   >
                     <Plus className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
-                    Add First Hotel Room (e.g. Room 101)
+                    Add Room to {floorName || 'This Floor'}
                   </button>
                 ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => onAddLocation('table')}
-                      className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#1E1B4B] px-4 text-[12.5px] font-semibold text-white hover:bg-[#2E2A6E] cursor-pointer"
-                    >
-                      <Plus className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
-                      Add Table
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onAddLocation('room')}
-                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-[12.5px] font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-                    >
-                      <BedDouble className="h-3.5 w-3.5" aria-hidden />
-                      Add Room
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    onClick={() => onAddLocation('table')}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#1E1B4B] px-4 text-[12.5px] font-semibold text-white hover:bg-[#2E2A6E] cursor-pointer"
+                  >
+                    <Plus className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
+                    Add Table to {floorName || 'This Floor'}
+                  </button>
                 )}
               </div>
             )}
@@ -879,20 +890,23 @@ export function FloorMapGrid({
           }}
         >
           {/* Room Blueprint Dimensions Badge & Entrance Marker */}
-          <div className="pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-2 rounded-full border border-[#1E1B4B]/12 bg-white/95 px-3 py-1 text-[11px] font-extrabold text-[#1E1B4B] shadow-2xs">
-            <Ruler className="h-3 w-3 text-[#6B7280]" aria-hidden />
+          <div className="pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-2 rounded-lg border border-slate-200 bg-white/95 px-3 py-1 text-[11px] font-semibold text-[#1E1B4B]">
+            <Ruler className="h-3 w-3 text-slate-400" aria-hidden />
             <span>
-              Floor: {draftWidthFt} ft × {draftHeightFt} ft ({totalSqFt.toLocaleString()} sq ft)
+              {floorName ? `${floorName} · ` : ''}
+              {draftWidthFt} ft × {draftHeightFt} ft ({totalSqFt.toLocaleString()} sq ft)
             </span>
             {editMode && (
-              <span className="rounded-full bg-[#D2DB76] px-2 py-0.5 text-[10px] font-black text-[#1E1B4B]">
-                DRAG TABLES TO MOVE
+              <span className="rounded bg-[#D2DB76] px-1.5 py-0.5 text-[10px] font-bold text-[#1E1B4B]">
+                DRAG TO MOVE
               </span>
             )}
           </div>
 
-          <div className="pointer-events-none absolute bottom-2.5 left-1/2 -translate-x-1/2 z-10 rounded-full border border-[#1E1B4B]/15 bg-[#F8F9FA]/95 px-4 py-0.5 text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#6B7280]">
-            ▲ Entrance / Main Door ▲
+          <div className="pointer-events-none absolute bottom-2.5 left-1/2 -translate-x-1/2 z-10 rounded-md border border-slate-200 bg-white/95 px-3.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+            {floorMode === 'hotel'
+              ? '▲ Elevator / Corridor Access ▲'
+              : '▲ Entrance / Main Door ▲'}
           </div>
 
           {/* Draggable / Interactive Table & Room Nodes */}
