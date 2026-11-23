@@ -3,15 +3,21 @@ import { createPortal } from 'react-dom';
 import {
   Activity,
   AlertCircle,
+  ArrowRight,
   Award,
   Bell,
+  CalendarDays,
   CheckCircle2,
   ClipboardList,
+  Clock,
+  Dumbbell,
   ExternalLink,
   Flame,
   IndianRupee,
   MessageCircle,
   Play,
+  Plus,
+  QrCode,
   RefreshCw,
   Scale,
   Search,
@@ -62,6 +68,246 @@ interface Props {
   isBusinessLive: boolean;
   activeSection?: GymCommandSection;
   onSectionChange?: (section: GymCommandSection) => void;
+  onOpenEntranceQr?: () => void;
+}
+
+function toTitleCase(str: string | null | undefined): string {
+  if (!str) return '';
+  return str
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function MemberAvatar({
+  name,
+  size = 'md',
+}: {
+  name: string;
+  size?: 'sm' | 'md' | 'lg';
+}) {
+  const initial = (name.trim().charAt(0) || 'M').toUpperCase();
+  const sizeClasses =
+    size === 'sm'
+      ? 'h-8 w-8 text-xs'
+      : size === 'lg'
+        ? 'h-11 w-11 text-base'
+        : 'h-9.5 w-9.5 text-[13px]';
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center justify-center rounded-full bg-[#0F1115] font-black text-[#C8F135] ring-2 ring-slate-100 shadow-sm ${sizeClasses}`}
+      aria-hidden="true"
+    >
+      {initial}
+    </span>
+  );
+}
+
+function DaysLeftBar({ member }: { member: GymMember }) {
+  const days = member.daysRemaining ?? 0;
+  const total = member.durationDays > 0 ? member.durationDays : 30;
+  const pct = Math.max(4, Math.min(100, Math.round((days / total) * 100)));
+  const isExpiringSoon = days <= 3;
+  const isWarning = days <= 10 && !isExpiringSoon;
+  const barColor = isExpiringSoon
+    ? 'bg-rose-500'
+    : isWarning
+      ? 'bg-amber-400'
+      : 'bg-[#C8F135]';
+  const textTone = isExpiringSoon
+    ? 'text-rose-700 font-extrabold'
+    : isWarning
+      ? 'text-amber-800 font-bold'
+      : 'text-emerald-700 font-bold';
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-[11px]">
+        <span className={`${textTone} tabular-nums`}>
+          {days > 0 ? `${days}d left` : 'Expired'}
+        </span>
+        <span className="text-slate-400 tabular-nums">
+          {member.endDate ? formatIsoDatePretty(member.endDate) : '—'}
+        </span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+        <div
+          className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+          style={{ width: `${days > 0 ? pct : 0}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function formatCompactInr(paise: number): string {
+  const rupees = Math.round(paise / 100);
+  if (rupees === 0) return '0k';
+  if (rupees >= 100000) {
+    const l = rupees / 100000;
+    return `${Number.isInteger(l) ? l : l.toFixed(1)}L`;
+  }
+  if (rupees >= 1000) {
+    const k = rupees / 1000;
+    return `${Number.isInteger(k) ? k : k.toFixed(0)}k`;
+  }
+  return `${rupees}`;
+}
+
+function formatMonthKeyLabel(monthKey: string): string {
+  if (!monthKey || !monthKey.includes('-')) return monthKey;
+  const [y, m] = monthKey.split('-').map((n) => Number.parseInt(n, 10));
+  if (!y || !m) return monthKey;
+  const dt = new Date(y, m - 1, 1);
+  return dt.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+}
+
+function AthleteIllustration({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 180 200"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+    >
+      <defs>
+        <radialGradient
+          id="athleteGlow"
+          cx="0.5"
+          cy="0.5"
+          r="0.5"
+          fx="0.5"
+          fy="0.5"
+        >
+          <stop offset="0%" stopColor="#C8F135" stopOpacity="0.4" />
+          <stop offset="60%" stopColor="#C8F135" stopOpacity="0.1" />
+          <stop offset="100%" stopColor="#C8F135" stopOpacity="0" />
+        </radialGradient>
+        <linearGradient id="athleteBodyGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#334155" />
+          <stop offset="50%" stopColor="#1E293B" />
+          <stop offset="100%" stopColor="#0F172A" />
+        </linearGradient>
+        <linearGradient id="athleteMetalGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#E2E8F0" />
+          <stop offset="50%" stopColor="#94A3B8" />
+          <stop offset="100%" stopColor="#475569" />
+        </linearGradient>
+      </defs>
+      <circle cx="100" cy="110" r="85" fill="url(#athleteGlow)" />
+      <circle
+        cx="100"
+        cy="110"
+        r="72"
+        stroke="#C8F135"
+        strokeOpacity="0.18"
+        strokeWidth="1.5"
+        strokeDasharray="4 6"
+      />
+      <circle
+        cx="100"
+        cy="110"
+        r="54"
+        stroke="white"
+        strokeOpacity="0.08"
+        strokeWidth="1"
+      />
+      <circle
+        cx="100"
+        cy="46"
+        r="16"
+        fill="url(#athleteBodyGrad)"
+        stroke="#475569"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M80 62 C88 56, 112 56, 120 62 L142 80 C146 84, 144 94, 138 98 L130 102 L132 170 C132 175, 128 180, 122 180 L78 180 C72 180, 68 175, 68 170 L70 102 L62 98 C56 94, 54 84, 58 80 Z"
+        fill="url(#athleteBodyGrad)"
+        stroke="#475569"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M100 64 L100 135"
+        stroke="#C8F135"
+        strokeOpacity="0.4"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <path
+        d="M82 88 C92 94, 108 94, 118 88"
+        stroke="#94A3B8"
+        strokeOpacity="0.5"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <path
+        d="M85 110 C93 114, 107 114, 115 110"
+        stroke="#94A3B8"
+        strokeOpacity="0.4"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <path
+        d="M88 128 C94 131, 106 131, 112 128"
+        stroke="#94A3B8"
+        strokeOpacity="0.3"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+      <g transform="translate(118, 92)">
+        <rect
+          x="0"
+          y="0"
+          width="8"
+          height="38"
+          rx="3"
+          fill="url(#athleteMetalGrad)"
+          stroke="#334155"
+          strokeWidth="1"
+        />
+        <rect
+          x="2"
+          y="4"
+          width="4"
+          height="30"
+          rx="1"
+          fill="#C8F135"
+          fillOpacity="0.75"
+        />
+        <rect
+          x="8"
+          y="16"
+          width="22"
+          height="6"
+          rx="1.5"
+          fill="url(#athleteMetalGrad)"
+          stroke="#1E293B"
+          strokeWidth="0.8"
+        />
+        <path d="M13 13 C18 13, 20 15, 23 15 L23 25 C19 25, 17 23, 13 23 Z" fill="#64748B" />
+        <rect
+          x="30"
+          y="0"
+          width="8"
+          height="38"
+          rx="3"
+          fill="url(#athleteMetalGrad)"
+          stroke="#334155"
+          strokeWidth="1"
+        />
+        <rect
+          x="32"
+          y="4"
+          width="4"
+          height="30"
+          rx="1"
+          fill="#C8F135"
+          fillOpacity="0.75"
+        />
+      </g>
+    </svg>
+  );
 }
 
 export function GymManagerView({
@@ -69,11 +315,13 @@ export function GymManagerView({
   isBusinessLive,
   activeSection = 'dashboard',
   onSectionChange,
+  onOpenEntranceQr,
 }: Props) {
   const [dashboard, setDashboard] = useState<GymOwnerDashboardPayload | null>(
     null,
   );
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedMonthKey, setSelectedMonthKey] = useState<string>(() =>
     getTodayIsoDateKey().slice(0, 7),
   );
@@ -584,6 +832,15 @@ export function GymManagerView({
     }
   }
 
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadDashboard();
+    } finally {
+      window.setTimeout(() => setRefreshing(false), 600);
+    }
+  }, [loadDashboard]);
+
   if (loading && !dashboard) {
     return (
       <div className="py-16 text-center text-[13.5px] font-semibold text-slate-500">
@@ -592,21 +849,118 @@ export function GymManagerView({
     );
   }
 
-  const totalPendingDuesPaise = dashboard?.totalBalanceDuePaise ?? 0;
+const totalPendingDuesPaise = dashboard?.totalBalanceDuePaise ?? 0;
+  const renewalWindowDays = dashboard?.config.renewalAlertDays ?? 3;
+  const weeklyBars =
+    weeklyChart.length > 0
+      ? weeklyChart
+      : [1, 2, 3, 4].map((w) => ({
+          weekIndex: w,
+          label: `Week ${w}`,
+          thisMonthPaise: 0,
+          lastMonthPaise: 0,
+        }));
+  const thisMonthChartTotal = weeklyBars.reduce((s, b) => s + b.thisMonthPaise, 0);
+  const lastMonthChartTotal = weeklyBars.reduce((s, b) => s + b.lastMonthPaise, 0);
+  const revenueDeltaPct =
+    lastMonthChartTotal > 0
+      ? Math.round(
+          ((thisMonthChartTotal - lastMonthChartTotal) / lastMonthChartTotal) * 100,
+        )
+      : null;
+  const checkedInTodayCount = dashboard?.checkedInTodayCount ?? 0;
+  const attendancePct =
+    activeMembersCount > 0
+      ? Math.round((checkedInTodayCount / activeMembersCount) * 100)
+      : 0;
+  const dueAndExpiringCount = balanceDueMembers.length + expiringSoon.length;
+  const hasActionItems =
+    pendingApprovals.length > 0 ||
+    balanceDueMembers.length > 0 ||
+    expiringSoon.length > 0;
+  const directoryMembers = members
+    .filter((m) => m.status === 'active')
+    .slice(0, 6);
+  const todaysAttendance = dashboard?.todaysAttendance ?? [];
+  const chartTicks = [1, 0.75, 0.5, 0.25, 0] as const;
+  const monthLabel = formatMonthKeyLabel(selectedMonthKey);
+
+  const kpiCards: ReadonlyArray<{
+    label: string;
+    value: string;
+    Icon: typeof Users;
+    badgeTone: string;
+    pill: string;
+    pillTone: string;
+    sub?: string;
+  }> = [
+    {
+      label: 'Active Members',
+      value: activeMembersCount.toLocaleString('en-IN'),
+      Icon: Users,
+      badgeTone: 'bg-[#0F1115] text-[#C8F135]',
+      pill:
+        pendingApprovals.length > 0
+          ? `+${pendingApprovals.length} awaiting approval`
+          : `${members.length} total on roster`,
+      pillTone:
+        pendingApprovals.length > 0
+          ? 'bg-amber-50 text-amber-800'
+          : 'bg-slate-100 text-slate-600',
+    },
+    {
+      label: 'Monthly Revenue',
+      value: formatPriceFromPaise(dashboard?.monthlyRevenuePaise ?? 0, 'INR'),
+      Icon: IndianRupee,
+      badgeTone: 'bg-[#C8F135] text-[#0F1115]',
+      pill:
+        revenueDeltaPct === null
+          ? 'First tracked month'
+          : `${revenueDeltaPct >= 0 ? '↑' : '↓'} ${Math.abs(revenueDeltaPct)}% vs last month`,
+      pillTone:
+        revenueDeltaPct !== null && revenueDeltaPct < 0
+          ? 'bg-rose-50 text-rose-700'
+          : 'bg-emerald-50 text-emerald-700',
+      sub: `Plans ${formatPriceFromPaise(dashboard?.membershipRevenuePaise ?? 0, 'INR')} · Bar ${formatPriceFromPaise(dashboard?.retailRevenuePaise ?? 0, 'INR')}`,
+    },
+    {
+      label: 'Checked In Today',
+      value: checkedInTodayCount.toLocaleString('en-IN'),
+      Icon: Activity,
+      badgeTone: 'bg-indigo-50 text-indigo-600 ring-1 ring-inset ring-indigo-100',
+      pill: `${attendancePct}% of active members`,
+      pillTone: 'bg-indigo-50 text-indigo-700',
+    },
+    {
+      label: `Due & Expiring ≤ ${renewalWindowDays}d`,
+      value: dueAndExpiringCount.toLocaleString('en-IN'),
+      Icon: Clock,
+      badgeTone: 'bg-amber-50 text-amber-600 ring-1 ring-inset ring-amber-100',
+      pill:
+        totalPendingDuesPaise > 0
+          ? `${formatPriceFromPaise(totalPendingDuesPaise, 'INR')} balance due`
+          : 'No unpaid balances',
+      pillTone:
+        totalPendingDuesPaise > 0
+          ? 'bg-amber-50 text-amber-800'
+          : 'bg-emerald-50 text-emerald-700',
+    },
+  ];
 
   return (
     <div className="space-y-5">
-      {/* TOP GLOBAL SEARCH (CTRL+K), ALERT BELL & MONTH BAR */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-4">
-        <div className="relative flex-1 max-w-md">
+      {/* SINGLE-ROW TOOLBAR: INSTANT SEARCH (⌘K) + MONTH + REFRESH + ADD DESK MEMBER */}
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="relative w-full lg:max-w-md">
           <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+            className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
             aria-hidden
           />
           <input
             ref={searchInputRef}
             type="search"
-            placeholder="Search members, phone, code, or trainer... (Ctrl+K)"
+            aria-label="Search members"
+            placeholder="Search members, phone, GYM-001..."
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
@@ -614,45 +968,57 @@ export function GymManagerView({
                 onSectionChange?.('members');
               }
             }}
-            className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-[13px] text-[#0F1115] placeholder:text-slate-400 focus:border-[#0F1115] focus:outline-none"
+            className="h-10.5 w-full rounded-xl border border-slate-200/80 bg-white pl-10 pr-14 text-[13px] text-[#0F1115] shadow-[0_1px_2px_rgba(15,17,21,0.04)] placeholder:text-slate-400 transition-[border-color,box-shadow] duration-150 focus:border-[#0F1115] focus:outline-none focus:ring-4 focus:ring-[#C8F135]/35"
           />
+          <kbd className="pointer-events-none absolute right-2.5 top-1/2 inline-flex h-6 -translate-y-1/2 items-center rounded-md border border-slate-200 bg-slate-50 px-1.5 font-sans text-[10.5px] font-bold text-slate-500">
+            ⌘K
+          </kbd>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="month"
-            aria-label="Filter revenue month"
-            value={selectedMonthKey}
-            onChange={(e) => setSelectedMonthKey(e.target.value)}
-            className="h-9.5 rounded-xl border border-slate-200 bg-white px-3 text-[12.5px] font-semibold text-[#0F1115]"
-          />
+        <div className="flex items-center gap-2.5 flex-nowrap overflow-x-auto lg:overflow-visible">
+          <label className="relative inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-slate-200/80 bg-white pl-3 pr-2 shadow-[0_1px_2px_rgba(15,17,21,0.04)]">
+            <CalendarDays className="h-4 w-4 text-slate-400" aria-hidden />
+            <input
+              type="month"
+              aria-label="Filter revenue month"
+              value={selectedMonthKey}
+              onChange={(e) => setSelectedMonthKey(e.target.value)}
+              className="h-full bg-transparent text-[12.5px] font-semibold text-[#0F1115] tabular-nums focus:outline-none cursor-pointer"
+            />
+          </label>
           <button
             type="button"
             onClick={() => onSectionChange?.('dues')}
-            className="relative inline-flex h-9.5 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[12.5px] font-semibold text-[#0F1115] hover:bg-slate-50 cursor-pointer"
-            title="Pending Approvals, Dues & Renewals"
+            className="gym-tactile relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200/80 bg-white text-[#0F1115] shadow-[0_1px_2px_rgba(15,17,21,0.04)] hover:bg-slate-50 cursor-pointer"
+            title="Pending approvals, dues & renewals"
+            aria-label={`${alertCount} alerts`}
           >
             <Bell className="h-4 w-4" aria-hidden />
             {alertCount > 0 && (
-              <span className="rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-black text-white tabular-nums">
+              <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-black text-white tabular-nums ring-2 ring-[#F8F9FA]">
                 {alertCount}
               </span>
             )}
           </button>
           <button
             type="button"
-            onClick={() => setShowAddWalkIn(true)}
-            className="inline-flex h-9.5 items-center gap-1.5 rounded-xl bg-[#0F1115] px-3.5 text-[12.5px] font-bold text-[#C8F135] hover:bg-slate-800 cursor-pointer"
+            onClick={() => void handleRefresh()}
+            disabled={refreshing}
+            className="gym-tactile inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200/80 bg-white text-slate-600 shadow-[0_1px_2px_rgba(15,17,21,0.04)] hover:bg-slate-50 hover:text-[#0F1115] cursor-pointer"
+            title="Refresh live data"
+            aria-label="Refresh live data"
           >
-            <UserPlus className="h-3.5 w-3.5" aria-hidden /> Add Member
+            <RefreshCw
+              className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`}
+              aria-hidden
+            />
           </button>
           <button
             type="button"
-            onClick={() => void loadDashboard()}
-            className="inline-flex h-9.5 w-9.5 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 cursor-pointer"
-            title="Refresh live data"
+            onClick={() => setShowAddWalkIn(true)}
+            className="gym-tactile inline-flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl bg-[#C8F135] px-4 text-[13px] font-bold text-[#0F1115] shadow-[0_4px_14px_-4px_rgba(200,241,53,0.8)] hover:bg-[#bfe82c] cursor-pointer"
           >
-            <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+            <Plus className="h-4 w-4" aria-hidden /> Add Desk Member
           </button>
         </div>
       </div>
@@ -661,7 +1027,7 @@ export function GymManagerView({
       {statusMsg && (
         <div
           role="status"
-          className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-[13px] font-semibold text-emerald-900 flex items-center justify-between"
+          className="gym-fade-up rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-[13px] font-semibold text-emerald-900 flex items-center justify-between gap-3"
         >
           <span className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
@@ -670,7 +1036,8 @@ export function GymManagerView({
           <button
             type="button"
             onClick={() => setStatusMsg(null)}
-            className="text-emerald-700 cursor-pointer"
+            className="gym-tactile rounded-md p-1 text-emerald-700 hover:bg-emerald-100 cursor-pointer"
+            aria-label="Dismiss"
           >
             <X className="h-3.5 w-3.5" aria-hidden />
           </button>
@@ -679,13 +1046,17 @@ export function GymManagerView({
       {errorMsg && (
         <div
           role="alert"
-          className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] font-medium text-rose-800 flex items-center justify-between"
+          className="gym-fade-up rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] font-medium text-rose-800 flex items-center justify-between gap-3"
         >
-          <span>{errorMsg}</span>
+          <span className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0" aria-hidden />
+            {errorMsg}
+          </span>
           <button
             type="button"
             onClick={() => setErrorMsg(null)}
-            className="text-rose-600 cursor-pointer"
+            className="gym-tactile rounded-md p-1 text-rose-600 hover:bg-rose-100 cursor-pointer"
+            aria-label="Dismiss"
           >
             <X className="h-3.5 w-3.5" aria-hidden />
           </button>
@@ -694,106 +1065,251 @@ export function GymManagerView({
 
       {/* ==================== SECTION 1: DASHBOARD COMMAND OVERVIEW ==================== */}
       {activeSection === 'dashboard' && (
-        <div className="space-y-5">
-          {/* 4 ICON-BADGED HERO KPI CARDS (MATCHING REFERENCE MOCKUP) */}
-          <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 flex items-center gap-3.5">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#0F1115] text-[#C8F135]">
-                <Users className="h-5 w-5" aria-hidden />
-              </span>
-              <div className="min-w-0">
-                <p className="text-[11.5px] font-semibold text-slate-500">
-                  Active Members
-                </p>
-                <p className="text-[22px] font-black text-[#0F1115] tabular-nums">
-                  {activeMembersCount}
-                </p>
-                <p className="text-[11px] font-semibold text-emerald-600">
-                  {pendingApprovals.length} pending approval
-                </p>
-              </div>
+        <div className="space-y-6">
+          {/* PAGE HEADER */}
+          <div className="gym-fade-up flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="text-[26px] font-black leading-tight tracking-tight text-[#0F1115]">
+                Dashboard
+              </h1>
+              <p className="text-[13px] text-slate-500">
+                Here&apos;s what&apos;s happening at{' '}
+                <span className="font-semibold text-slate-700">{business.name}</span>{' '}
+                today.
+              </p>
             </div>
-
-            <div className="rounded-2xl border border-lime-200 bg-lime-50/40 p-4 flex items-center gap-3.5">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#C8F135] text-[#0F1115]">
-                <IndianRupee className="h-5 w-5" aria-hidden />
-              </span>
-              <div className="min-w-0">
-                <p className="text-[11.5px] font-semibold text-slate-600">
-                  Monthly Revenue
-                </p>
-                <p className="text-[22px] font-black text-[#0F1115] tabular-nums">
-                  {formatPriceFromPaise(
-                    dashboard?.monthlyRevenuePaise ?? 0,
-                    'INR',
-                  )}
-                </p>
-                <p className="text-[11px] font-medium text-slate-500 truncate">
-                  Plans{' '}
-                  {formatPriceFromPaise(
-                    dashboard?.membershipRevenuePaise ?? 0,
-                    'INR',
-                  )}{' '}
-                  · Bar{' '}
-                  {formatPriceFromPaise(
-                    dashboard?.retailRevenuePaise ?? 0,
-                    'INR',
-                  )}
-                </p>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-indigo-200/70 bg-indigo-50/40 p-4 flex items-center gap-3.5">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white">
-                <Activity className="h-5 w-5" aria-hidden />
-              </span>
-              <div className="min-w-0">
-                <p className="text-[11.5px] font-semibold text-slate-600">
-                  Attendance Today
-                </p>
-                <p className="text-[22px] font-black text-[#0F1115] tabular-nums">
-                  {dashboard?.checkedInTodayCount ?? 0}
-                </p>
-                <p className="text-[11px] font-medium text-indigo-700">
-                  Single static Entrance QR
-                </p>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4 flex items-center gap-3.5">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white">
-                <AlertCircle className="h-5 w-5" aria-hidden />
-              </span>
-              <div className="min-w-0">
-                <p className="text-[11.5px] font-semibold text-slate-600">
-                  Pending Dues &amp; Renewals
-                </p>
-                <p className="text-[22px] font-black text-[#0F1115] tabular-nums">
-                  {formatPriceFromPaise(totalPendingDuesPaise, 'INR')}
-                </p>
-                <p className="text-[11px] font-semibold text-amber-800">
-                  {balanceDueMembers.length} dues · {expiringSoon.length} renew
-                  ≤3d
-                </p>
-              </div>
-            </div>
+            <span className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white px-3 py-1.5 text-[11.5px] font-semibold text-slate-600 shadow-[0_1px_2px_rgba(15,17,21,0.04)]">
+              <span className="gym-pulse-dot h-2 w-2 rounded-full bg-emerald-500 text-emerald-500" />
+              Live sync · {monthLabel}
+            </span>
           </div>
 
-          {/* MAIN TWO-COLUMN COMMAND GRID */}
-          <div className="grid gap-5 lg:grid-cols-12">
-            {/* LEFT 8 COLS: REVENUE OVERVIEW BAR CHART + ACTION QUEUES */}
-            <div className="lg:col-span-8 space-y-5">
-              {/* WEEK 1 - 4 REVENUE COMPARISON GROUPED BAR CHART */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
+          {/* SMART PROGRESSIVE DISCLOSURE: STATUS STRIP OR ACTION CARDS */}
+          {!hasActionItems ? (
+            <div
+              role="status"
+              className="gym-fade-up gym-stagger-1 flex items-center gap-3 rounded-2xl border border-emerald-200/80 bg-gradient-to-r from-emerald-50 via-emerald-50/60 to-white px-4 py-3"
+            >
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white shadow-[0_0_0_4px_rgba(16,185,129,0.15)]">
+                <CheckCircle2 className="h-4 w-4" aria-hidden />
+              </span>
+              <p className="text-[13px] text-emerald-950">
+                <strong className="font-extrabold">All caught up</strong> —{' '}
+                <span className="tabular-nums">{pendingApprovals.length}</span>{' '}
+                pending payment approvals •{' '}
+                <span className="tabular-nums">{expiringSoon.length}</span>{' '}
+                renewals due in ≤{' '}
+                <span className="tabular-nums">{renewalWindowDays}</span> days
+              </p>
+            </div>
+          ) : (
+            <section className="gym-card gym-fade-up gym-stagger-1 overflow-hidden">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-3.5">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-rose-50 text-rose-600 ring-1 ring-inset ring-rose-100">
+                    <Bell className="h-4 w-4" aria-hidden />
+                  </span>
+                  <div>
+                    <h2 className="text-[14.5px] font-extrabold text-[#0F1115]">
+                      Action Required Today
+                    </h2>
+                    <p className="text-[11.5px] text-slate-500 tabular-nums">
+                      {pendingApprovals.length} approvals ·{' '}
+                      {balanceDueMembers.length} balances ·{' '}
+                      {expiringSoon.length} renewals
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onSectionChange?.('members')}
+                  className="gym-tactile inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-bold text-slate-500 hover:bg-slate-50 hover:text-[#0F1115] cursor-pointer"
+                >
+                  All members <span className="tabular-nums">({members.length})</span>
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              </div>
+
+              <div className="divide-y divide-slate-100">
+                {pendingApprovals.map((m) => (
+                  <div
+                    key={m.id}
+                    className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 transition-colors hover:bg-slate-50/70"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <MemberAvatar name={m.fullName} />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[13.5px] font-extrabold text-[#0F1115]">
+                            {toTitleCase(m.fullName)}
+                          </span>
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10.5px] font-bold text-amber-900">
+                            Pending Payment
+                          </span>
+                        </div>
+                        <p className="text-[12px] text-slate-500 tabular-nums">
+                          {m.memberCode} · {m.planName} (
+                          {formatPriceFromPaise(m.feePaise, 'INR')}) · {m.phone}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openApprovalDialog(m, 'approve')}
+                      className="gym-tactile h-9 rounded-xl bg-[#C8F135] px-3.5 text-[12px] font-bold text-[#0F1115] hover:bg-[#bfe82c] cursor-pointer"
+                    >
+                      Approve / Installment ✓
+                    </button>
+                  </div>
+                ))}
+
+                {balanceDueMembers.map((m) => (
+                  <div
+                    key={`due-${m.id}`}
+                    className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 transition-colors hover:bg-slate-50/70"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <MemberAvatar name={m.fullName} />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[13.5px] font-extrabold text-[#0F1115]">
+                            {toTitleCase(m.fullName)}
+                          </span>
+                          <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10.5px] font-bold text-rose-800 tabular-nums">
+                            Due {formatPriceFromPaise(m.balanceDuePaise ?? 0, 'INR')}
+                          </span>
+                        </div>
+                        <p className="text-[12px] text-slate-500 tabular-nums">
+                          Paid {formatPriceFromPaise(m.amountPaidPaise ?? 0, 'INR')} of{' '}
+                          {formatPriceFromPaise(
+                            m.totalPlanAmountPaise ?? m.feePaise,
+                            'INR',
+                          )}
+                          {m.balanceDueDate
+                            ? ` · Due ${formatIsoDatePretty(m.balanceDueDate)}`
+                            : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={getGymBalanceDueWhatsAppLink(business.name, m)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="gym-tactile inline-flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-[12px] font-bold text-emerald-700 hover:bg-emerald-50"
+                      >
+                        <MessageCircle className="h-3.5 w-3.5" aria-hidden />
+                        Remind
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCollectTarget(m);
+                          setCollectRupees(
+                            String(Math.round((m.balanceDuePaise ?? 0) / 100)),
+                          );
+                        }}
+                        className="gym-tactile h-9 rounded-xl bg-[#0F1115] px-3.5 text-[12px] font-bold text-[#C8F135] hover:bg-[#1c2028] cursor-pointer"
+                      >
+                        Collect Balance ✓
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {expiringSoon.map((m) => (
+                  <div
+                    key={`exp-${m.id}`}
+                    className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 transition-colors hover:bg-slate-50/70"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <MemberAvatar name={m.fullName} />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[13.5px] font-extrabold text-[#0F1115]">
+                            {toTitleCase(m.fullName)}
+                          </span>
+                          <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10.5px] font-bold text-orange-900 tabular-nums">
+                            Expires in {m.daysRemaining}d
+                          </span>
+                        </div>
+                        <p className="text-[12px] text-slate-500">
+                          {m.planName} · Ends {formatIsoDatePretty(m.endDate)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={getGymRenewalWhatsAppLink(business.name, m)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="gym-tactile inline-flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-[12px] font-bold text-emerald-700 hover:bg-emerald-50"
+                      >
+                        <MessageCircle className="h-3.5 w-3.5" aria-hidden />
+                        WhatsApp
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => openApprovalDialog(m, 'renew')}
+                        className="gym-tactile h-9 rounded-xl bg-[#0F1115] px-3.5 text-[12px] font-bold text-[#C8F135] hover:bg-[#1c2028] cursor-pointer"
+                      >
+                        Renew Plan
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* 4 ICON-BADGED HERO KPI CARDS */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {kpiCards.map((kpi, idx) => (
+              <div
+                key={kpi.label}
+                className={`gym-card gym-fade-up gym-stagger-${idx + 1} flex items-start gap-3.5 p-4`}
+              >
+                <span
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${kpi.badgeTone}`}
+                >
+                  <kpi.Icon className="h-5 w-5" aria-hidden />
+                </span>
+                <div className="min-w-0 space-y-1">
+                  <p className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                    {kpi.label}
+                  </p>
+                  <p className="text-[24px] font-black leading-none text-[#0F1115] tabular-nums">
+                    {kpi.value}
+                  </p>
+                  <span
+                    className={`inline-flex max-w-full truncate rounded-full px-2 py-0.5 text-[10.5px] font-bold tabular-nums ${kpi.pillTone}`}
+                  >
+                    {kpi.pill}
+                  </span>
+                  {kpi.sub && (
+                    <p className="truncate text-[11px] text-slate-400 tabular-nums">
+                      {kpi.sub}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* MAIN ASYMMETRIC GRID */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+            {/* LEFT 8 COLS: REVENUE OVERVIEW + ACTIVE MEMBER DIRECTORY */}
+            <div className="space-y-6 lg:col-span-8">
+              <section className="gym-card gym-fade-up gym-stagger-2 p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h2 className="text-[15.5px] font-extrabold text-[#0F1115]">
-                      Revenue Overview ({selectedMonthKey})
+                      Revenue Overview
                     </h2>
                     <p className="text-[12px] text-slate-500">
-                      Combined Membership, PT &amp; Supplement Bar collections ·
-                      Projected next 30d:{' '}
-                      <strong className="text-[#0F1115]">
+                      {monthLabel} · Membership, PT &amp; Supplement Bar · Projected
+                      next 30d{' '}
+                      <strong className="font-bold text-[#0F1115] tabular-nums">
                         {formatPriceFromPaise(
                           dashboard?.projectedNextMonthRevenuePaise ?? 0,
                           'INR',
@@ -801,245 +1317,301 @@ export function GymManagerView({
                       </strong>
                     </p>
                   </div>
-                  <div className="flex items-center gap-3 text-[11.5px] font-bold">
+                  <div className="flex items-center gap-3 text-[11.5px] font-semibold">
                     <span className="inline-flex items-center gap-1.5 text-[#0F1115]">
-                      <span className="h-2.5 w-2.5 rounded-full bg-[#C8F135] border border-[#0F1115]/20" />
+                      <span className="h-2.5 w-2.5 rounded-full bg-[#C8F135] ring-1 ring-[#0F1115]/10" />
                       This Month
                     </span>
                     <span className="inline-flex items-center gap-1.5 text-slate-500">
-                      <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
+                      <span className="h-2.5 w-2.5 rounded-full bg-[#CBD5E1]" />
                       Last Month
                     </span>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-4 gap-4 items-end h-44 pt-4 border-t border-slate-100">
-                  {(weeklyChart.length > 0
-                    ? weeklyChart
-                    : [1, 2, 3, 4].map((w) => ({
-                        weekIndex: w,
-                        label: `Week ${w}`,
-                        thisMonthPaise: 0,
-                        lastMonthPaise: 0,
-                      }))
-                  ).map((wk) => {
-                    const thisPct = Math.max(
-                      6,
-                      Math.round((wk.thisMonthPaise / maxWeeklyPaise) * 100),
-                    );
-                    const lastPct = Math.max(
-                      6,
-                      Math.round((wk.lastMonthPaise / maxWeeklyPaise) * 100),
-                    );
-                    return (
+                <div className="mt-6 pl-12">
+                  <div className="relative h-52">
+                    {chartTicks.map((t) => (
                       <div
-                        key={wk.weekIndex}
-                        className="flex flex-col items-center gap-2 h-full justify-end"
+                        key={t}
+                        className="absolute inset-x-0 border-t border-slate-100"
+                        style={{ bottom: `${t * 100}%` }}
                       >
-                        <div className="flex items-end justify-center gap-2 w-full h-32">
-                          <div
-                            className="w-6 sm:w-8 rounded-t-lg bg-[#C8F135] border border-[#0F1115]/15 transition-all"
-                            style={{ height: `${thisPct}%` }}
-                            title={`This Month ${wk.label}: ${formatPriceFromPaise(wk.thisMonthPaise, 'INR')}`}
-                          />
-                          <div
-                            className="w-6 sm:w-8 rounded-t-lg bg-slate-200 transition-all"
-                            style={{ height: `${lastPct}%` }}
-                            title={`Last Month ${wk.label}: ${formatPriceFromPaise(wk.lastMonthPaise, 'INR')}`}
-                          />
-                        </div>
-                        <div className="text-center">
-                          <p className="text-[11.5px] font-bold text-slate-600">
-                            {wk.label}
-                          </p>
-                          <p className="text-[10.5px] font-semibold text-slate-400 tabular-nums">
-                            {formatPriceFromPaise(wk.thisMonthPaise, 'INR')}
-                          </p>
-                        </div>
+                        <span className="absolute -left-12 w-10 -translate-y-1/2 text-right text-[10.5px] font-semibold text-slate-400 tabular-nums">
+                          {formatCompactInr(Math.round(maxWeeklyPaise * t))}
+                        </span>
                       </div>
-                    );
-                  })}
+                    ))}
+                    <div className="relative grid h-full grid-cols-4 gap-3 sm:gap-6">
+                      {weeklyBars.map((wk, idx) => {
+                        const thisPct = Math.max(
+                          2,
+                          Math.min(100, (wk.thisMonthPaise / maxWeeklyPaise) * 100),
+                        );
+                        const lastPct = Math.max(
+                          2,
+                          Math.min(100, (wk.lastMonthPaise / maxWeeklyPaise) * 100),
+                        );
+                        return (
+                          <div
+                            key={wk.weekIndex}
+                            className="group relative flex h-full items-end justify-center gap-1.5 rounded-xl transition-colors hover:bg-slate-50/80 sm:gap-2.5"
+                          >
+                            <div
+                              role="tooltip"
+                              className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 translate-y-1 whitespace-nowrap rounded-xl bg-[#0F1115] px-3 py-2 text-[11px] text-white opacity-0 shadow-xl transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100"
+                              style={{
+                                bottom: `calc(${Math.max(thisPct, lastPct)}% + 10px)`,
+                              }}
+                            >
+                              <p className="font-bold text-slate-300">{wk.label}</p>
+                              <p className="tabular-nums">
+                                <span className="text-[#C8F135]">●</span> This{' '}
+                                <strong>
+                                  {formatPriceFromPaise(wk.thisMonthPaise, 'INR')}
+                                </strong>
+                              </p>
+                              <p className="tabular-nums text-slate-300">
+                                <span className="text-slate-400">●</span> Last{' '}
+                                {formatPriceFromPaise(wk.lastMonthPaise, 'INR')}
+                              </p>
+                            </div>
+                            <div
+                              className="gym-bar-grow w-5 rounded-t-lg bg-[#C8F135] shadow-[inset_0_-1px_0_rgba(15,17,21,0.08)] transition-[filter] group-hover:brightness-95 sm:w-9"
+                              style={{
+                                height: `${thisPct}%`,
+                                animationDelay: `${idx * 90}ms`,
+                              }}
+                            />
+                            <div
+                              className="gym-bar-grow w-5 rounded-t-lg bg-[#CBD5E1] sm:w-9"
+                              style={{
+                                height: `${lastPct}%`,
+                                animationDelay: `${idx * 90 + 45}ms`,
+                              }}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="mt-2.5 grid grid-cols-4 gap-3 text-center sm:gap-6">
+                    {weeklyBars.map((wk) => (
+                      <div key={wk.weekIndex}>
+                        <p className="text-[11.5px] font-bold text-slate-600">
+                          {wk.label}
+                        </p>
+                        <p className="text-[10.5px] font-semibold text-slate-400 tabular-nums">
+                          {formatPriceFromPaise(wk.thisMonthPaise, 'INR')}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              </section>
 
-              {/* PENDING APPROVALS + INSTALLMENT DUES + 3-DAY RENEWAL RADAR */}
-              <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-                <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
-                  <h2 className="text-[14.5px] font-extrabold text-[#0F1115]">
-                    Action Required Today
-                  </h2>
+              {/* ACTIVE MEMBER DIRECTORY */}
+              <section className="gym-card gym-fade-up gym-stagger-3 overflow-hidden">
+                <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-3.5">
+                  <div>
+                    <h2 className="text-[15px] font-extrabold text-[#0F1115]">
+                      Active Members
+                    </h2>
+                    <p className="text-[11.5px] text-slate-500 tabular-nums">
+                      {activeMembersCount} active · sorted by priority
+                    </p>
+                  </div>
                   <button
                     type="button"
                     onClick={() => onSectionChange?.('members')}
-                    className="text-[12px] font-bold text-slate-500 hover:text-[#0F1115] cursor-pointer"
+                    className="gym-tactile inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-bold text-slate-500 hover:bg-slate-50 hover:text-[#0F1115] cursor-pointer"
                   >
-                    View All Members ({members.length}) →
+                    View All <ArrowRight className="h-3.5 w-3.5" aria-hidden />
                   </button>
                 </div>
 
-                {pendingApprovals.length === 0 &&
-                balanceDueMembers.length === 0 &&
-                expiringSoon.length === 0 ? (
-                  <div className="p-8 text-center text-[13px] text-slate-500">
-                    All approvals, installment balances, and 3-day renewals are
-                    caught up!
+                {directoryMembers.length === 0 ? (
+                  <div className="flex flex-col items-center gap-3 bg-gradient-to-b from-slate-50/80 to-white px-6 py-10 text-center">
+                    <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#C8F135]/25 text-[#0F1115] ring-1 ring-inset ring-[#C8F135]/50">
+                      <UserPlus className="h-5 w-5" aria-hidden />
+                    </span>
+                    <div>
+                      <p className="text-[14px] font-extrabold text-[#0F1115]">
+                        No active members yet
+                      </p>
+                      <p className="text-[12.5px] text-slate-500">
+                        Approve your first QR signup or register a walk-in at the
+                        front desk.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddWalkIn(true)}
+                      className="gym-tactile inline-flex h-9.5 items-center gap-1.5 rounded-xl bg-[#0F1115] px-4 text-[12.5px] font-bold text-[#C8F135] cursor-pointer"
+                    >
+                      <Plus className="h-4 w-4" aria-hidden /> Add Desk Member
+                    </button>
                   </div>
                 ) : (
                   <div className="divide-y divide-slate-100">
-                    {pendingApprovals.map((m) => (
-                      <div
-                        key={m.id}
-                        className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5"
-                      >
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[13.5px] font-extrabold text-[#0F1115]">
-                              {m.fullName}
-                            </span>
-                            <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[10.5px] font-bold text-amber-900">
-                              Pending Payment
-                            </span>
-                          </div>
-                          <p className="text-[12px] text-slate-500">
-                            {m.memberCode} · {m.planName} (
-                            {formatPriceFromPaise(m.feePaise, 'INR')}) ·{' '}
-                            {m.phone}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => openApprovalDialog(m, 'approve')}
-                          className="h-8.5 rounded-xl bg-[#C8F135] px-3.5 text-[12px] font-extrabold text-[#0F1115] hover:bg-[#b8e028] cursor-pointer"
+                    {directoryMembers.map((m) => {
+                      const goal = getFitnessGoalMeta(m.fitnessGoal);
+                      const visits = m.daysAttendedThisMonth ?? 0;
+                      return (
+                        <div
+                          key={m.id}
+                          className="flex flex-col gap-3 px-5 py-3.5 transition-colors hover:bg-slate-50/70 md:flex-row md:items-center"
                         >
-                          Approve / Installment ✓
-                        </button>
-                      </div>
-                    ))}
-
-                    {balanceDueMembers.map((m) => (
-                      <div
-                        key={`due-${m.id}`}
-                        className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 bg-amber-50/30"
-                      >
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[13.5px] font-extrabold text-[#0F1115]">
-                              {m.fullName}
-                            </span>
-                            <span className="rounded-md bg-rose-100 px-2 py-0.5 text-[10.5px] font-bold text-rose-800">
-                              Due:{' '}
-                              {formatPriceFromPaise(
-                                m.balanceDuePaise ?? 0,
-                                'INR',
-                              )}
-                            </span>
+                          <div className="flex min-w-0 flex-1 items-center gap-3">
+                            <MemberAvatar name={m.fullName} />
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="truncate text-[13.5px] font-extrabold text-[#0F1115]">
+                                  {toTitleCase(m.fullName)}
+                                </span>
+                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10.5px] font-bold text-slate-700">
+                                  {goal.emoji} {goal.label}
+                                </span>
+                                {m.checkedInToday && (
+                                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10.5px] font-bold text-emerald-700">
+                                    In today
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11.5px] text-slate-500 tabular-nums">
+                                {m.memberCode} · {visits}{' '}
+                                {visits === 1 ? 'visit' : 'visits'} this month · 🔥{' '}
+                                {m.currentStreakDays ?? 0}d
+                              </p>
+                            </div>
                           </div>
-                          <p className="text-[12px] text-slate-500">
-                            Paid{' '}
-                            {formatPriceFromPaise(m.amountPaidPaise ?? 0, 'INR')}{' '}
-                            of{' '}
-                            {formatPriceFromPaise(
-                              m.totalPlanAmountPaise ?? m.feePaise,
-                              'INR',
-                            )}
-                            {m.balanceDueDate
-                              ? ` · Due ${formatIsoDatePretty(m.balanceDueDate)}`
-                              : ''}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <a
-                            href={getGymBalanceDueWhatsAppLink(business.name, m)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex h-8.5 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 text-[11.5px] font-bold text-emerald-700 hover:bg-emerald-50"
-                          >
-                            <MessageCircle className="h-3.5 w-3.5" aria-hidden />
-                            Remind
-                          </a>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCollectTarget(m);
-                              setCollectRupees(
-                                String(Math.round((m.balanceDuePaise ?? 0) / 100)),
-                              );
-                            }}
-                            className="h-8.5 rounded-xl bg-[#0F1115] px-3 text-[12px] font-bold text-[#C8F135] cursor-pointer"
-                          >
-                            Collect Balance ✓
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-
-                    {expiringSoon.map((m) => (
-                      <div
-                        key={`exp-${m.id}`}
-                        className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5"
-                      >
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[13.5px] font-extrabold text-[#0F1115]">
-                              {m.fullName}
-                            </span>
-                            <span className="rounded-md bg-orange-100 px-2 py-0.5 text-[10.5px] font-bold text-orange-900">
-                              Expires in {m.daysRemaining}d
-                            </span>
+                          <div className="w-full md:w-40">
+                            <DaysLeftBar member={m} />
                           </div>
-                          <p className="text-[12px] text-slate-500">
-                            {m.planName} · Ends {formatIsoDatePretty(m.endDate)}
+                          <div className="flex shrink-0 items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void handleOpenProgressDrawer(m.id)}
+                              className="gym-tactile h-8.5 rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-bold text-[#0F1115] hover:bg-slate-50 cursor-pointer"
+                            >
+                              Progress
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openApprovalDialog(m, 'renew')}
+                              className="gym-tactile h-8.5 whitespace-nowrap rounded-lg bg-[#0F1115] px-3 text-[12px] font-bold text-[#C8F135] hover:bg-[#1c2028] cursor-pointer tabular-nums"
+                            >
+                              +{m.durationDays}d Renew
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            </div>
+
+            {/* RIGHT 4 COLS: LIVE ATTENDANCE + SUPPLEMENT POS + DARK STATIC QR PROMO */}
+            <div className="space-y-6 lg:col-span-4 xl:sticky xl:top-4 xl:self-start">
+              <section className="gym-card gym-fade-up gym-stagger-2 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-[14.5px] font-extrabold text-[#0F1115]">
+                      Today&apos;s Attendance
+                    </h2>
+                    <p className="text-[11.5px] text-slate-500 tabular-nums">
+                      {todaysAttendance.length} checked in via Entrance QR
+                    </p>
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 ring-1 ring-inset ring-emerald-100">
+                    <span className="gym-pulse-dot h-1.5 w-1.5 rounded-full bg-emerald-500 text-emerald-500" />
+                    Live Floor
+                  </span>
+                </div>
+
+                {todaysAttendance.length === 0 ? (
+                  <div className="mt-3 flex items-center gap-3 rounded-xl bg-slate-50 px-3.5 py-3.5">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-slate-400 ring-1 ring-inset ring-slate-200">
+                      <Dumbbell className="h-4 w-4" aria-hidden />
+                    </span>
+                    <p className="text-[12.5px] text-slate-500">
+                      Waiting for today&apos;s first Entrance QR check-in.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mt-3 max-h-72 space-y-1.5 overflow-y-auto pr-0.5">
+                    {todaysAttendance.slice(0, 10).map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => void handleOpenProgressDrawer(c.memberId)}
+                        className="group flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors hover:bg-slate-50 cursor-pointer"
+                      >
+                        <MemberAvatar name={c.fullName} size="sm" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[12.5px] font-bold text-[#0F1115]">
+                            {toTitleCase(c.fullName)}
                           </p>
+                          <span className="inline-flex rounded-md bg-[#0F1115] px-1.5 py-0.5 text-[10px] font-bold text-[#C8F135]">
+                            {getWorkoutFocusMeta(c.workoutFocus).dayLabel}
+                          </span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <a
-                            href={getGymRenewalWhatsAppLink(business.name, m)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex h-8.5 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 text-[11.5px] font-bold text-emerald-700"
-                          >
-                            <MessageCircle className="h-3.5 w-3.5" aria-hidden />
-                            WhatsApp
-                          </a>
-                          <button
-                            type="button"
-                            onClick={() => openApprovalDialog(m, 'renew')}
-                            className="h-8.5 rounded-xl bg-[#0F1115] px-3 text-[12px] font-bold text-[#C8F135] cursor-pointer"
-                          >
-                            Renew Plan
-                          </button>
+                        <div className="flex shrink-0 flex-col items-end gap-1">
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10.5px] font-bold text-slate-700 tabular-nums">
+                            {formatCheckInTime12h(c.checkedInAt)}
+                          </span>
+                          <span className="inline-flex items-center gap-0.5 text-[10.5px] font-bold text-slate-400 transition-colors group-hover:text-[#0F1115]">
+                            Inspect <ArrowRight className="h-3 w-3" aria-hidden />
+                          </span>
                         </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {leaderboard.length > 0 && (
+                  <div className="mt-3 space-y-1.5 border-t border-slate-100 pt-3">
+                    <p className="flex items-center gap-1 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+                      <Flame className="h-3.5 w-3.5 text-orange-500" aria-hidden />
+                      Top Monthly Streaks
+                    </p>
+                    {leaderboard.slice(0, 3).map((lb) => (
+                      <div
+                        key={lb.memberCode}
+                        className="flex items-center justify-between text-[12px]"
+                      >
+                        <span className="font-bold text-[#0F1115]">
+                          <span className="tabular-nums text-slate-400">#{lb.rank}</span>{' '}
+                          {toTitleCase(lb.displayName)}
+                        </span>
+                        <span className="font-bold text-orange-600 tabular-nums">
+                          {lb.workoutsThisMonth}d · 🔥{lb.currentStreakDays}d
+                        </span>
                       </div>
                     ))}
                   </div>
                 )}
-              </div>
-            </div>
+              </section>
 
-            {/* RIGHT 4 COLS: 2-SECOND SUPPLEMENT BAR POS + TODAY'S CHECK-INS & STREAKS */}
-            <div className="lg:col-span-4 space-y-5">
               {/* Quick Supplement & Protein Bar POS */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+              <section className="gym-card gym-fade-up gym-stagger-3 space-y-3 p-4">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-[14px] font-extrabold text-[#0F1115] flex items-center gap-1.5">
+                  <h2 className="flex items-center gap-1.5 text-[14px] font-extrabold text-[#0F1115]">
                     <ShoppingBag className="h-4 w-4 text-[#0F1115]" aria-hidden />
                     Quick Supplement Bar
                   </h2>
-                  <div className="inline-flex rounded-lg border border-slate-200 p-0.5 text-[11px] font-bold">
-                    <button
-                      type="button"
-                      onClick={() => setRetailMethod('upi')}
-                      className={`rounded-md px-2 py-0.5 cursor-pointer ${retailMethod === 'upi' ? 'bg-[#0F1115] text-[#C8F135]' : 'text-slate-500'}`}
-                    >
-                      UPI
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRetailMethod('cash')}
-                      className={`rounded-md px-2 py-0.5 cursor-pointer ${retailMethod === 'cash' ? 'bg-[#0F1115] text-[#C8F135]' : 'text-slate-500'}`}
-                    >
-                      Cash
-                    </button>
+                  <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-[11px] font-bold">
+                    {(['upi', 'cash'] as const).map((pm) => (
+                      <button
+                        key={pm}
+                        type="button"
+                        onClick={() => setRetailMethod(pm)}
+                        className={`rounded-md px-2.5 py-1 uppercase transition-colors cursor-pointer ${retailMethod === pm ? 'bg-[#0F1115] text-[#C8F135] shadow-sm' : 'text-slate-500 hover:text-[#0F1115]'}`}
+                      >
+                        {pm}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -1047,7 +1619,7 @@ export function GymManagerView({
                   <button
                     type="button"
                     onClick={() => void handleSeedSupplements()}
-                    className="h-10 w-full rounded-xl bg-[#C8F135] text-[12.5px] font-extrabold text-[#0F1115] cursor-pointer"
+                    className="gym-tactile h-10 w-full rounded-xl bg-[#C8F135] text-[12.5px] font-bold text-[#0F1115] cursor-pointer"
                   >
                     + Load 4 Starter Products (Whey, Water, Bars)
                   </button>
@@ -1059,7 +1631,7 @@ export function GymManagerView({
                         type="button"
                         disabled={busyId === p.id || p.stockQty <= 0}
                         onClick={() => void handleQuickRetailSale(p.id)}
-                        className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-left hover:border-[#0F1115] hover:bg-[#C8F135]/20 transition-colors disabled:opacity-50 cursor-pointer"
+                        className="gym-tactile rounded-xl border border-slate-200/80 bg-slate-50 p-2.5 text-left hover:border-[#0F1115]/30 hover:bg-[#C8F135]/20 disabled:opacity-50 cursor-pointer"
                       >
                         <p className="truncate text-[12px] font-extrabold text-[#0F1115]">
                           + {p.productName}
@@ -1076,78 +1648,46 @@ export function GymManagerView({
                     ))}
                   </div>
                 )}
-              </div>
+              </section>
 
-              {/* Today's Live Check-Ins & Top Streaks */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-[14px] font-extrabold text-[#0F1115]">
-                    Checked In Today ({dashboard?.todaysAttendance.length ?? 0})
-                  </h2>
+              {/* DARK OBSIDIAN STATIC ENTRANCE QR PROMO CARD */}
+              <section className="gym-obsidian-mesh gym-fade-up gym-stagger-4 relative min-h-[212px] overflow-hidden rounded-2xl border border-white/10 p-5 text-white">
+                <AthleteIllustration className="pointer-events-none absolute -bottom-1 -right-3 h-[200px] w-[170px]" />
+                <div className="relative max-w-[62%] space-y-2.5">
+                  <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#C8F135]">
+                    Static Entrance QR
+                  </p>
+                  <h3 className="text-[22px] font-black leading-[1.05] tracking-tight">
+                    Build a <span className="text-[#C8F135]">Healthier</span>{' '}
+                    Community
+                  </h3>
+                  <p className="text-[11.5px] leading-snug text-slate-300">
+                    One printed wall QR — members join, check in &amp; log workouts.
+                    ₹0 hardware.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onOpenEntranceQr) onOpenEntranceQr();
+                      else window.open(gymPortalUrl, '_blank', 'noopener,noreferrer');
+                    }}
+                    className="gym-tactile inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#C8F135] px-3.5 text-[12px] font-bold text-[#0F1115] shadow-[0_6px_18px_-6px_rgba(200,241,53,0.9)] cursor-pointer"
+                  >
+                    <QrCode className="h-3.5 w-3.5" aria-hidden />
+                    View Entrance QR <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                  </button>
                   {isBusinessLive && (
                     <a
                       href={gymPortalUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[11.5px] font-bold text-slate-500 hover:text-[#0F1115]"
+                      className="ml-1 inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400 hover:text-white"
                     >
                       Member App <ExternalLink className="h-3 w-3" aria-hidden />
                     </a>
                   )}
                 </div>
-
-                {(dashboard?.todaysAttendance ?? []).length === 0 ? (
-                  <p className="text-[12.5px] text-slate-500">
-                    Waiting for today&apos;s first Entrance QR check-in.
-                  </p>
-                ) : (
-                  <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {(dashboard?.todaysAttendance ?? []).slice(0, 8).map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => void handleOpenProgressDrawer(c.memberId)}
-                        className="flex w-full items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-left hover:bg-slate-100 cursor-pointer"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-[12.5px] font-bold text-[#0F1115]">
-                            {c.fullName}
-                          </p>
-                          <p className="text-[11px] text-slate-500">
-                            {getWorkoutFocusMeta(c.workoutFocus).dayLabel} ·{' '}
-                            {formatCheckInTime12h(c.checkedInAt)}
-                          </p>
-                        </div>
-                        <span className="rounded-md bg-[#0F1115] px-2 py-0.5 text-[10.5px] font-bold text-[#C8F135]">
-                          {c.daysAttendedThisMonth}d/mo
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {leaderboard.length > 0 && (
-                  <div className="border-t border-slate-100 pt-3 space-y-1.5">
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                      <Flame className="h-3.5 w-3.5 text-orange-500" aria-hidden />
-                      Top Monthly Streaks
-                    </p>
-                    {leaderboard.slice(0, 3).map((lb) => (
-                      <div
-                        key={lb.memberCode}
-                        className="flex items-center justify-between text-[12px]"
-                      >
-                        <span className="font-bold text-[#0F1115]">
-                          #{lb.rank} {lb.displayName}
-                        </span>
-                        <span className="font-bold text-orange-600 tabular-nums">
-                          {lb.workoutsThisMonth}d · 🔥{lb.currentStreakDays}d
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              </section>
             </div>
           </div>
         </div>
@@ -1384,7 +1924,7 @@ export function GymManagerView({
                   >
                     <div>
                       <p className="text-[14.5px] font-extrabold text-[#0F1115]">
-                        {t.trainerName}{' '}
+                        {toTitleCase(t.trainerName)}{' '}
                         <span className="ml-1 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">
                           {t.commissionPercent}% Share
                         </span>
@@ -1772,7 +2312,7 @@ export function GymManagerView({
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div>
                   <h2 className="text-[16px] font-extrabold text-[#0F1115] capitalize">
-                    {approvalModal.action} Plan: {approvalModal.member.fullName}
+                    {approvalModal.action} Plan: {toTitleCase(approvalModal.member.fullName)}
                   </h2>
                   <p className="text-[12px] text-slate-500">
                     Supports Full Payment, Part-Payment Installments &amp; PT
@@ -1934,7 +2474,7 @@ export function GymManagerView({
             >
               <div className="flex items-center justify-between">
                 <h2 className="text-[16px] font-extrabold text-[#0F1115]">
-                  Collect Balance: {collectTarget.fullName}
+                  Collect Balance: {toTitleCase(collectTarget.fullName)}
                 </h2>
                 <button
                   type="button"
@@ -2076,7 +2616,7 @@ export function GymManagerView({
               <div className="flex items-center justify-between border-b border-slate-200 pb-4">
                 <div>
                   <h2 className="text-[18px] font-extrabold text-[#0F1115]">
-                    {memberProgress?.member.fullName ?? 'Member Progress'}
+                    {toTitleCase(memberProgress?.member.fullName) || 'Member Progress'}
                   </h2>
                   <p className="text-[12px] text-slate-500">
                     {memberProgress?.member.memberCode} ·{' '}

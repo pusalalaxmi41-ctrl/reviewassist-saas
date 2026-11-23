@@ -93,6 +93,59 @@ function saveStoredPhone(slug: string, phone: string): void {
   }
 }
 
+
+function toTitleCase(str: string | null | undefined): string {
+  if (!str) return '';
+  return str
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function AthleteSplashIllustration() {
+  return (
+    <div className="relative mx-auto flex h-44 w-44 items-center justify-center">
+      <div className="gym-glow-drift absolute inset-0 rounded-full bg-[#C8F135]/20 blur-2xl" />
+      <svg
+        viewBox="0 0 200 200"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        className="absolute inset-0 h-full w-full"
+        aria-hidden="true"
+      >
+        <circle
+          cx="100"
+          cy="100"
+          r="90"
+          stroke="#C8F135"
+          strokeOpacity="0.25"
+          strokeWidth="1.5"
+          strokeDasharray="6 6"
+        />
+        <circle
+          cx="100"
+          cy="100"
+          r="72"
+          stroke="white"
+          strokeOpacity="0.1"
+          strokeWidth="1"
+        />
+        <circle
+          cx="100"
+          cy="100"
+          r="54"
+          stroke="#C8F135"
+          strokeOpacity="0.35"
+          strokeWidth="1.5"
+        />
+      </svg>
+      <div className="relative flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-[#1E293B] to-[#0F172A] border border-[#C8F135]/40 shadow-[0_0_30px_rgba(200,241,53,0.35)]">
+        <Dumbbell className="h-10 w-10 text-[#C8F135]" aria-hidden="true" />
+      </div>
+    </div>
+  );
+}
+
 export default function CustomerGymPage() {
   const { businessSlug = '' } = useParams<{ businessSlug: string }>();
 
@@ -627,40 +680,42 @@ export default function CustomerGymPage() {
     return (
       <div className="mx-auto w-full max-w-md space-y-4">
         {authMode === 'splash' && (
-          <div className="overflow-hidden rounded-3xl bg-[#0F1115] text-white shadow-xl border border-white/10">
-            <div className="relative px-6 pt-8 pb-7 space-y-6 bg-gradient-to-b from-[#1A202C] via-[#0F1115] to-[#0F1115]">
+          <div className="gym-obsidian-mesh gym-fade-up overflow-hidden rounded-3xl text-white shadow-2xl border border-white/10">
+            <div className="relative px-6 pt-7 pb-8 space-y-6">
               {/* Top Gym Brand Emblem */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#C8F135] text-[#0F1115]">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#C8F135] text-[#0F1115] shadow-[0_0_15px_rgba(200,241,53,0.4)]">
                     <Dumbbell className="h-5 w-5" aria-hidden />
                   </span>
                   <div>
-                    <p className="text-[15px] font-extrabold tracking-tight text-white">
+                    <p className="text-[16px] font-black tracking-tight text-white">
                       {portal.business.name}
                     </p>
-                    <p className="text-[11px] font-medium text-slate-400">
-                      {portal.business.city} · {portal.activeMembersCount} Active
-                      Members
+                    <p className="text-[11.5px] font-medium text-slate-400">
+                      {portal.business.city} · <span className="tabular-nums font-semibold">{portal.activeMembersCount}</span> Active Members
                     </p>
                   </div>
                 </div>
-                <span className="rounded-full border border-[#C8F135]/40 bg-[#C8F135]/15 px-2.5 py-0.5 text-[11px] font-bold text-[#C8F135]">
+                <span className="rounded-full border border-[#C8F135]/40 bg-[#C8F135]/15 px-2.5 py-0.5 text-[11px] font-extrabold text-[#C8F135]">
                   Live Pass
                 </span>
               </div>
 
-              {/* Athletic Hero Copy */}
-              <div className="pt-8 space-y-2.5">
+              {/* Athletic Vector Emblem with Neon Volt Glow */}
+              <AthleteSplashIllustration />
+
+              {/* Athletic Hero Display Copy */}
+              <div className="text-center space-y-2.5">
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-[#C8F135]">
-                  <Flame className="h-3.5 w-3.5" aria-hidden />
-                  {portal.checkedInTodayCount} Trained Today
+                  <Flame className="h-3.5 w-3.5 text-orange-400" aria-hidden />
+                  <span className="tabular-nums font-extrabold">{portal.checkedInTodayCount}</span> Trained Today
                 </span>
-                <h1 className="text-[32px] font-black leading-[1.08] tracking-tight">
+                <h1 className="text-[34px] font-black leading-[1.08] tracking-tight text-white">
                   Stronger <br />
                   <span className="text-[#C8F135]">Than Yesterday</span>
                 </h1>
-                <p className="text-[14px] text-slate-300 font-medium">
+                <p className="text-[13.5px] text-slate-300 font-medium max-w-xs mx-auto leading-relaxed">
                   Join. Train. Transform. Track workouts, hit PRs, build your
                   streak &amp; check in with 1 tap — zero app install required.
                 </p>
@@ -674,7 +729,7 @@ export default function CustomerGymPage() {
                     setErrorMsg(null);
                     setAuthMode('join');
                   }}
-                  className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#C8F135] px-5 text-[15px] font-extrabold text-[#0F1115] hover:bg-[#b8e028] transition-colors cursor-pointer"
+                  className="gym-tactile flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#C8F135] px-5 text-[15px] font-black text-[#0F1115] shadow-[0_4px_20px_rgba(200,241,53,0.4)] hover:bg-[#b8e028] cursor-pointer"
                 >
                   <span>Get Started</span>
                   <ArrowRight className="h-4.5 w-4.5" aria-hidden />
@@ -685,7 +740,7 @@ export default function CustomerGymPage() {
                     setErrorMsg(null);
                     setAuthMode('signin');
                   }}
-                  className="flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl border border-white/15 bg-white/5 text-[13.5px] font-semibold text-slate-200 hover:bg-white/10 transition-colors cursor-pointer"
+                  className="gym-tactile flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl border border-white/15 bg-white/5 text-[13.5px] font-semibold text-slate-200 hover:bg-white/10 cursor-pointer"
                 >
                   Already a Member?{' '}
                   <span className="font-extrabold text-[#C8F135]">Sign In</span>
@@ -698,7 +753,7 @@ export default function CustomerGymPage() {
         {authMode === 'signin' && (
           <form
             onSubmit={(e) => void handleLookupPass(e)}
-            className="rounded-3xl bg-[#0F1115] p-6 text-white shadow-xl border border-white/10 space-y-5"
+            className="gym-obsidian-mesh gym-fade-up rounded-3xl p-6 text-white shadow-2xl border border-white/10 space-y-5"
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -748,7 +803,7 @@ export default function CustomerGymPage() {
             <button
               type="submit"
               disabled={lookingUp}
-              className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#C8F135] text-[14.5px] font-extrabold text-[#0F1115] hover:bg-[#b8e028] disabled:opacity-60 cursor-pointer"
+              className="gym-tactile flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#C8F135] text-[14.5px] font-extrabold text-[#0F1115] shadow-[0_4px_16px_rgba(200,241,53,0.35)] hover:bg-[#b8e028] disabled:opacity-60 cursor-pointer"
             >
               {lookingUp ? (
                 <Loader2 className="h-4.5 w-4.5 animate-spin" aria-hidden />
@@ -775,7 +830,7 @@ export default function CustomerGymPage() {
         {authMode === 'join' && (
           <form
             onSubmit={(e) => void handleJoinSubmit(e)}
-            className="rounded-3xl bg-[#0F1115] p-6 text-white shadow-xl border border-white/10 space-y-4"
+            className="gym-obsidian-mesh gym-fade-up rounded-3xl p-6 text-white shadow-2xl border border-white/10 space-y-4"
           >
             <div className="flex items-center justify-between">
               <div>
@@ -925,7 +980,7 @@ export default function CustomerGymPage() {
             <button
               type="submit"
               disabled={submittingJoin}
-              className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#C8F135] text-[14.5px] font-extrabold text-[#0F1115] hover:bg-[#b8e028] disabled:opacity-60 cursor-pointer"
+              className="gym-tactile flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#C8F135] text-[14.5px] font-extrabold text-[#0F1115] shadow-[0_4px_16px_rgba(200,241,53,0.35)] hover:bg-[#b8e028] disabled:opacity-60 cursor-pointer"
             >
               {submittingJoin ? (
                 <Loader2 className="h-4.5 w-4.5 animate-spin" aria-hidden />
@@ -960,6 +1015,28 @@ export default function CustomerGymPage() {
 
   return (
     <div className="mx-auto w-full max-w-md pb-24 space-y-4">
+      {/* COMPACT TOP HEADER SWITCHER */}
+      <div className="gym-fade-up flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white px-4 py-2.5 shadow-sm text-[12.5px]">
+        <div className="flex items-center gap-2 text-slate-700 min-w-0">
+          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#0F1115] text-[#C8F135] text-[11px] font-black">
+            📱
+          </span>
+          <span className="font-extrabold text-[#0F1115] truncate">
+            {toTitleCase(memberPass.fullName)}
+          </span>
+          <span className="text-slate-400 font-mono text-[11px] tabular-nums">
+            (+91 {memberPass.phone})
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={handleSwitchMember}
+          className="gym-tactile ml-2 shrink-0 rounded-lg px-2.5 py-1 text-[11.5px] font-bold text-slate-500 hover:bg-slate-100 hover:text-[#0F1115] cursor-pointer"
+        >
+          Switch
+        </button>
+      </div>
+
       {/* PR CELEBRATION BANNER */}
       {prBanner && (
         <div
@@ -1021,7 +1098,7 @@ export default function CustomerGymPage() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-[20px] font-black tracking-tight">
-                  Hello, {firstName} 👋
+                  Hello, {toTitleCase(firstName)} 👋
                 </p>
                 <p className="text-[12px] text-slate-400">
                   Keep pushing your limits · {portal.business.name}
@@ -1107,11 +1184,13 @@ export default function CustomerGymPage() {
                   className="flex flex-col items-center gap-1.5 h-full justify-end"
                 >
                   <div
-                    className={`w-full max-w-[22px] rounded-full transition-all ${
+                    className={`w-full max-w-[22px] rounded-full gym-bar-grow transition-all ${
+                      day.trained
+                        ? 'bg-[#C8F135] border border-[#0F1115]/15 h-12 shadow-[0_2px_8px_rgba(200,241,53,0.5)]' : 
                       day.trained
                         ? 'bg-[#C8F135] border border-[#0F1115]/15 h-12'
                         : day.isToday
-                          ? 'bg-slate-200 border border-dashed border-slate-400 h-5'
+                          ? 'bg-slate-300 ring-2 ring-[#C8F135] h-6'
                           : 'bg-slate-100 h-3'
                     }`}
                     title={`${day.dayLabel}: ${day.trained ? 'Trained' : 'Rest'}`}
@@ -1161,23 +1240,39 @@ export default function CustomerGymPage() {
             </div>
           ) : memberPass.checkedInToday ? (
             /* Dark Check-In Celebration Card (Mockup Screen #5) */
-            <div className="rounded-3xl bg-[#0F1115] p-5 text-white border border-[#C8F135]/40 space-y-3">
+            <div className="gym-fade-up gym-obsidian-mesh rounded-3xl p-5 text-white border border-[#C8F135]/40 shadow-[0_4px_24px_rgba(200,241,53,0.18)] space-y-3.5">
               <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#C8F135] text-[#0F1115]">
-                  <Check className="h-5 w-5 stroke-[3]" aria-hidden />
+                <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#C8F135] text-[#0F1115] shadow-[0_0_20px_rgba(200,241,53,0.5)]">
+                  <svg
+                    className="h-6 w-6"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <polyline className="gym-check-draw" points="20 6 9 17 4 12" />
+                  </svg>
                 </span>
                 <div>
-                  <p className="text-[15px] font-extrabold text-white">
-                    Check-In Successful!
-                  </p>
-                  <p className="text-[12px] text-slate-400">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[16px] font-black text-white">
+                      Check-In Successful!
+                    </p>
+                    <span className="gym-pulse-dot inline-block h-2 w-2 rounded-full bg-[#C8F135]" />
+                  </div>
+                  <p className="text-[12px] text-slate-300">
                     Today ·{' '}
-                    {formatCheckInTime12h(
-                      memberPass.todayCheckIn?.checkedInAt ??
-                        memberPass.lastCheckInAt,
-                    )}{' '}
+                    <span className="tabular-nums font-semibold">
+                      {formatCheckInTime12h(
+                        memberPass.todayCheckIn?.checkedInAt ??
+                          memberPass.lastCheckInAt,
+                      )}
+                    </span>{' '}
                     ·{' '}
-                    <span className="text-[#C8F135] font-bold">
+                    <span className="text-[#C8F135] font-extrabold">
                       {
                         getWorkoutFocusMeta(
                           memberPass.todayCheckIn?.workoutFocus ??
@@ -1188,12 +1283,12 @@ export default function CustomerGymPage() {
                   </p>
                 </div>
               </div>
-              <div className="flex items-center justify-between rounded-xl bg-[#161920] px-3.5 py-2.5 text-[12.5px]">
-                <span className="flex items-center gap-2 font-bold text-[#C8F135]">
+              <div className="flex items-center justify-between rounded-2xl bg-[#161920] border border-white/10 px-4 py-2.5 text-[12.5px]">
+                <span className="flex items-center gap-2 font-black text-[#C8F135]">
                   <Trophy className="h-4 w-4" aria-hidden />
-                  Great workout! Keep going
+                  Great workout! Keep going 💪
                 </span>
-                <span className="font-mono font-bold text-slate-300">
+                <span className="font-mono font-bold text-slate-300 tabular-nums">
                   🔥 {Math.max(1, currentStreak)}d streak
                 </span>
               </div>
@@ -1255,7 +1350,7 @@ export default function CustomerGymPage() {
                 type="button"
                 disabled={checkingIn}
                 onClick={() => void handleDailyCheckIn()}
-                className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#C8F135] text-[14.5px] font-extrabold text-[#0F1115] hover:bg-[#b8e028] disabled:opacity-60 cursor-pointer"
+                className="gym-tactile flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#C8F135] text-[14.5px] font-extrabold text-[#0F1115] shadow-[0_4px_16px_rgba(200,241,53,0.35)] hover:bg-[#b8e028] disabled:opacity-60 cursor-pointer"
               >
                 {checkingIn ? (
                   <Loader2 className="h-4.5 w-4.5 animate-spin" aria-hidden />
@@ -1747,7 +1842,7 @@ export default function CustomerGymPage() {
                         </span>
                         <div>
                           <p className="text-[13px] font-bold">
-                            {row.displayName}{' '}
+                            {toTitleCase(row.displayName)}{' '}
                             {isMe && (
                               <span className="text-[10.5px] text-[#C8F135]">
                                 (You)
@@ -1814,7 +1909,7 @@ export default function CustomerGymPage() {
               </div>
 
               <div>
-                <p className="text-[20px] font-black">{memberPass.fullName}</p>
+                <p className="text-[20px] font-black">{toTitleCase(memberPass.fullName)}</p>
                 <p className="text-[12px] text-slate-400">
                   {memberPass.planName} · {memberPass.memberCode}
                 </p>
@@ -1970,7 +2065,7 @@ export default function CustomerGymPage() {
               </span>
               <div>
                 <h2 className="text-[17px] font-extrabold text-[#0F1115]">
-                  {memberPass.fullName}
+                  {toTitleCase(memberPass.fullName)}
                 </h2>
                 <p className="text-[12.5px] text-slate-500">
                   {memberPass.memberCode} · +91 {memberPass.phone}
@@ -2156,7 +2251,7 @@ export default function CustomerGymPage() {
       {/* PERSISTENT 4-TAB BOTTOM NAVIGATION BAR */}
       <nav
         aria-label="Gym Member Navigation"
-        className="fixed bottom-3 left-1/2 z-30 grid w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 grid-cols-4 rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-xl backdrop-blur-xs"
+        className="fixed bottom-3 left-1/2 z-30 grid w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 grid-cols-4 rounded-2xl border border-white/10 bg-[#0F1115]/95 p-1.5 shadow-2xl backdrop-blur-md"
       >
         {(
           [
@@ -2172,13 +2267,13 @@ export default function CustomerGymPage() {
               key={id}
               type="button"
               onClick={() => setActiveTab(id)}
-              className={`flex flex-col items-center justify-center gap-0.5 rounded-xl py-2 text-[11px] font-bold transition-colors cursor-pointer ${
+              className={`gym-tactile flex flex-col items-center justify-center gap-0.5 rounded-xl py-2 text-[11px] font-bold transition-all cursor-pointer ${
                 active
-                  ? 'bg-[#0F1115] text-[#C8F135]'
-                  : 'text-slate-500 hover:text-[#0F1115]'
+                  ? 'bg-[#1C2028] text-[#C8F135] shadow-[0_0_12px_rgba(200,241,53,0.25)]'
+                  : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Icon className="h-4 w-4" aria-hidden />
+              <Icon className="h-4 w-4" aria-hidden="true" />
               <span>{label}</span>
             </button>
           );

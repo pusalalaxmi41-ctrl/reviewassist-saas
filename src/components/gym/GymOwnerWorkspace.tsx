@@ -165,25 +165,27 @@ export function GymOwnerWorkspace({
       {/* DARK OBSIDIAN LEFT SIDEBAR (#0F1115) WITH VOLT LIME ACTIVE PILLS (#C8F135) */}
       <aside
         aria-label="GymOS Command Sidebar"
-        className="w-full lg:w-[236px] lg:shrink-0 bg-[#0F1115] text-white flex flex-col justify-between lg:sticky lg:top-[52px] lg:h-[calc(100vh-52px)] lg:overflow-y-auto border-b lg:border-b-0 lg:border-r border-white/10"
+        className="w-full lg:w-[248px] lg:shrink-0 bg-[#0F1115] text-white flex flex-col justify-between lg:sticky lg:top-[52px] lg:h-[calc(100vh-52px)] lg:overflow-y-auto border-b lg:border-b-0 lg:border-r border-white/10"
       >
-        <div className="p-3.5 space-y-4">
-          {/* Brand + Gym Switcher */}
-          <div className="space-y-2 border-b border-white/10 pb-3.5">
+        <div className="p-4 space-y-4">
+          {/* Brand + Gym Switcher (Clux Gym Style Emblem) */}
+          <div className="space-y-2.5 border-b border-white/10 pb-4">
             <div className="flex items-center justify-between px-1">
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-[#C8F135]">
-                <Dumbbell className="h-3.5 w-3.5" aria-hidden />
+              <span className="inline-flex items-center gap-2 text-[12px] font-black tracking-tight text-white">
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#C8F135] text-[#0F1115] shadow-[0_0_12px_rgba(200,241,53,0.4)]">
+                  <Dumbbell className="h-3.5 w-3.5" aria-hidden />
+                </span>
                 GymOS Studio
               </span>
               <Link
                 to="/setup?type=gym"
-                className="inline-flex items-center gap-0.5 text-[11px] font-bold text-slate-300 hover:text-white"
+                className="gym-tactile inline-flex items-center gap-1 rounded-lg border border-white/10 bg-[#161920] px-2 py-0.5 text-[11px] font-bold text-slate-300 hover:border-[#C8F135]/40 hover:text-[#C8F135]"
               >
                 <Plus className="h-3 w-3" aria-hidden /> New
               </Link>
             </div>
-            <div className="flex h-9.5 items-center gap-2 rounded-xl border border-white/10 bg-[#161920] px-2.5">
-              <Building2 className="h-3.5 w-3.5 shrink-0 text-[#C8F135]" aria-hidden />
+            <div className="flex h-10 items-center gap-2 rounded-xl border border-white/10 bg-[#161920] px-2.5 transition-colors focus-within:border-[#C8F135]">
+              <Building2 className="h-4 w-4 shrink-0 text-[#C8F135]" aria-hidden />
               <select
                 aria-label="Select active gym"
                 value={business.slug}
@@ -208,9 +210,9 @@ export function GymOwnerWorkspace({
                   key={id}
                   type="button"
                   onClick={() => setActiveTab(id)}
-                  className={`flex h-10 shrink-0 lg:shrink lg:w-full items-center gap-2.5 rounded-xl px-3 text-[13px] font-bold transition-colors cursor-pointer ${
+                  className={`gym-tactile flex h-10 shrink-0 lg:shrink lg:w-full items-center gap-2.5 rounded-xl px-3 text-[13px] font-bold transition-all cursor-pointer ${
                     active
-                      ? 'bg-[#C8F135] text-[#0F1115]'
+                      ? 'bg-[#C8F135] text-[#0F1115] shadow-sm font-extrabold'
                       : 'text-slate-300 hover:bg-white/10 hover:text-white'
                   }`}
                 >
@@ -229,18 +231,18 @@ export function GymOwnerWorkspace({
         </div>
 
         {/* Bottom Static Entrance QR Quick-Launch Card */}
-        <div className="hidden lg:block border-t border-white/10 p-3.5">
+        <div className="hidden lg:block border-t border-white/10 p-3.5 space-y-3">
           <div className="rounded-2xl bg-[#161920] border border-white/10 p-3.5 space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#C8F135]">
                 Static Entrance QR
               </span>
               <span
-                className={`h-2 w-2 rounded-full ${isBusinessLive ? 'bg-[#C8F135]' : 'bg-amber-400'}`}
+                className={`gym-pulse-dot h-2 w-2 rounded-full ${isBusinessLive ? 'bg-[#C8F135] text-[#C8F135]' : 'bg-amber-400 text-amber-400'}`}
               />
             </div>
             <p className="text-[11.5px] text-slate-400 leading-snug">
-              ₹0 reception hardware — 1 printed wall QR powers member passes,
+              ₹0 reception hardware — 1 printed entrance poster powers member passes,
               check-ins &amp; workout logging.
             </p>
             {isBusinessLive && (
@@ -248,7 +250,7 @@ export function GymOwnerWorkspace({
                 href={gymPortalUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex h-8.5 w-full items-center justify-center gap-1.5 rounded-xl bg-[#C8F135] text-[12px] font-extrabold text-[#0F1115] hover:bg-[#b8e028]"
+                className="gym-tactile flex h-8.5 w-full items-center justify-center gap-1.5 rounded-xl bg-[#C8F135] text-[12px] font-extrabold text-[#0F1115] hover:bg-[#b8e028]"
               >
                 Open Member App <ExternalLink className="h-3.5 w-3.5" aria-hidden />
               </a>
@@ -257,12 +259,13 @@ export function GymOwnerWorkspace({
         </div>
       </aside>
 
-      {/* CRISP LIGHT MILK WORKSPACE (#F8F9FA) */}
-      <div className="flex-1 min-w-0 bg-[#F8F9FA] px-4 py-4 sm:px-6 sm:py-5 space-y-5">
+      {/* CRISP LIGHT MILK WORKSPACE (#F8F9FA) CENTERED */}
+      <div className="flex-1 min-w-0 bg-[#F8F9FA] px-4 py-4 sm:px-6 sm:py-6">
+        <div className="mx-auto max-w-7xl w-full space-y-5">
         {!isBusinessLive && (
           <div
             role="status"
-            className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-center gap-2 text-[13px] font-semibold text-amber-950"
+            className="gym-fade-up rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-center gap-2 text-[13px] font-semibold text-amber-950 shadow-sm"
           >
             <Clock className="h-4 w-4 text-amber-700 shrink-0" aria-hidden />
             Preview Mode — Awaiting Platform Admin Approval. You can set up
@@ -277,6 +280,7 @@ export function GymOwnerWorkspace({
             isBusinessLive={isBusinessLive}
             activeSection={activeTab as GymCommandSection}
             onSectionChange={(sec) => setActiveTab(sec)}
+            onOpenEntranceQr={() => setActiveTab('plans_qr')}
           />
         )}
 
@@ -440,6 +444,7 @@ export function GymOwnerWorkspace({
             />
           </div>
         )}
+        </div>
       </div>
     </div>
   );

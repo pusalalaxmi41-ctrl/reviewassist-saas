@@ -162,6 +162,145 @@ h1, h2, h3, h4 {
   border-bottom: 2px solid #111827;
 }
 
+/* ==========================================================================
+   GymOS Flagship Tactile Motion Tokens (Obsidian #0F1115 + Volt Lime #C8F135)
+   Pure CSS, hardware-accelerated (transform/opacity only), zero packages.
+   ========================================================================== */
+@keyframes gymFadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes barGrow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes pulseRing {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  80%,
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+@keyframes gymSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes gymCheckDraw {
+  from {
+    stroke-dashoffset: 48;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes gymGlowDrift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translate3d(6%, -4%, 0) scale(1.08);
+    opacity: 0.8;
+  }
+}
+
+.gym-fade-up {
+  animation: gymFadeSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+.gym-stagger-1 { animation-delay: 40ms; }
+.gym-stagger-2 { animation-delay: 80ms; }
+.gym-stagger-3 { animation-delay: 120ms; }
+.gym-stagger-4 { animation-delay: 160ms; }
+.gym-stagger-5 { animation-delay: 200ms; }
+.gym-stagger-6 { animation-delay: 240ms; }
+
+.gym-bar-grow {
+  transform-origin: bottom center;
+  animation: barGrow 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform;
+}
+
+.gym-pulse-dot {
+  position: relative;
+  display: inline-flex;
+}
+
+.gym-pulse-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: pulseRing 1.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.gym-spin-once {
+  animation: gymSpin 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.gym-check-draw {
+  stroke-dasharray: 48;
+  animation: gymCheckDraw 0.5s 0.15s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.gym-glow-drift {
+  animation: gymGlowDrift 7s ease-in-out infinite;
+}
+
+/* Physical tactile press for every interactive pill/button */
+.gym-tactile {
+  transition: transform 150ms ease-out, background-color 150ms ease-out,
+    box-shadow 150ms ease-out, color 150ms ease-out, border-color 150ms ease-out;
+}
+
+.gym-tactile:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.gym-tactile:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.gym-card {
+  background-color: #FFFFFF;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 1rem;
+  box-shadow: 0 2px 10px -3px rgba(15, 17, 21, 0.06);
+}
+
+.gym-obsidian-mesh {
+  background-color: #0F1115;
+  background-image:
+    radial-gradient(circle at 85% 0%, rgba(200, 241, 53, 0.16), transparent 45%),
+    radial-gradient(circle at 0% 100%, rgba(200, 241, 53, 0.07), transparent 40%),
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: auto, auto, 24px 24px, 24px 24px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
