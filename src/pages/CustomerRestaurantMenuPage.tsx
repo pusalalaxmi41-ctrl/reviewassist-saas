@@ -526,6 +526,12 @@ export default function CustomerRestaurantMenuPage() {
           onOpenChatAndBill={
             resolvedTableKey ? (tab) => setChatDrawerTab(tab) : undefined
           }
+          onOpenGames={
+            profile.gamesEnabled ? () => setActiveView('games') : undefined
+          }
+          onOpenRewards={
+            profile.loyaltyEnabled ? () => setActiveView('rewards') : undefined
+          }
         />
         {chatDrawerTab && resolvedTableKey && (
           <CustomerChatAndBillDrawer
@@ -771,32 +777,51 @@ export default function CustomerRestaurantMenuPage() {
                 </span>
               </div>
 
-              {/* 4-Stage Stepper */}
-              <div className="grid grid-cols-4 gap-1.5">
-                {steps.map((label, idx) => {
-                  const reached = idx <= activeStepIdx;
-                  const isCurrent = idx === activeStepIdx;
-                  return (
-                    <div key={label} className="space-y-1 text-center">
+              {/* Connected Circular 4-Node Progress Stepper (✓)───(✓)───(✓)───(4) */}
+              <div className="relative pt-1">
+                <div
+                  aria-hidden
+                  className="absolute top-[15px] left-[12.5%] right-[12.5%] h-1 rounded-full bg-[#E5E7EB]"
+                >
+                  <div
+                    className="h-full rounded-full bg-[#059669] transition-all duration-300"
+                    style={{ width: `${(activeStepIdx / 3) * 100}%` }}
+                  />
+                </div>
+                <div className="relative grid grid-cols-4 gap-1">
+                  {steps.map((label, idx) => {
+                    const reached = idx <= activeStepIdx;
+                    const isCompleted =
+                      idx < activeStepIdx || billSummary.isCheckedOut;
+                    const isCurrent =
+                      idx === activeStepIdx && !billSummary.isCheckedOut;
+                    return (
                       <div
-                        className={`h-2 rounded-full transition-colors ${
-                          reached
-                            ? isCurrent
-                              ? 'bg-[#D2DB76] ring-1 ring-[#1E1B4B]/40'
-                              : 'bg-[#059669]'
-                            : 'bg-[#E5E7EB]'
-                        }`}
-                      />
-                      <p
-                        className={`text-[10.5px] font-extrabold ${
-                          reached ? 'text-[#1E1B4B]' : 'text-[#9CA3AF]'
-                        }`}
+                        key={label}
+                        className="flex flex-col items-center gap-1.5 text-center"
                       >
-                        {label}
-                      </p>
-                    </div>
-                  );
-                })}
+                        <span
+                          className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-black transition-all ${
+                            isCompleted
+                              ? 'bg-[#059669] text-white shadow-2xs'
+                              : isCurrent
+                                ? 'bg-[#D2DB76] text-[#1E1B4B] ring-2 ring-[#1E1B4B]'
+                                : 'border-2 border-[#D1D5DB] bg-white text-[#9CA3AF]'
+                          }`}
+                        >
+                          {isCompleted ? '✓' : idx + 1}
+                        </span>
+                        <p
+                          className={`text-[10.5px] font-extrabold ${
+                            reached ? 'text-[#1E1B4B]' : 'text-[#9CA3AF]'
+                          }`}
+                        >
+                          {label}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="flex items-center gap-2 pt-0.5">

@@ -307,23 +307,41 @@ export function CounterPosAndPlatformModal({
 
               {/* Table/Room Selector (POS Dine-In) OR Platform Order # */}
               {mode === 'pos' && posChannel === 'pos_dine_in' ? (
-                <div className="space-y-1">
-                  <label className="block text-[10.5px] font-extrabold uppercase tracking-wider text-slate-500">
-                    Select Table / Hotel Room
-                  </label>
-                  <select
-                    value={selectedTableId}
-                    onChange={(e) => setSelectedTableId(e.target.value)}
-                    className="h-10 w-full rounded-xl border border-slate-300 bg-[#F8F9FA] px-3 text-[13px] font-extrabold text-[#1E1B4B]"
-                  >
-                    <option value="">-- Choose Table / Room --</option>
-                    {activeTables.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.locationType === 'room' ? '🏨 ' : '🍽️ '}
-                        {t.tableNumber} ({t.seatCapacity ?? 4} seats)
-                      </option>
-                    ))}
-                  </select>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="block text-[10.5px] font-extrabold uppercase tracking-wider text-slate-500">
+                      Select Table / Hotel Room
+                    </label>
+                    {selectedTableId && (
+                      <span className="rounded-full bg-[#D2DB76]/55 px-2 py-0.5 text-[10px] font-black text-[#1E1B4B]">
+                        {activeTables.find((t) => t.id === selectedTableId)
+                          ?.tableNumber ?? 'Selected'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5 max-h-24 overflow-y-auto pr-0.5">
+                    {activeTables.map((t) => {
+                      const isSel = selectedTableId === t.id;
+                      const isBusyTbl = Boolean(t.occupiedSince);
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setSelectedTableId(t.id)}
+                          className={`rounded-xl border px-2 py-1.5 text-center text-[11.5px] font-extrabold transition-all cursor-pointer truncate ${
+                            isSel
+                              ? 'border-[#1E1B4B] bg-[#1E1B4B] text-[#D2DB76] shadow-2xs'
+                              : isBusyTbl
+                                ? 'border-amber-300 bg-[#FFFBEB] text-amber-900 hover:border-amber-500'
+                                : 'border-emerald-300 bg-[#ECFDF5] text-emerald-900 hover:border-emerald-500'
+                          }`}
+                        >
+                          {t.locationType === 'room' ? '🏨 ' : ''}
+                          {t.tableNumber}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               ) : mode === 'platform' ? (
                 <div className="grid grid-cols-2 gap-2">
@@ -547,7 +565,7 @@ export function CounterPosAndPlatformModal({
                       }`}
                     >
                       {/* Uniform Square Aspect Photo OR Crisp Fork-and-Spoon Fallback */}
-                      <div className="relative aspect-4/3 w-full bg-[#F8F9FA] flex items-center justify-center overflow-hidden">
+                      <div className="relative aspect-square w-full bg-[#F8F9FA] flex items-center justify-center overflow-hidden">
                         {dish.imageUrl ? (
                           <img
                             src={dish.imageUrl}

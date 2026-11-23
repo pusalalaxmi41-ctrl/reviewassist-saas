@@ -337,7 +337,7 @@ export default function BusinessDashboard() {
     },
     {
       id: 'games_loyalty',
-      label: 'Games, Loyalty & Reviews',
+      label: 'Games & Loyalty',
       shortLabel: 'Loyalty',
       Icon: Gamepad2,
       badge: drafts.length > 0 ? drafts.length : undefined,
@@ -353,18 +353,18 @@ export default function BusinessDashboard() {
     (destination === 'games_loyalty' && loyaltyMode === 'loyalty');
 
   return (
-    <div className="grid gap-6 lg:grid-cols-12 items-start">
-      {/* LEFT SIDEBAR — 5 Plain-English Destinations (Matches Mockup 1) */}
+    <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
+      {/* LEFT SIDEBAR — 6 Plain-English Destinations (Fixed 244px on Desktop, Zero Scrollbar) */}
       <aside
         aria-label="BistroOS Workspace Navigation"
-        className="lg:col-span-3 bistro-card p-4 flex flex-col justify-between lg:min-h-[620px] space-y-6"
+        className="w-full lg:w-[244px] lg:shrink-0 lg:sticky lg:top-20 bistro-card p-4 flex flex-col justify-between lg:min-h-[600px] space-y-5"
       >
-        <div className="space-y-5">
+        <div className="space-y-4">
           {/* Restaurant Switcher Header */}
           <div className="space-y-2 border-b border-[#1E1B4B]/10 pb-4">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] font-bold uppercase tracking-wider text-[#6B7280]">
-                Active Restaurant
+                Active Property
               </span>
               <Link
                 to="/setup"
@@ -374,7 +374,7 @@ export default function BusinessDashboard() {
               </Link>
             </div>
 
-            <div className="flex h-11 items-center gap-2 rounded-xl border border-[#1E1B4B]/15 bg-[#F8F9FA] px-3">
+            <div className="flex h-10 items-center gap-2 rounded-xl border border-[#1E1B4B]/15 bg-[#F8F9FA] px-2.5">
               <Building2
                 className="h-4 w-4 shrink-0 text-[#1E1B4B]"
                 aria-hidden
@@ -383,7 +383,7 @@ export default function BusinessDashboard() {
                 aria-label="Select active restaurant"
                 value={currentBusiness.slug}
                 onChange={(e) => handleSelectBusiness(e.target.value)}
-                className="w-full min-w-0 truncate bg-transparent text-[14px] font-bold text-[#111827] focus:outline-none cursor-pointer"
+                className="w-full min-w-0 truncate bg-transparent text-[13.5px] font-bold text-[#111827] focus:outline-none cursor-pointer"
               >
                 {businesses.map((b) => (
                   <option key={b.id} value={b.slug}>
@@ -394,8 +394,8 @@ export default function BusinessDashboard() {
             </div>
           </div>
 
-          {/* 5 Plain-English Destinations */}
-          <nav className="flex overflow-x-auto lg:flex-col gap-1.5">
+          {/* 6 Plain-English Destinations — Zero Horizontal Scrollbar on Desktop */}
+          <nav className="flex overflow-x-auto lg:overflow-x-visible lg:flex-col gap-1">
             {navDestinations.map(({ id, label, shortLabel, Icon, badge }) => {
               const isActive = destination === id;
               return (
@@ -404,25 +404,25 @@ export default function BusinessDashboard() {
                   type="button"
                   onClick={() => handleDestinationChange(id)}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`flex min-h-11 items-center justify-between gap-3 rounded-xl px-4 py-2.5 text-[14px] font-semibold whitespace-nowrap transition-all duration-150 active:scale-[0.98] cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] ${
+                  className={`flex min-h-10.5 shrink-0 lg:shrink lg:w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition-all duration-150 active:scale-[0.98] cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] ${
                     isActive
                       ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-sm'
                       : 'text-[#6B7280] hover:bg-[#F8F9FA] hover:text-[#111827]'
                   }`}
                 >
-                  <span className="flex items-center gap-3">
+                  <span className="flex min-w-0 items-center gap-2.5">
                     <Icon
-                      className={`h-4.5 w-4.5 shrink-0 ${
+                      className={`h-4 w-4 shrink-0 ${
                         isActive ? 'text-[#D2DB76]' : 'text-[#1E1B4B]'
                       }`}
                       aria-hidden
                     />
-                    <span className="hidden sm:inline">{label}</span>
+                    <span className="hidden sm:inline truncate">{label}</span>
                     <span className="sm:hidden">{shortLabel}</span>
                   </span>
                   {badge !== undefined && (
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums ${
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold tabular-nums ${
                         isActive
                           ? 'bg-[#D2DB76] text-[#1E1B4B]'
                           : 'bg-[#1E1B4B]/[0.08] text-[#1E1B4B]'
@@ -473,8 +473,8 @@ export default function BusinessDashboard() {
         </div>
       </aside>
 
-      {/* MAIN WORKSPACE CONTENT */}
-      <div className="lg:col-span-9 min-w-0 space-y-6">
+      {/* MAIN WORKSPACE CONTENT (Full Remaining Width) */}
+      <div className="flex-1 min-w-0 space-y-5">
         {/* Non-Active Business Notice (only shown if account is pending/suspended) */}
         {!isBusinessLive && (
           <div

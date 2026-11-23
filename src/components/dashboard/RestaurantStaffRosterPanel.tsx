@@ -79,13 +79,18 @@ export function RestaurantStaffRosterPanel({
 
     setCreating(true);
     try {
+      const sanitizedCode = customStaffCode
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^A-Z0-9-]/g, '');
       const pinHash = await hashStaffPin(business.slug, pinCheck.pin);
       const created = await businessRepository.createRestaurantStaffMember(
         business.id,
         {
           fullName: fullName.trim(),
           role,
-          staffCode: customStaffCode.trim() || suggestedCode,
+          staffCode: sanitizedCode.length >= 2 ? sanitizedCode : suggestedCode,
           pinHash,
           isActive: true,
         },
@@ -324,12 +329,19 @@ export function RestaurantStaffRosterPanel({
             </label>
             <input
               id="staffCodeInput"
+              name="vitaran_new_staff_code"
               type="text"
+              autoComplete="off"
               maxLength={20}
               placeholder={suggestedCode}
               value={customStaffCode}
               onChange={(e) =>
-                setCustomStaffCode(e.target.value.toUpperCase())
+                setCustomStaffCode(
+                  e.target.value
+                    .toUpperCase()
+                    .replace(/\s+/g, '-')
+                    .replace(/[^A-Z0-9-]/g, ''),
+                )
               }
               className="block h-11 w-full rounded-xl border border-[#1E1B4B]/20 bg-[#F8F9FA] px-3.5 font-mono text-[14px] font-bold uppercase text-[#1E1B4B] placeholder:text-[#6B7280] focus:border-[#1E1B4B] focus:bg-[#FFFFFF] focus:outline-none"
             />
@@ -345,7 +357,9 @@ export function RestaurantStaffRosterPanel({
             <div className="relative">
               <input
                 id="staffPinInput"
+                name="vitaran_new_staff_pin"
                 type={showAddPin ? 'text' : 'password'}
+                autoComplete="new-password"
                 inputMode="numeric"
                 pattern="[0-9]{4,6}"
                 maxLength={6}

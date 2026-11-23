@@ -111,7 +111,6 @@ import {
 } from '../../services/qr/qrGenerator';
 import { copyText } from '../../utils/clipboard';
 import { Button } from '../common/Button';
-import { categoryLabels } from '../../services/business/mockBusinesses';
 import { RestaurantStaffRosterPanel } from './RestaurantStaffRosterPanel';
 import { RestaurantMonthlyInventoryPanel } from './RestaurantMonthlyInventoryPanel';
 import { FloorMapGrid } from '../hospitality/FloorMapGrid';
@@ -244,6 +243,7 @@ export function RestaurantManagerView({
   const [billModalTable, setBillModalTable] = useState<RestaurantTable | null>(
     null,
   );
+  const [showChatDrawer, setShowChatDrawer] = useState(false);
 
   // Voice Alert dedup refs (skip initial load; speak only newly arrived calls & orders)
   const initializedAlertsRef = useRef(false);
@@ -539,7 +539,6 @@ export function RestaurantManagerView({
   }
 
   useEffect(() => {
-    if (currentSection !== 'overview') return;
     const unsubscribe = businessRepository.subscribeToHospitalityRealtime(
       business.id,
       () => {
@@ -553,7 +552,7 @@ export function RestaurantManagerView({
       unsubscribe();
       window.clearInterval(timer);
     };
-  }, [business.id, currentSection, refreshFloorData]);
+  }, [business.id, refreshFloorData]);
 
   const activeQrTable =
     selectedQrTableId === 'general'
@@ -1683,334 +1682,416 @@ export function RestaurantManagerView({
       )}
 
       {/* =====================================================================
-          1. EXECUTIVE HOSPITALITY COMMAND CENTER (FLOOR, ORDERS, MESSAGES & POS)
+          PINNED 2-TIER EXECUTIVE HOSPITALITY COMMAND BAR (ALWAYS VISIBLE)
          ===================================================================== */}
-      {currentSection === 'overview' && (
-        <div className="space-y-5">
-          {/* Tier 1: Executive Top Command Bar */}
-          <div className="bistro-card p-4 sm:p-5 space-y-4">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div>
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <h1 className="text-[24px] sm:text-[28px] font-extrabold tracking-tight text-[#111827]">
-                    Hospitality Command Center
-                  </h1>
-                  <span className="rounded-full bg-[#D2DB76]/45 px-3 py-1 text-[11px] font-bold text-[#1E1B4B] uppercase tracking-wider">
-                    {categoryLabels[business.category]} • {business.city}
-                  </span>
-                </div>
-                <div className="mt-1 flex flex-wrap items-center gap-3.5 text-[12.5px] font-semibold text-[#6B7280]">
-                  <span className="text-[#111827]">{business.name}</span>
-                  {isBusinessLive && (
-                    <>
-                      <a
-                        href={menuUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-[#1E1B4B] hover:underline"
-                      >
-                        Guest Menu <ExternalLink className="h-3 w-3" aria-hidden />
-                      </a>
-                      <a
-                        href={`/r/${business.slug}/staff`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-[#1E1B4B] hover:underline"
-                      >
-                        Waiter Floor <ExternalLink className="h-3 w-3" aria-hidden />
-                      </a>
-                      <a
-                        href={kitchenUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 rounded-lg bg-[#0B1120] px-2.5 py-0.5 text-[11.5px] font-extrabold text-[#D2DB76] hover:bg-[#1E1B4B]"
-                      >
-                        <Monitor className="h-3 w-3" aria-hidden />
-                        Kitchen KDS ↗
-                      </a>
-                    </>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setShowProfileEdit((v) => !v)}
-                    className="text-[#6B7280] hover:text-[#111827] underline cursor-pointer"
-                  >
-                    {showProfileEdit ? 'Hide Preferences' : 'Tagline & Currency'}
-                  </button>
-                </div>
-              </div>
-
-              {/* Property Mode + Voice Alerts + Master Switch */}
-              <div className="flex flex-wrap items-center gap-2">
-                <div
-                  className="inline-flex items-center gap-1 rounded-xl border border-[#1E1B4B]/12 bg-[#F8F9FA] p-1"
-                  role="group"
-                  aria-label="Property Mode Switcher"
-                >
-                  <button
-                    type="button"
-                    disabled={savingProfile}
-                    onClick={() => {
-                      setPropertyViewFilter('all');
-                      if (businessMode === 'restaurant') return;
-                      setBusinessMode('restaurant');
-                      void handleSaveProfile({
-                        businessMode: 'restaurant',
-                        statusMessage: 'Switched workspace to Restaurant Mode.',
-                      });
-                    }}
-                    className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-extrabold transition-all cursor-pointer ${
-                      businessMode === 'restaurant' && propertyViewFilter !== 'room'
-                        ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
-                        : 'text-[#6B7280] hover:text-[#111827]'
-                    }`}
-                  >
-                    <UtensilsCrossed className="h-3.5 w-3.5" aria-hidden />
-                    Restaurant
-                  </button>
-                  <button
-                    type="button"
-                    disabled={savingProfile}
-                    onClick={() => {
-                      setPropertyViewFilter('all');
-                      if (businessMode === 'cafe') return;
-                      setBusinessMode('cafe');
-                      void handleSaveProfile({
-                        businessMode: 'cafe',
-                        statusMessage: 'Switched workspace to Cafe Mode.',
-                      });
-                    }}
-                    className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-extrabold transition-all cursor-pointer ${
-                      businessMode === 'cafe' && propertyViewFilter !== 'room'
-                        ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
-                        : 'text-[#6B7280] hover:text-[#111827]'
-                    }`}
-                  >
-                    <Coffee className="h-3.5 w-3.5" aria-hidden />
-                    Cafe
-                  </button>
-                  {hotelRoomsEnabled && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPropertyViewFilter((prev) =>
-                          prev === 'room' ? 'all' : 'room',
-                        )
-                      }
-                      className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-extrabold transition-all cursor-pointer ${
-                        propertyViewFilter === 'room'
-                          ? 'bg-[#1E1B4B] text-[#D2DB76] shadow-2xs'
-                          : 'text-[#6B7280] hover:text-[#111827]'
-                      }`}
-                    >
-                      <BedDouble className="h-3.5 w-3.5" aria-hidden />
-                      Hotel Rooms
-                    </button>
-                  )}
-                </div>
-
-                {/* Spoken Voice Alerts Toggle */}
+      <div className="bistro-card px-4 py-3.5 sm:px-5 space-y-3">
+        {/* Tier 1: Mode Switcher + Kitchen KDS + Voice + LIVE */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              className="inline-flex items-center gap-1 rounded-xl border border-[#1E1B4B]/12 bg-[#F8F9FA] p-1"
+              role="group"
+              aria-label="Property Mode Switcher"
+            >
+              <button
+                type="button"
+                disabled={savingProfile}
+                onClick={() => {
+                  setPropertyViewFilter('all');
+                  if (businessMode === 'restaurant') return;
+                  setBusinessMode('restaurant');
+                  void handleSaveProfile({
+                    businessMode: 'restaurant',
+                    statusMessage: 'Switched workspace to Restaurant Mode.',
+                  });
+                }}
+                className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-extrabold whitespace-nowrap transition-all cursor-pointer ${
+                  businessMode === 'restaurant' && propertyViewFilter !== 'room'
+                    ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
+                    : 'text-[#6B7280] hover:text-[#111827]'
+                }`}
+              >
+                <UtensilsCrossed className="h-3.5 w-3.5" aria-hidden />
+                Restaurant
+              </button>
+              <button
+                type="button"
+                disabled={savingProfile}
+                onClick={() => {
+                  setPropertyViewFilter('all');
+                  if (businessMode === 'cafe') return;
+                  setBusinessMode('cafe');
+                  void handleSaveProfile({
+                    businessMode: 'cafe',
+                    statusMessage: 'Switched workspace to Cafe Mode.',
+                  });
+                }}
+                className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-extrabold whitespace-nowrap transition-all cursor-pointer ${
+                  businessMode === 'cafe' && propertyViewFilter !== 'room'
+                    ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
+                    : 'text-[#6B7280] hover:text-[#111827]'
+                }`}
+              >
+                <Coffee className="h-3.5 w-3.5" aria-hidden />
+                Cafe
+              </button>
+              {(hotelRoomsEnabled ||
+                business.category === 'hotel' ||
+                business.category === 'pg') && (
                 <button
                   type="button"
-                  disabled={savingProfile}
                   onClick={() => {
-                    const next = !voiceAlertsEnabled;
-                    setVoiceAlertsEnabled(next);
-                    if (next) {
-                      speakHospitalityAlert('Voice alerts enabled', true);
+                    if (currentSection !== 'overview') {
+                      setSection('overview');
+                      setOverviewSubTab('floor');
                     }
-                    void handleSaveProfile({
-                      voiceAlertsEnabled: next,
-                      statusMessage: next
-                        ? 'Spoken Voice Alerts turned ON.'
-                        : 'Spoken Voice Alerts muted.',
-                    });
+                    setPropertyViewFilter((prev) =>
+                      prev === 'room' ? 'all' : 'room',
+                    );
                   }}
-                  className={`inline-flex h-10 items-center gap-1.5 rounded-xl border px-3 text-[12px] font-extrabold transition-all cursor-pointer ${
-                    voiceAlertsEnabled
-                      ? 'border-emerald-200 bg-emerald-50 text-[#059669]'
-                      : 'border-[#1E1B4B]/15 bg-[#F8F9FA] text-[#6B7280]'
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-extrabold whitespace-nowrap transition-all cursor-pointer ${
+                    propertyViewFilter === 'room'
+                      ? 'bg-[#1E1B4B] text-[#D2DB76] shadow-2xs'
+                      : 'text-[#6B7280] hover:text-[#111827]'
                   }`}
-                  title="Spoken audio announcements for new table calls & incoming orders"
                 >
-                  {voiceAlertsEnabled ? (
-                    <Volume2 className="h-3.5 w-3.5" aria-hidden />
-                  ) : (
-                    <VolumeX className="h-3.5 w-3.5" aria-hidden />
-                  )}
-                  Voice: {voiceAlertsEnabled ? 'ON' : 'OFF'}
+                  <BedDouble className="h-3.5 w-3.5" aria-hidden />
+                  Hotel Rooms
                 </button>
+              )}
+            </div>
 
-                {/* Experience ACTIVE Toggle */}
-                <div className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#1E1B4B]/12 bg-[#F8F9FA] px-3">
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={isEnabled}
-                    aria-label="Toggle Restaurant Experience"
-                    disabled={savingProfile}
-                    onClick={() => {
-                      const next = !isEnabled;
-                      setIsEnabled(next);
-                      void handleSaveProfile({ isEnabled: next });
-                    }}
-                    className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
-                      isEnabled ? 'bg-[#059669]' : 'bg-[#6B7280]/30'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-3.5 w-3.5 transform rounded-full bg-[#FFFFFF] shadow-sm transition-transform ${
-                        isEnabled ? 'translate-x-4.5' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                  <span
-                    className={`text-[11px] font-extrabold uppercase tracking-wider ${
-                      isEnabled ? 'text-[#059669]' : 'text-[#6B7280]'
-                    }`}
-                  >
-                    {isEnabled ? 'LIVE' : 'PAUSED'}
+            {isBusinessLive && (
+              <a
+                href={kitchenUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#0B1120] px-3 text-[12px] font-extrabold text-[#D2DB76] whitespace-nowrap hover:bg-[#1E1B4B] shadow-2xs"
+              >
+                <Monitor className="h-3.5 w-3.5" aria-hidden />
+                Kitchen KDS ↗
+              </a>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={savingProfile}
+              onClick={() => {
+                const next = !voiceAlertsEnabled;
+                setVoiceAlertsEnabled(next);
+                if (next) {
+                  speakHospitalityAlert('Voice alerts enabled', true);
+                }
+                void handleSaveProfile({
+                  voiceAlertsEnabled: next,
+                  statusMessage: next
+                    ? 'Spoken Voice Alerts turned ON.'
+                    : 'Spoken Voice Alerts muted.',
+                });
+              }}
+              className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-[12px] font-extrabold whitespace-nowrap transition-all cursor-pointer ${
+                voiceAlertsEnabled
+                  ? 'border-emerald-200 bg-[#ECFDF5] text-[#059669]'
+                  : 'border-[#1E1B4B]/15 bg-[#F8F9FA] text-[#6B7280]'
+              }`}
+              title="Spoken audio announcements for new table calls & incoming orders"
+            >
+              {voiceAlertsEnabled ? (
+                <Volume2 className="h-3.5 w-3.5" aria-hidden />
+              ) : (
+                <VolumeX className="h-3.5 w-3.5" aria-hidden />
+              )}
+              Voice: {voiceAlertsEnabled ? 'ON' : 'OFF'}
+            </button>
+
+            <div className="inline-flex h-9 items-center gap-2 rounded-xl border border-[#1E1B4B]/12 bg-[#F8F9FA] px-2.5">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isEnabled}
+                aria-label="Toggle Restaurant Experience"
+                disabled={savingProfile}
+                onClick={() => {
+                  const next = !isEnabled;
+                  setIsEnabled(next);
+                  void handleSaveProfile({ isEnabled: next });
+                }}
+                className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                  isEnabled ? 'bg-[#059669]' : 'bg-[#6B7280]/30'
+                }`}
+              >
+                <span
+                  className={`inline-block h-3.5 w-3.5 transform rounded-full bg-[#FFFFFF] shadow-sm transition-transform ${
+                    isEnabled ? 'translate-x-4.5' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+              <span
+                className={`text-[11px] font-extrabold uppercase tracking-wider ${
+                  isEnabled ? 'text-[#059669]' : 'text-[#6B7280]'
+                }`}
+              >
+                {isEnabled ? 'LIVE' : 'PAUSED'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Tier 2: Sub-View Switcher (Left) + Pinned Action Cluster (Right) — Crisp Single Row */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5 border-t border-[#1E1B4B]/10 pt-3">
+          {currentSection === 'overview' ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setOverviewSubTab('floor')}
+                className={`inline-flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-[12.5px] font-extrabold whitespace-nowrap transition-all cursor-pointer ${
+                  overviewSubTab === 'floor'
+                    ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-xs'
+                    : 'border border-[#1E1B4B]/12 bg-[#FFFFFF] text-[#374151] hover:bg-[#F8F9FA]'
+                }`}
+              >
+                <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
+                {hotelRoomsEnabled ||
+                business.category === 'hotel' ||
+                business.category === 'pg'
+                  ? 'Floor & Rooms'
+                  : 'Floor Map'}
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[10.5px] font-extrabold tabular-nums ${
+                    overviewSubTab === 'floor'
+                      ? 'bg-[#D2DB76] text-[#1E1B4B]'
+                      : 'bg-[#F8F9FA] text-[#6B7280]'
+                  }`}
+                >
+                  {tables.filter((t) => t.isActive).length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setOverviewSubTab('orders')}
+                className={`inline-flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-[12.5px] font-extrabold whitespace-nowrap transition-all cursor-pointer ${
+                  overviewSubTab === 'orders'
+                    ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-xs'
+                    : 'border border-[#1E1B4B]/12 bg-[#FFFFFF] text-[#374151] hover:bg-[#F8F9FA]'
+                }`}
+              >
+                <ClipboardList className="h-3.5 w-3.5" aria-hidden />
+                Orders
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[10.5px] font-extrabold tabular-nums ${
+                    activeOrders.length > 0
+                      ? 'bg-[#D2DB76] text-[#1E1B4B]'
+                      : overviewSubTab === 'orders'
+                        ? 'bg-[#FFFFFF]/20 text-[#FFFFFF]'
+                        : 'bg-[#F8F9FA] text-[#6B7280]'
+                  }`}
+                >
+                  {activeOrders.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowChatDrawer(true)}
+                className={`inline-flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-[12.5px] font-extrabold whitespace-nowrap transition-all cursor-pointer ${
+                  openMessagesAndAlertsCount > 0
+                    ? 'border-2 border-[#EF4444]/50 bg-[#FEF2F2] text-[#991B1B] hover:bg-rose-100'
+                    : 'border border-[#1E1B4B]/12 bg-[#FFFFFF] text-[#374151] hover:bg-[#F8F9FA]'
+                }`}
+              >
+                <MessageSquare className="h-3.5 w-3.5" aria-hidden />
+                Requests &amp; Chat
+                {openMessagesAndAlertsCount > 0 && (
+                  <span className="rounded-full bg-[#EF4444] px-1.5 py-0.5 text-[10.5px] font-extrabold text-white tabular-nums">
+                    {openMessagesAndAlertsCount}
                   </span>
-                </div>
+                )}
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2 text-[12.5px] font-bold text-[#6B7280]">
+              <button
+                type="button"
+                onClick={() => {
+                  setSection('overview');
+                  setOverviewSubTab('floor');
+                }}
+                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#1E1B4B]/15 bg-[#F8F9FA] px-3 text-[12px] font-extrabold text-[#1E1B4B] hover:bg-white cursor-pointer"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" aria-hidden />← Floor Map (
+                {tables.filter((t) => t.isActive).length})
+              </button>
+              {activeOrders.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSection('overview');
+                    setOverviewSubTab('orders');
+                  }}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#D2DB76]/45 px-3 text-[12px] font-extrabold text-[#1E1B4B] cursor-pointer"
+                >
+                  {activeOrders.length} Active Order
+                  {activeOrders.length === 1 ? '' : 's'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Pinned Right Action Cluster */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={acceptingOrders && tableOrderingEnabled}
+              disabled={savingProfile}
+              onClick={() => {
+                const next = !(acceptingOrders && tableOrderingEnabled);
+                setAcceptingOrders(next);
+                setTableOrderingEnabled(next);
+                void handleSaveProfile({
+                  acceptingOrders: next,
+                  tableOrderingEnabled: next,
+                  statusMessage: next
+                    ? 'Now Accepting QR Table/Room Orders live.'
+                    : 'Paused QR Ordering — menu is view-only until resumed.',
+                });
+              }}
+              className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-[12px] font-extrabold whitespace-nowrap transition-all cursor-pointer ${
+                acceptingOrders && tableOrderingEnabled
+                  ? 'border-emerald-300 bg-[#ECFDF5] text-[#047857]'
+                  : 'border-[#1E1B4B]/15 bg-[#F8F9FA] text-[#6B7280]'
+              }`}
+            >
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  acceptingOrders && tableOrderingEnabled
+                    ? 'bg-[#10B981]'
+                    : 'bg-[#9CA3AF]'
+                }`}
+              />
+              {acceptingOrders && tableOrderingEnabled
+                ? 'Accepting Orders'
+                : 'Orders Paused'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setPosInitialTableId(null);
+                setPosModalMode('platform');
+              }}
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#D2DB76] px-3 text-[12px] font-extrabold text-[#1E1B4B] whitespace-nowrap hover:brightness-95 active:scale-[0.98] transition-all cursor-pointer shadow-2xs"
+            >
+              <ShoppingBag className="h-3.5 w-3.5" aria-hidden />+ Platform
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setPosInitialTableId(null);
+                setPosModalMode('pos');
+              }}
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#1E1B4B] px-3.5 text-[12px] font-extrabold text-[#FFFFFF] whitespace-nowrap hover:bg-[#2E2A6E] active:scale-[0.98] transition-all cursor-pointer shadow-sm"
+            >
+              <Plus className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
+              Counter POS
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* =====================================================================
+          1. EXECUTIVE HOSPITALITY OVERVIEW (FLOOR MAP IMMEDIATELY ABOVE FOLD)
+         ===================================================================== */}
+      {currentSection === 'overview' && (
+        <div className="space-y-4">
+          {/* Compact 1-Row Property Status & KPI Strip (Keeps Floor Map Above the Fold!) */}
+          <div className="bistro-card px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
+              <div className="flex items-center gap-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#F8F9FA] border border-[#1E1B4B]/10 text-[#1E1B4B]">
+                  <QrCode className="h-3.5 w-3.5" aria-hidden />
+                </span>
+                <span className="text-[12px] font-semibold text-[#6B7280]">
+                  QR Scans
+                </span>
+                <span className="text-[16px] font-black text-[#111827] tabular-nums">
+                  {analytics.qrScans.toLocaleString()}
+                </span>
+              </div>
+
+              <div className="h-4 w-px bg-[#1E1B4B]/10 hidden sm:block" />
+
+              <div className="flex items-center gap-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#F8F9FA] border border-[#1E1B4B]/10 text-[#1E1B4B]">
+                  <Gamepad2 className="h-3.5 w-3.5" aria-hidden />
+                </span>
+                <span className="text-[12px] font-semibold text-[#6B7280]">
+                  Players
+                </span>
+                <span className="text-[16px] font-black text-[#111827] tabular-nums">
+                  {analytics.gamesPlayed.toLocaleString()}
+                </span>
+                <span className="rounded-full bg-[#D2DB76]/45 px-2 py-0.5 text-[10.5px] font-extrabold text-[#1E1B4B] tabular-nums">
+                  {analytics.gamePointsIssued.toLocaleString()} pts
+                </span>
+              </div>
+
+              <div className="h-4 w-px bg-[#1E1B4B]/10 hidden sm:block" />
+
+              <div className="flex items-center gap-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 border border-emerald-200 text-[#059669]">
+                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+                </span>
+                <span className="text-[12px] font-semibold text-[#6B7280]">
+                  Verified Visits
+                </span>
+                <span className="text-[16px] font-black text-[#111827] tabular-nums">
+                  {analytics.verifiedPaidVisits.toLocaleString()}
+                </span>
+                <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10.5px] font-extrabold text-[#059669] tabular-nums">
+                  {analytics.loyaltyStarsIssued.toLocaleString()} ★
+                </span>
               </div>
             </div>
 
-            {/* Tier 2: Workspace Sub-Tabs + Quick Intake Action Buttons */}
-            <div className="flex flex-col gap-3 border-t border-[#1E1B4B]/10 pt-3.5 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setOverviewSubTab('floor')}
-                  className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-extrabold transition-all cursor-pointer ${
-                    overviewSubTab === 'floor'
-                      ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-sm'
-                      : 'border border-[#1E1B4B]/12 bg-[#FFFFFF] text-[#374151] hover:bg-[#F8F9FA]'
-                  }`}
-                >
-                  <LayoutGrid className="h-4 w-4" aria-hidden />
-                  {hotelRoomsEnabled ? 'Floor & Rooms' : 'Floor Map'}
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[11px] font-extrabold tabular-nums ${
-                      overviewSubTab === 'floor'
-                        ? 'bg-[#D2DB76] text-[#1E1B4B]'
-                        : 'bg-[#F8F9FA] text-[#6B7280]'
-                    }`}
+            <div className="flex flex-wrap items-center gap-3 text-[12px] font-bold">
+              {isBusinessLive && (
+                <>
+                  <a
+                    href={menuUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[#1E1B4B] hover:underline"
                   >
-                    {tables.filter((t) => t.isActive).length}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setOverviewSubTab('orders')}
-                  className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-extrabold transition-all cursor-pointer ${
-                    overviewSubTab === 'orders'
-                      ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-sm'
-                      : 'border border-[#1E1B4B]/12 bg-[#FFFFFF] text-[#374151] hover:bg-[#F8F9FA]'
-                  }`}
-                >
-                  <ClipboardList className="h-4 w-4" aria-hidden />
-                  Orders
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[11px] font-extrabold tabular-nums ${
-                      activeOrders.length > 0
-                        ? 'bg-[#D2DB76] text-[#1E1B4B]'
-                        : overviewSubTab === 'orders'
-                          ? 'bg-[#FFFFFF]/20 text-[#FFFFFF]'
-                          : 'bg-[#F8F9FA] text-[#6B7280]'
-                    }`}
+                    Guest Menu <ExternalLink className="h-3 w-3" aria-hidden />
+                  </a>
+                  <a
+                    href={`/r/${business.slug}/staff`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[#1E1B4B] hover:underline"
                   >
-                    {activeOrders.length}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setOverviewSubTab('messages')}
-                  className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-extrabold transition-all cursor-pointer ${
-                    overviewSubTab === 'messages'
-                      ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-sm'
-                      : openMessagesAndAlertsCount > 0
-                        ? 'border-2 border-[#EF4444]/40 bg-[#FEF2F2] text-[#991B1B]'
-                        : 'border border-[#1E1B4B]/12 bg-[#FFFFFF] text-[#374151] hover:bg-[#F8F9FA]'
-                  }`}
-                >
-                  <MessageSquare className="h-4 w-4" aria-hidden />
-                  Requests &amp; Chat
-                  {openMessagesAndAlertsCount > 0 && (
-                    <span className="rounded-full bg-[#EF4444] px-2 py-0.5 text-[11px] font-extrabold text-white tabular-nums">
-                      {openMessagesAndAlertsCount}
-                    </span>
-                  )}
-                </button>
-              </div>
-
-              {/* Right Action Controls: Accepting Orders + Platform Order + Counter POS */}
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={acceptingOrders && tableOrderingEnabled}
-                  disabled={savingProfile}
-                  onClick={() => {
-                    const next = !(acceptingOrders && tableOrderingEnabled);
-                    setAcceptingOrders(next);
-                    setTableOrderingEnabled(next);
-                    void handleSaveProfile({
-                      acceptingOrders: next,
-                      tableOrderingEnabled: next,
-                      statusMessage: next
-                        ? 'Now Accepting QR Table/Room Orders live.'
-                        : 'Paused QR Ordering — menu is view-only until resumed.',
-                    });
-                  }}
-                  className={`inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-[12px] font-extrabold transition-all cursor-pointer ${
-                    acceptingOrders && tableOrderingEnabled
-                      ? 'border-emerald-300 bg-[#ECFDF5] text-[#047857]'
-                      : 'border-[#1E1B4B]/15 bg-[#F8F9FA] text-[#6B7280]'
-                  }`}
-                >
-                  <span
-                    className={`h-2 w-2 rounded-full ${
-                      acceptingOrders && tableOrderingEnabled
-                        ? 'bg-[#10B981]'
-                        : 'bg-[#9CA3AF]'
-                    }`}
-                  />
-                  {acceptingOrders && tableOrderingEnabled
-                    ? 'Accepting Orders'
-                    : 'Orders Paused'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPosInitialTableId(null);
-                    setPosModalMode('platform');
-                  }}
-                  className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#D2DB76] px-3.5 text-[12.5px] font-extrabold text-[#1E1B4B] hover:brightness-95 active:scale-[0.98] transition-all cursor-pointer shadow-2xs"
-                >
-                  <ShoppingBag className="h-3.5 w-3.5" aria-hidden />+ Platform Order
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPosInitialTableId(null);
-                    setPosModalMode('pos');
-                  }}
-                  className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#1E1B4B] px-4 text-[12.5px] font-extrabold text-[#FFFFFF] hover:bg-[#2E2A6E] active:scale-[0.98] transition-all cursor-pointer shadow-sm"
-                >
-                  <Plus className="h-4 w-4 text-[#D2DB76]" aria-hidden />
-                  Counter POS
-                </button>
-              </div>
+                    Waiter Floor <ExternalLink className="h-3 w-3" aria-hidden />
+                  </a>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowProfileEdit((v) => !v)}
+                className="text-[#6B7280] hover:text-[#111827] underline cursor-pointer"
+              >
+                {showProfileEdit ? 'Hide Preferences' : 'Tagline & Currency'}
+              </button>
             </div>
           </div>
 
           {/* Optional Collapsible Tagline & Currency Bar */}
           {showProfileEdit && (
-            <div className="bistro-card p-6 space-y-4">
+            <div className="bistro-card p-5 space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <label
@@ -2068,85 +2149,12 @@ export function RestaurantManagerView({
             </div>
           )}
 
-          {/* 3 Hero KPI Cards (Equal 3-Column Grid) */}
-          <div className="grid gap-5 sm:grid-cols-3">
-            {/* KPI 1: QR Scans */}
-            <div className="bistro-card p-6 sm:p-7 flex flex-col justify-between space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-[15px] font-semibold text-[#6B7280]">
-                  QR Scans
-                </span>
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#F8F9FA] border border-[#1E1B4B]/10 text-[#1E1B4B]">
-                  <QrCode className="h-5 w-5" aria-hidden />
-                </span>
-              </div>
-              <div>
-                <p className="text-[36px] leading-none font-extrabold tracking-tight text-[#111827] tabular-nums">
-                  {analytics.qrScans.toLocaleString()}
-                </p>
-                <p className="mt-2.5 text-[13px] font-medium text-[#6B7280]">
-                  Unverified table scans
-                </p>
-              </div>
-            </div>
-
-            {/* KPI 2: Game Players */}
-            <div className="bistro-card p-6 sm:p-7 flex flex-col justify-between space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-[15px] font-semibold text-[#6B7280]">
-                  Game Players
-                </span>
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#F8F9FA] border border-[#1E1B4B]/10 text-[#1E1B4B]">
-                  <Gamepad2 className="h-5 w-5" aria-hidden />
-                </span>
-              </div>
-              <div>
-                <div className="flex items-baseline gap-2.5">
-                  <p className="text-[36px] leading-none font-extrabold tracking-tight text-[#111827] tabular-nums">
-                    {analytics.gamesPlayed.toLocaleString()}
-                  </p>
-                  <span className="rounded-full bg-[#D2DB76]/40 px-2.5 py-0.5 text-[12px] font-bold text-[#1E1B4B] tabular-nums">
-                    {analytics.gamePointsIssued.toLocaleString()} pts
-                  </span>
-                </div>
-                <p className="mt-2.5 text-[13px] font-medium text-[#6B7280]">
-                  Active diners &amp; points issued
-                </p>
-              </div>
-            </div>
-
-            {/* KPI 3: Verified Visits */}
-            <div className="bistro-card p-6 sm:p-7 flex flex-col justify-between space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-[15px] font-semibold text-[#6B7280]">
-                  Verified Visits
-                </span>
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 border border-emerald-200 text-[#059669]">
-                  <CheckCircle2 className="h-5 w-5" aria-hidden />
-                </span>
-              </div>
-              <div>
-                <div className="flex items-baseline gap-2.5">
-                  <p className="text-[36px] leading-none font-extrabold tracking-tight text-[#111827] tabular-nums">
-                    {analytics.verifiedPaidVisits.toLocaleString()}
-                  </p>
-                  <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[12px] font-bold text-[#059669] tabular-nums">
-                    {analytics.loyaltyStarsIssued.toLocaleString()} ★
-                  </span>
-                </div>
-                <p className="mt-2.5 text-[13px] font-medium text-[#6B7280]">
-                  Staff-confirmed paid visits
-                </p>
-              </div>
-            </div>
-          </div>
-
           {/* Low-Stock Quick Alert Strip (Visible when low-stock items are flagged) */}
           {inventoryEntries.some((i) => i.lowStockAlert) && (
-            <div className="rounded-2xl border border-amber-300 bg-amber-50/85 px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
+            <div className="rounded-2xl border border-amber-300 bg-amber-50/85 px-5 py-3 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
                 <AlertTriangle
-                  className="h-4.5 w-4.5 shrink-0 text-[#D97706]"
+                  className="h-4 w-4 shrink-0 text-[#D97706]"
                   aria-hidden
                 />
                 <p className="text-[13px] font-bold text-[#111827]">
@@ -2176,7 +2184,7 @@ export function RestaurantManagerView({
             </div>
           )}
 
-          {/* LIVE URGENT GUEST REQUESTS STRIP (Always Visible Above Workspace) */}
+          {/* LIVE URGENT GUEST REQUESTS STRIP (With Inline Waiter Assignment + Checkout + Done) */}
           {activeCalls.length > 0 && (
             <div className="rounded-2xl border-2 border-[#EF4444]/40 bg-[#FEF2F2] p-4 space-y-2.5 shadow-xs">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2187,19 +2195,18 @@ export function RestaurantManagerView({
                   </span>
                   <BellRing className="h-4 w-4 text-[#DC2626]" aria-hidden />
                   <span>
-                    {activeCalls.length} Live Guest Request
-                    {activeCalls.length === 1 ? '' : 's'} Needing Attention
+                    LIVE GUEST REQUESTS ({activeCalls.length})
                   </span>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setOverviewSubTab('messages')}
+                  onClick={() => setShowChatDrawer(true)}
                   className="text-[12px] font-extrabold text-[#991B1B] underline cursor-pointer"
                 >
-                  Open Inbox &amp; Assign Waiter →
+                  Open Live Chat Drawer →
                 </button>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="space-y-2">
                 {activeCalls.slice(0, 6).map((call) => {
                   const meta =
                     TABLE_CALL_TYPE_METADATA[call.callType] ??
@@ -2207,47 +2214,80 @@ export function RestaurantManagerView({
                   const isBill = isBillRequestCallType(call.callType);
                   const matchedTable =
                     tables.find((t) => t.id === call.tableId) ?? null;
+                  const assignableStaff = staffMembers.filter(
+                    (s) =>
+                      s.isActive &&
+                      (s.role === 'waiter' || s.role === 'manager'),
+                  );
 
                   return (
                     <div
                       key={call.id}
-                      className="inline-flex flex-wrap items-center gap-2 rounded-xl border border-[#EF4444]/30 bg-white px-3 py-2 text-[12px] shadow-2xs"
+                      className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-[#EF4444]/30 bg-white px-3.5 py-2.5 text-[12.5px] shadow-2xs"
                     >
-                      <span className="font-extrabold text-[#111827]">
-                        {call.tableNumber}
-                      </span>
-                      <span
-                        className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${meta.badgeClass}`}
-                      >
-                        {meta.emoji} {meta.shortLabel}
-                      </span>
-                      {call.assignedStaffLabel && (
-                        <span className="text-[11px] font-bold text-[#1E1B4B]">
-                          · {call.assignedStaffLabel}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`rounded-full border px-2.5 py-0.5 text-[11px] font-extrabold ${meta.badgeClass}`}
+                        >
+                          {meta.emoji} {meta.label}
                         </span>
-                      )}
-                      {isBill && matchedTable && (
+                        <span className="font-extrabold text-[#111827]">
+                          {call.tableNumber}
+                        </span>
+                        <span className="text-[11.5px] font-semibold text-[#6B7280] tabular-nums">
+                          ({formatTimeAgo(call.createdAt)})
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        {assignableStaff.length > 0 && (
+                          <select
+                            aria-label={`Assign waiter for ${call.tableNumber}`}
+                            value={call.assignedStaffLabel ?? ''}
+                            onChange={(e) => {
+                              if (!e.target.value) return;
+                              void handleUpdateTableCall(
+                                call.id,
+                                'acknowledged',
+                                e.target.value,
+                              );
+                            }}
+                            className="h-8 rounded-lg border border-[#1E1B4B]/20 bg-[#F8F9FA] px-2 text-[11.5px] font-bold text-[#1E1B4B] focus:border-[#1E1B4B] focus:outline-none cursor-pointer"
+                          >
+                            <option value="">Assign Waiter…</option>
+                            {assignableStaff.map((st) => {
+                              const lbl = `${st.fullName} (${st.staffCode})`;
+                              return (
+                                <option key={st.id} value={lbl}>
+                                  {lbl}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        )}
+                        {isBill && matchedTable && (
+                          <button
+                            type="button"
+                            onClick={() => setBillModalTable(matchedTable)}
+                            className="h-8 rounded-lg bg-[#1E1B4B] px-3 text-[11.5px] font-extrabold text-[#D2DB76] hover:bg-[#2E2A6E] cursor-pointer"
+                          >
+                            Open Final Bill &amp; Checkout →
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() => setBillModalTable(matchedTable)}
-                          className="rounded-lg bg-[#1E1B4B] px-2.5 py-1 text-[11px] font-extrabold text-[#D2DB76] hover:bg-[#2E2A6E] cursor-pointer"
+                          onClick={() =>
+                            void handleUpdateTableCall(
+                              call.id,
+                              'resolved',
+                              call.assignedStaffLabel,
+                            )
+                          }
+                          className="h-8 rounded-lg bg-[#059669] px-3 text-[11.5px] font-extrabold text-white hover:bg-emerald-700 cursor-pointer"
                         >
-                          Checkout Bill →
+                          ✓ Done
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleUpdateTableCall(
-                            call.id,
-                            'resolved',
-                            call.assignedStaffLabel,
-                          )
-                        }
-                        className="rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-extrabold text-white hover:bg-emerald-700 cursor-pointer"
-                      >
-                        ✓ Done
-                      </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -2287,7 +2327,11 @@ export function RestaurantManagerView({
                   gstPercent={gstPercent}
                   serviceChargePercent={serviceChargePercent}
                   propertyViewFilter={propertyViewFilter}
-                  hotelRoomsEnabled={hotelRoomsEnabled}
+                  hotelRoomsEnabled={
+                    hotelRoomsEnabled ||
+                    business.category === 'hotel' ||
+                    business.category === 'pg'
+                  }
                   onSelectAvailableTable={(tbl) => {
                     setPosInitialTableId(tbl.id);
                     setPosModalMode('pos');
@@ -3616,10 +3660,11 @@ export function RestaurantManagerView({
                 Configure Dining Tables &amp; Hotel Rooms, dynamic UPI QR &amp; GST billing rules, printable QR standees, and 1-tap NFC tag links.
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex shrink-0 items-center gap-2.5">
               <Button
                 type="button"
                 variant="secondary"
+                className="whitespace-nowrap"
                 onClick={() => {
                   setSelectedQrTableId('general');
                   setShowStandeeStudio(true);
@@ -3630,10 +3675,15 @@ export function RestaurantManagerView({
               <Button
                 type="button"
                 variant="primary"
+                className="whitespace-nowrap"
                 onClick={() => setShowAddTableForm((v) => !v)}
               >
                 <Plus className="h-4 w-4" aria-hidden />{' '}
-                {hotelRoomsEnabled ? 'Add Table / Room' : 'Add Table'}
+                {hotelRoomsEnabled ||
+                business.category === 'hotel' ||
+                business.category === 'pg'
+                  ? 'Add Table / Room'
+                  : 'Add Table'}
               </Button>
             </div>
           </div>
@@ -3650,7 +3700,7 @@ export function RestaurantManagerView({
                   Defaults to Simple Total (0% Tax). Set GST % to auto-split CGST + SGST on bills &amp; receipts, or enter your UPI ID for live customer pay-at-table QR codes.
                 </p>
               </div>
-              <label className="inline-flex items-center gap-2.5 rounded-xl border border-[#1E1B4B]/15 bg-[#F8F9FA] px-3.5 py-2 text-[12.5px] font-extrabold text-[#1E1B4B] cursor-pointer">
+              <label className="inline-flex shrink-0 items-center gap-2.5 rounded-xl border border-[#1E1B4B]/15 bg-[#F8F9FA] px-3.5 py-2 text-[12.5px] font-extrabold text-[#1E1B4B] cursor-pointer">
                 <input
                   type="checkbox"
                   checked={hotelRoomsEnabled}
@@ -3662,13 +3712,13 @@ export function RestaurantManagerView({
               </label>
             </div>
 
-            <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-5 items-end">
               <div className="space-y-1">
                 <label
                   htmlFor="hospUpiId"
-                  className="block text-[12px] font-bold text-[#111827]"
+                  className="block text-[12px] font-bold text-[#111827] whitespace-nowrap"
                 >
-                  Merchant UPI ID (Dynamic QR)
+                  Merchant UPI ID (QR)
                 </label>
                 <input
                   id="hospUpiId"
@@ -4964,6 +5014,101 @@ export function RestaurantManagerView({
           </div>
         </div>
       )}
+      {/* Floating Bottom-Right Live Requests & 2-Way Table Chat Bubble (Always Accessible!) */}
+      <button
+        type="button"
+        onClick={() => setShowChatDrawer(true)}
+        aria-label="Open Live Guest Requests and Table Chat"
+        className={`fixed bottom-6 right-6 z-40 flex h-14 items-center gap-2.5 rounded-full px-4.5 shadow-2xl transition-all hover:scale-[1.03] active:scale-[0.97] cursor-pointer ${
+          openMessagesAndAlertsCount > 0
+            ? 'bg-[#1E1B4B] text-white ring-4 ring-[#EF4444]/40'
+            : 'bg-[#1E1B4B] text-white ring-2 ring-[#D2DB76]/70'
+        }`}
+      >
+        <span className="relative flex h-8 w-8 items-center justify-center rounded-full bg-[#D2DB76] text-[#1E1B4B]">
+          <MessageSquare className="h-4.5 w-4.5" aria-hidden />
+          {openMessagesAndAlertsCount > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#EF4444] px-1 text-[10.5px] font-black text-white shadow-sm animate-pulse tabular-nums">
+              {openMessagesAndAlertsCount}
+            </span>
+          )}
+        </span>
+        <span className="text-[13px] font-extrabold pr-1">
+          {openMessagesAndAlertsCount > 0
+            ? `Chat & Alerts (${openMessagesAndAlertsCount})`
+            : 'Live Chat'}
+        </span>
+      </button>
+
+      {/* Slide-Over Right Drawer: Live Requests & 2-Way Table Chat (Never Leaves Floor Map!) */}
+      {showChatDrawer && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Live Requests and Table Chat Drawer"
+          className="fixed inset-0 z-50 flex justify-end bg-[#1E1B4B]/45 backdrop-blur-[2px]"
+        >
+          <div className="flex h-full w-full max-w-[520px] flex-col bg-[#F8F9FA] shadow-2xl animate-fadeSlideUp">
+            <div className="flex items-center justify-between gap-3 bg-[#1E1B4B] px-5 py-4 text-white">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#D2DB76] text-[#1E1B4B]">
+                  <MessageSquare className="h-4.5 w-4.5" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="text-[16px] font-extrabold truncate">
+                    Live Requests &amp; 2-Way Table Chat
+                  </h2>
+                  <p className="text-[11.5px] font-semibold text-[#D2DB76]">
+                    {activeCalls.length} active alert
+                    {activeCalls.length === 1 ? '' : 's'} ·{' '}
+                    {tableMessages.length} message
+                    {tableMessages.length === 1 ? '' : 's'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowChatDrawer(false)}
+                aria-label="Close Live Chat Drawer"
+                className="rounded-xl bg-white/10 p-2 text-white hover:bg-white/20 cursor-pointer"
+              >
+                <X className="h-5 w-5" aria-hidden />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4">
+              <LiveTableMessagesPanel
+                businessSlug={business.slug}
+                businessName={business.name}
+                activeCalls={activeCalls}
+                tableMessages={tableMessages}
+                tables={tables}
+                staffRoster={staffMembers}
+                onResolveCall={async (callId, assignedLabel) => {
+                  await handleUpdateTableCall(
+                    callId,
+                    'resolved',
+                    assignedLabel,
+                  );
+                }}
+                onAssignCall={async (callId, assignedLabel) => {
+                  await handleUpdateTableCall(
+                    callId,
+                    'acknowledged',
+                    assignedLabel,
+                  );
+                }}
+                onOpenTableCheckout={(tbl) => {
+                  setShowChatDrawer(false);
+                  setBillModalTable(tbl);
+                }}
+                onSendManagerReply={handleSendManagerReply}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Open Table / Room Bill & Split-Bill Checkout Modal */}
       {billModalTable && (
         <TableFinalBillModal

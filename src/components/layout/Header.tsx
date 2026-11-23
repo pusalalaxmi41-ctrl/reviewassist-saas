@@ -27,7 +27,7 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-30 border-b border-[#1E1B4B]/[0.08] bg-[#FFFFFF]/95 backdrop-blur-md">
-      <div className="mx-auto flex h-14 sm:h-16 max-w-7xl items-center justify-between gap-2 px-4 sm:px-6">
+      <div className="mx-auto flex h-14 sm:h-16 max-w-[1520px] items-center justify-between gap-2 px-4 sm:px-6">
         <Link
           to="/"
           className="flex min-w-0 items-center gap-2.5 text-[15px] sm:text-[18px] font-bold tracking-tight text-[#111827] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] rounded-xl"

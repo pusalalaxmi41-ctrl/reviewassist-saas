@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   ChefHat,
   Clock,
+  Gamepad2,
   Info,
   MessageSquare,
   Minus,
@@ -46,6 +47,8 @@ interface Props {
   onBackToHub: () => void;
   onOrderSubmitted?: () => void;
   onOpenChatAndBill?: (tab: 'chat' | 'bill') => void;
+  onOpenGames?: () => void;
+  onOpenRewards?: () => void;
 }
 
 interface ThemeStyleTokens {
@@ -512,6 +515,8 @@ export function CustomerDigitalMenuView({
   onBackToHub,
   onOrderSubmitted,
   onOpenChatAndBill,
+  onOpenGames,
+  onOpenRewards,
 }: Props) {
   const theme: MenuThemeTemplate = profile.menuThemeTemplate ?? 'default';
   const tokens = getThemeTokens(theme);
@@ -1223,8 +1228,8 @@ export function CustomerDigitalMenuView({
         )}
       </div>
 
-      {/* Floating Review Table Order Bar (ONLY when tableOrderingEnabled === true & items selected) */}
-      {orderingEnabled && totalSelectedCount > 0 && (
+      {/* Floating Review Table Order Bar (when items selected) OR Sticky Bottom Retention Bar */}
+      {orderingEnabled && totalSelectedCount > 0 ? (
         <div className="fixed bottom-4 left-1/2 z-40 w-[calc(100%-2rem)] max-w-[400px] -translate-x-1/2 animate-fadeSlideUp">
           <div
             className={`flex items-center justify-between gap-3 p-2.5 pl-4 ${tokens.floatingBar}`}
@@ -1250,6 +1255,48 @@ export function CustomerDigitalMenuView({
             </button>
           </div>
         </div>
+      ) : (
+        (onOpenGames || onOpenRewards || onOpenChatAndBill) && (
+          <div className="fixed bottom-3 left-1/2 z-40 w-[calc(100%-1.5rem)] max-w-[420px] -translate-x-1/2">
+            <div className="flex items-center justify-between gap-2 rounded-2xl border border-[#1E1B4B]/15 bg-[#1E1B4B]/95 p-1.5 text-white shadow-xl backdrop-blur">
+              {onOpenGames && (
+                <button
+                  type="button"
+                  onClick={onOpenGames}
+                  className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-white/10 px-3 text-[12px] font-extrabold text-white hover:bg-white/20 cursor-pointer"
+                >
+                  <Gamepad2
+                    className="h-3.5 w-3.5 text-[#D2DB76]"
+                    aria-hidden
+                  />
+                  Play Games
+                </button>
+              )}
+              {onOpenRewards && (
+                <button
+                  type="button"
+                  onClick={onOpenRewards}
+                  className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#D2DB76] px-3 text-[12px] font-extrabold text-[#1E1B4B] hover:brightness-95 cursor-pointer"
+                >
+                  <Star className="h-3.5 w-3.5 fill-current" aria-hidden />
+                  {wallet
+                    ? `${wallet.loyaltyStarsBalance ?? 0} ★ Stars`
+                    : 'Loyalty ★'}
+                </button>
+              )}
+              {onOpenChatAndBill && (
+                <button
+                  type="button"
+                  onClick={() => onOpenChatAndBill('bill')}
+                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-white/10 px-3 text-[12px] font-extrabold text-[#D2DB76] hover:bg-white/20 cursor-pointer"
+                >
+                  <MessageSquare className="h-3.5 w-3.5" aria-hidden />
+                  Bill
+                </button>
+              )}
+            </div>
+          </div>
+        )
       )}
 
       {/* Review & Submit Table Order Modal (Zero Billing / Zero Tax) */}
