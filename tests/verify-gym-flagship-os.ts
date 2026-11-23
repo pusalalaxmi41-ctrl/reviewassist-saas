@@ -425,8 +425,11 @@ assert(
 );
 
 assert(
-  !sqlLower.includes('substring(') && sqlLower.includes('pg_catalog.substr('),
-  'Migration 023 strictly obeys PostgreSQL SQL guardrail (pg_catalog.substr, zero substring())',
+  !sqlLower.includes('substring(') &&
+    !sqlLower.includes('pg_catalog.position(') &&
+    sqlLower.includes('pg_catalog.substr(') &&
+    sqlLower.includes('pg_catalog.strpos('),
+  'Migration 023 strictly obeys PostgreSQL SQL guardrail (pg_catalog.substr + pg_catalog.strpos, zero substring()/pg_catalog.position())',
 );
 
 console.log(`\nSummary: ${passed} passed, ${failed} failed.\n`);

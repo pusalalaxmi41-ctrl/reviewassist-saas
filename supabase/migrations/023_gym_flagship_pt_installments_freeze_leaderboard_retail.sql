@@ -1656,7 +1656,7 @@ begin
         row_number() over (order by coalesce(mc.cnt, 0) desc, m.current_streak_days desc, m.total_check_ins desc, m.created_at asc) as rn,
         m.member_code,
         case
-          when pg_catalog.position(' ' in pg_catalog.btrim(m.full_name)) > 0 then
+          when pg_catalog.strpos(pg_catalog.btrim(m.full_name), ' ') > 0 then
             pg_catalog.split_part(pg_catalog.btrim(m.full_name), ' ', 1) || ' ' ||
             pg_catalog.upper(pg_catalog.substr(pg_catalog.btrim(pg_catalog.split_part(pg_catalog.btrim(m.full_name), ' ', 2)), 1, 1)) || '.'
           else pg_catalog.btrim(m.full_name)
