@@ -1,33 +1,38 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Dumbbell,
-  QrCode,
-  Settings,
-  Sparkles,
-  Plus,
-  ExternalLink,
-  Clock,
-  CheckCircle2,
-  ShieldAlert,
-  Ban,
   AlertCircle,
-  Trash2,
+  Award,
   Building2,
+  CheckCircle2,
+  ClipboardList,
+  Clock,
+  Dumbbell,
+  ExternalLink,
+  IndianRupee,
+  LayoutDashboard,
+  Plus,
+  QrCode,
+  ShoppingBag,
+  Sparkles,
+  Trash2,
+  Users,
 } from 'lucide-react';
 import type { Business } from '../../types/business';
 import type { GymPlan } from '../../types/gym';
 import { businessRepository } from '../../services/storage';
-import { categoryLabels } from '../../config/reviewExperience';
 import { getGymPortalUrl } from '../../utils/gymValidation';
 import { formatPriceFromPaise } from '../../utils/restaurantValidation';
-import { GymManagerView } from './GymManagerView';
+import { GymManagerView, type GymCommandSection } from './GymManagerView';
 import { QRCodeManager } from '../dashboard/QRCodeManager';
 import { GoogleUrlSettings } from '../dashboard/GoogleUrlSettings';
 import { AIConfigurationSettings } from '../dashboard/AIConfigurationSettings';
 import { BusinessKnowledgeSettings } from '../dashboard/BusinessKnowledgeSettings';
 
-export type GymStudioTab = 'radar' | 'front_desk_qr' | 'plans' | 'reviews';
+export type GymStudioTab =
+  | GymCommandSection
+  | 'plans_qr'
+  | 'reviews';
 
 interface Props {
   business: Business;
@@ -41,14 +46,13 @@ interface Props {
 export function GymOwnerWorkspace({
   business,
   gymBusinesses,
-  hasOtherBusinesses = false,
   onSelectBusiness,
   onBusinessUpdated,
-  initialTab = 'radar',
+  initialTab = 'dashboard',
 }: Props) {
   const [activeTab, setActiveTab] = useState<GymStudioTab>(initialTab);
 
-  // Plans & Expiry Alert Settings
+  // Plans & Static Entrance QR Settings
   const [isRegistrationOpen, setIsRegistrationOpen] = useState(true);
   const [renewalAlertDays, setRenewalAlertDays] = useState(3);
   const [plansDraft, setPlansDraft] = useState<GymPlan[]>([]);
@@ -76,7 +80,7 @@ export function GymOwnerWorkspace({
           setPlansDraft(cfg.plans);
         }
       } catch {
-        // non-blocking
+        // Non-blocking
       }
     }
     void loadCfg();
@@ -114,7 +118,7 @@ export function GymOwnerWorkspace({
     setNewPlanName('');
   }
 
-  async function handleSaveGymConfig(e: React.FormEvent) {
+  async function handleSaveGymConfig(e: FormEvent) {
     e.preventDefault();
     setSavingConfig(true);
     setErrorMsg(null);
@@ -137,441 +141,302 @@ export function GymOwnerWorkspace({
     }
   }
 
-  const statusPillConfig: Record<
-    NonNullable<Business['status']>,
-    { label: string; className: string; Icon: typeof CheckCircle2 }
-  > = {
-    pending: {
-      label: 'Awaiting Gym Admin Approval',
-      className: 'bg-amber-500/15 text-amber-300 border-amber-400/40',
-      Icon: Clock,
-    },
-    active: {
-      label: 'Live & Active',
-      className: 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40',
-      Icon: CheckCircle2,
-    },
-    rejected: {
-      label: 'Rejected',
-      className: 'bg-red-500/15 text-red-300 border-red-400/40',
-      Icon: Ban,
-    },
-    suspended: {
-      label: 'Suspended',
-      className: 'bg-white/10 text-slate-300 border-white/20',
-      Icon: ShieldAlert,
-    },
-  };
-
-  const currentPill = statusPillConfig[currentStatus];
-  const StatusIcon = currentPill.Icon;
-
-  const navItems: {
+  const navItems: ReadonlyArray<{
     id: GymStudioTab;
     label: string;
-    shortLabel: string;
-    Icon: typeof Dumbbell;
-  }[] = [
-    {
-      id: 'radar',
-      label: 'Renewal Radar & Approvals',
-      shortLabel: 'Radar',
-      Icon: Dumbbell,
-    },
-    {
-      id: 'front_desk_qr',
-      label: 'Front-Desk Gym QR',
-      shortLabel: 'Gym QR',
-      Icon: QrCode,
-    },
-    {
-      id: 'plans',
-      label: 'Plans & Alert Rules',
-      shortLabel: 'Plans',
-      Icon: Settings,
-    },
-    {
-      id: 'reviews',
-      label: 'Google Reviews & AI',
-      shortLabel: 'Reviews',
-      Icon: Sparkles,
-    },
+    short: string;
+    Icon: typeof LayoutDashboard;
+  }> = [
+    { id: 'dashboard', label: 'Dashboard', short: 'Home', Icon: LayoutDashboard },
+    { id: 'members', label: 'Members', short: 'Members', Icon: Users },
+    { id: 'trainers', label: 'PT & Trainers', short: 'Trainers', Icon: Award },
+    { id: 'dues', label: 'Payments & Dues', short: 'Dues', Icon: IndianRupee },
+    { id: 'supplements', label: 'Supplement Bar', short: 'Bar POS', Icon: ShoppingBag },
+    { id: 'workouts', label: 'Workout Plans', short: 'Plans', Icon: ClipboardList },
+    { id: 'plans_qr', label: 'Plans & Static QR', short: 'QR', Icon: QrCode },
+    { id: 'reviews', label: 'AI Reviews', short: 'Reviews', Icon: Sparkles },
   ];
 
-  return (
-    <div className="grid gap-6 lg:grid-cols-12 items-start animate-fadeSlideUp">
-      {/* SEPARATE GYMOS STUDIO SIDEBAR (Deep Slate #0F172A + Volt Lime #A3E635) */}
-      <aside
-        aria-label="GymOS Workspace Navigation"
-        className="lg:col-span-3 overflow-hidden rounded-3xl border border-slate-800 bg-[#0F172A] text-white shadow-lg flex flex-col justify-between lg:min-h-[640px]"
-      >
-        <div>
-          <div className="h-1.5 w-full bg-gradient-to-r from-[#A3E635] via-[#BEF264] to-[#22C55E]" />
+  const isCommandSection =
+    activeTab !== 'plans_qr' && activeTab !== 'reviews';
 
-          <div className="p-5 space-y-5">
-            <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-4">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#A3E635] text-[#0F172A]">
-                  <Dumbbell className="h-5 w-5" aria-hidden />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#A3E635]">
-                    GYMOS STUDIO
-                  </p>
-                  <p className="truncate text-[14px] font-black text-white">
-                    Membership &amp; Expiry
-                  </p>
-                </div>
-              </div>
+  return (
+    <div className="flex min-h-[calc(100vh-52px)] w-full flex-col lg:flex-row">
+      {/* DARK OBSIDIAN LEFT SIDEBAR (#0F1115) WITH VOLT LIME ACTIVE PILLS (#C8F135) */}
+      <aside
+        aria-label="GymOS Command Sidebar"
+        className="w-full lg:w-[236px] lg:shrink-0 bg-[#0F1115] text-white flex flex-col justify-between lg:sticky lg:top-[52px] lg:h-[calc(100vh-52px)] lg:overflow-y-auto border-b lg:border-b-0 lg:border-r border-white/10"
+      >
+        <div className="p-3.5 space-y-4">
+          {/* Brand + Gym Switcher */}
+          <div className="space-y-2 border-b border-white/10 pb-3.5">
+            <div className="flex items-center justify-between px-1">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-[#C8F135]">
+                <Dumbbell className="h-3.5 w-3.5" aria-hidden />
+                GymOS Studio
+              </span>
               <Link
                 to="/setup?type=gym"
-                className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-bold text-[#A3E635] hover:bg-white/10"
+                className="inline-flex items-center gap-0.5 text-[11px] font-bold text-slate-300 hover:text-white"
               >
                 <Plus className="h-3 w-3" aria-hidden /> New
               </Link>
             </div>
-
-            <div className="space-y-1.5">
-              <span className="block text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
-                Active Gym / Fitness Studio
-              </span>
-              <div className="flex h-11 items-center gap-2 rounded-xl border border-white/15 bg-slate-900 px-3">
-                <Building2
-                  className="h-4 w-4 shrink-0 text-[#A3E635]"
-                  aria-hidden
-                />
-                <select
-                  aria-label="Select active gym"
-                  value={business.slug}
-                  onChange={(e) => onSelectBusiness(e.target.value)}
-                  className="w-full min-w-0 truncate bg-transparent text-[13.5px] font-bold text-white focus:outline-none cursor-pointer"
-                >
-                  {gymBusinesses.map((b) => (
-                    <option
-                      key={b.id}
-                      value={b.slug}
-                      className="bg-[#0F172A] text-white"
-                    >
-                      {b.name} ({b.city})
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <div className="flex h-9.5 items-center gap-2 rounded-xl border border-white/10 bg-[#161920] px-2.5">
+              <Building2 className="h-3.5 w-3.5 shrink-0 text-[#C8F135]" aria-hidden />
+              <select
+                aria-label="Select active gym"
+                value={business.slug}
+                onChange={(e) => onSelectBusiness(e.target.value)}
+                className="w-full min-w-0 truncate bg-transparent text-[13px] font-bold text-white focus:outline-none cursor-pointer"
+              >
+                {gymBusinesses.map((b) => (
+                  <option key={b.id} value={b.slug} className="bg-[#0F1115] text-white">
+                    {b.name} ({b.city})
+                  </option>
+                ))}
+              </select>
             </div>
-
-            <nav className="flex overflow-x-auto lg:flex-col gap-1.5">
-              {navItems.map(({ id, label, shortLabel, Icon }) => {
-                const isActive = activeTab === id;
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setActiveTab(id)}
-                    aria-current={isActive ? 'page' : undefined}
-                    className={`flex min-h-11 items-center gap-3 rounded-xl px-4 py-2.5 text-[13.5px] font-extrabold whitespace-nowrap transition-all duration-150 active:scale-[0.98] cursor-pointer ${
-                      isActive
-                        ? 'bg-[#A3E635] text-[#0F172A] shadow-sm'
-                        : 'text-slate-300 hover:bg-white/5 hover:text-white'
-                    }`}
-                  >
-                    <Icon
-                      className={`h-4.5 w-4.5 shrink-0 ${
-                        isActive ? 'text-[#0F172A]' : 'text-[#A3E635]'
-                      }`}
-                      aria-hidden
-                    />
-                    <span className="hidden sm:inline">{label}</span>
-                    <span className="sm:hidden">{shortLabel}</span>
-                  </button>
-                );
-              })}
-            </nav>
           </div>
+
+          {/* Sidebar Nav Buttons */}
+          <nav className="flex overflow-x-auto lg:overflow-x-visible lg:flex-col gap-1">
+            {navItems.map(({ id, label, short, Icon }) => {
+              const active = activeTab === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setActiveTab(id)}
+                  className={`flex h-10 shrink-0 lg:shrink lg:w-full items-center gap-2.5 rounded-xl px-3 text-[13px] font-bold transition-colors cursor-pointer ${
+                    active
+                      ? 'bg-[#C8F135] text-[#0F1115]'
+                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <Icon
+                    className={`h-4 w-4 shrink-0 ${
+                      active ? 'text-[#0F1115]' : 'text-slate-400'
+                    }`}
+                    aria-hidden
+                  />
+                  <span className="hidden sm:inline truncate">{label}</span>
+                  <span className="sm:hidden">{short}</span>
+                </button>
+              );
+            })}
+          </nav>
         </div>
 
-        <div className="border-t border-white/10 p-5 space-y-3 bg-slate-950/60">
-          <div className="space-y-1">
-            <p className="truncate text-[14px] font-extrabold text-white">
-              {business.name}
-            </p>
-            <p className="truncate text-[12px] text-slate-400">
-              {categoryLabels[business.category]} • {business.city}
-            </p>
-          </div>
-
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${currentPill.className}`}
-          >
-            <StatusIcon className="h-3 w-3 shrink-0" aria-hidden />
-            {currentPill.label}
-          </span>
-
-          {isBusinessLive && (
-            <a
-              href={gymPortalUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-1 flex h-9 w-full items-center justify-center gap-1.5 rounded-xl border border-[#A3E635]/40 bg-slate-900 px-3 text-[12px] font-extrabold text-[#A3E635] hover:bg-[#A3E635] hover:text-[#0F172A] transition-colors"
-            >
-              Open Member QR Portal <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-            </a>
-          )}
-
-          {hasOtherBusinesses && (
-            <div className="pt-2 border-t border-white/10">
-              <Link
-                to="/dashboard?view=all"
-                className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-slate-400 hover:text-[#A3E635]"
-              >
-                Switch Business Workspace →
-              </Link>
+        {/* Bottom Static Entrance QR Quick-Launch Card */}
+        <div className="hidden lg:block border-t border-white/10 p-3.5">
+          <div className="rounded-2xl bg-[#161920] border border-white/10 p-3.5 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#C8F135]">
+                Static Entrance QR
+              </span>
+              <span
+                className={`h-2 w-2 rounded-full ${isBusinessLive ? 'bg-[#C8F135]' : 'bg-amber-400'}`}
+              />
             </div>
-          )}
+            <p className="text-[11.5px] text-slate-400 leading-snug">
+              ₹0 reception hardware — 1 printed wall QR powers member passes,
+              check-ins &amp; workout logging.
+            </p>
+            {isBusinessLive && (
+              <a
+                href={gymPortalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex h-8.5 w-full items-center justify-center gap-1.5 rounded-xl bg-[#C8F135] text-[12px] font-extrabold text-[#0F1115] hover:bg-[#b8e028]"
+              >
+                Open Member App <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+              </a>
+            )}
+          </div>
         </div>
       </aside>
 
-      {/* MAIN GYMOS CONTENT */}
-      <div className="lg:col-span-9 min-w-0 space-y-5">
+      {/* CRISP LIGHT MILK WORKSPACE (#F8F9FA) */}
+      <div className="flex-1 min-w-0 bg-[#F8F9FA] px-4 py-4 sm:px-6 sm:py-5 space-y-5">
         {!isBusinessLive && (
           <div
             role="status"
-            className="rounded-3xl border border-amber-300 bg-amber-50 p-5 space-y-1.5"
+            className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-center gap-2 text-[13px] font-semibold text-amber-950"
           >
-            <div className="flex items-center gap-2">
-              <StatusIcon className="h-4.5 w-4.5 text-amber-700" aria-hidden />
-              <h2 className="text-[15px] font-extrabold text-slate-900">
-                {currentStatus === 'pending'
-                  ? 'Gym Workspace in Preview Mode — Awaiting Admin Approval'
-                  : 'Public Gym Check-In Portal Offline'}
-              </h2>
-            </div>
-            <p className="text-[13px] text-slate-600">
-              Configure your membership plans and renewal alerts below. Once
-              approved under <strong>Gyms &amp; Fitness</strong> in{' '}
-              <Link to="/admin" className="font-bold text-slate-900 underline">
-                Admin Panel
-              </Link>
-              , your Front-Desk Member QR unlocks immediately.
-            </p>
+            <Clock className="h-4 w-4 text-amber-700 shrink-0" aria-hidden />
+            Preview Mode — Awaiting Platform Admin Approval. You can set up
+            plans, trainers, workout routines &amp; supplement products right now.
           </div>
         )}
 
-        {activeTab === 'radar' && (
+        {/* COMMAND SECTIONS (Dashboard, Members, PT & Trainers, Dues, Supplement Bar, Workout Plans) */}
+        {isCommandSection && (
           <GymManagerView
-            key={`gym-radar-${business.id}`}
             business={business}
             isBusinessLive={isBusinessLive}
+            activeSection={activeTab as GymCommandSection}
+            onSectionChange={(sec) => setActiveTab(sec)}
           />
         )}
 
-        {activeTab === 'front_desk_qr' && (
-          <div className="space-y-5">
-            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xs space-y-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#0F172A] px-3 py-1 text-[10.5px] font-extrabold uppercase tracking-wider text-[#A3E635]">
-                <QrCode className="h-3.5 w-3.5" aria-hidden />
-                Replace Dusty Paper Registers
-              </span>
-              <h1 className="text-[24px] font-black tracking-tight text-slate-900">
-                Front-Desk Gym Membership &amp; Check-In QR Standee
+        {/* PLANS & SINGLE STATIC PRINTED ENTRANCE QR */}
+        {activeTab === 'plans_qr' && (
+          <div className="space-y-6">
+            <div className="border-b border-slate-200 pb-4">
+              <h1 className="text-[22px] font-extrabold text-[#0F1115]">
+                Membership Plans &amp; Single Static Entrance QR
               </h1>
-              <p className="text-[13.5px] text-slate-600 leading-relaxed">
-                Print and place this QR at your reception desk. New members scan
-                to sign up in 10 seconds; returning members scan to see their{' '}
-                <strong>Days Remaining</strong> and tap{' '}
-                <strong>Daily Check-In ✓</strong>.
-              </p>
-            </div>
-
-            {isBusinessLive ? (
-              <QRCodeManager
-                key={`gym-qr-${business.id}`}
-                business={business}
-                defaultMode="gym"
-              />
-            ) : (
-              <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center space-y-3">
-                <Clock className="mx-auto h-8 w-8 text-amber-500" aria-hidden />
-                <h3 className="text-[18px] font-extrabold text-slate-900">
-                  Front-Desk Gym QR Unlocks After Approval
-                </h3>
-                <p className="mx-auto max-w-md text-[13.5px] text-slate-600">
-                  Approve <strong>{business.name}</strong> in Admin Panel →{' '}
-                  <strong>Gyms &amp; Fitness</strong> to export your printable PNG &amp; A5 PDF standee.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'plans' && (
-          <form
-            onSubmit={(e) => void handleSaveGymConfig(e)}
-            className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xs space-y-6"
-          >
-            <div>
-              <h1 className="text-[24px] font-black text-slate-900">
-                Membership Plans &amp; Expiry Alert Rules
-              </h1>
-              <p className="text-[13px] text-slate-500 mt-0.5">
-                Customize your gym plans, durations, and how many days before expiry GymOS triggers urgent red alerts.
+              <p className="text-[13px] text-slate-500">
+                Print ONE high-contrast entrance poster for reception — zero
+                tablet required — and configure your plans &amp; 3-day alert
+                window.
               </p>
             </div>
 
             {statusMsg && (
-              <div
-                role="status"
-                className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] font-bold text-emerald-800"
-              >
-                <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
-                <span>{statusMsg}</span>
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] font-semibold text-emerald-900 flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4" aria-hidden />
+                {statusMsg}
               </div>
             )}
             {errorMsg && (
-              <div
-                role="alert"
-                className="flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] font-semibold text-red-900"
-              >
-                <AlertCircle className="h-4 w-4 shrink-0 text-red-700" aria-hidden />
-                <span>{errorMsg}</span>
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[13px] font-semibold text-rose-800 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" aria-hidden />
+                {errorMsg}
               </div>
             )}
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 cursor-pointer">
-                <div>
-                  <p className="text-[14px] font-extrabold text-slate-900">
-                    Accept New QR Registrations
-                  </p>
-                  <p className="text-[12px] text-slate-500">
-                    Allow walk-ins to submit signup cards via Front-Desk QR
-                  </p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={isRegistrationOpen}
-                  onChange={(e) => setIsRegistrationOpen(e.target.checked)}
-                  className="h-5 w-5 accent-slate-900"
-                />
-              </label>
-
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-1.5">
-                <label
-                  htmlFor="renewalAlertDaysInput"
-                  className="block text-[13px] font-extrabold text-slate-900"
-                >
-                  Urgent Renewal Alert Window (Days Before Expiry)
+            <form
+              onSubmit={(e) => void handleSaveGymConfig(e)}
+              className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <label className="inline-flex items-center gap-2 text-[13.5px] font-bold text-[#0F1115] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isRegistrationOpen}
+                    onChange={(e) => setIsRegistrationOpen(e.target.checked)}
+                    className="h-4 w-4 accent-[#0F1115]"
+                  />
+                  Accept New Member QR Signups
                 </label>
-                <input
-                  id="renewalAlertDaysInput"
-                  type="number"
-                  min={1}
-                  max={30}
-                  value={renewalAlertDays}
-                  onChange={(e) =>
-                    setRenewalAlertDays(
-                      Math.max(1, Math.min(30, Number(e.target.value) || 3)),
-                    )
-                  }
-                  className="h-10 w-28 rounded-xl border border-slate-300 bg-white px-3 text-[14px] font-black text-slate-900"
-                />
-              </div>
-            </div>
 
-            <div className="space-y-3">
-              <p className="text-[12px] font-extrabold uppercase tracking-wider text-slate-500">
-                Active Membership Plans ({plansDraft.length})
-              </p>
-              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <label className="text-[12.5px] font-bold text-slate-600">
+                    Renewal Alert Window:
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={renewalAlertDays}
+                    onChange={(e) =>
+                      setRenewalAlertDays(Number.parseInt(e.target.value, 10) || 3)
+                    }
+                    className="h-9 w-16 rounded-lg border border-slate-300 px-2 text-center text-[13px] font-extrabold"
+                  />
+                  <span className="text-[12px] text-slate-500">days</span>
+                </div>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2">
                 {plansDraft.map((plan) => (
                   <div
                     key={plan.id}
-                    className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+                    className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5"
                   >
                     <div>
-                      <p className="text-[14px] font-extrabold text-slate-900">
+                      <p className="text-[13.5px] font-extrabold text-[#0F1115]">
                         {plan.name}
                       </p>
-                      <p className="text-[12px] font-semibold text-slate-500">
-                        {plan.durationDays} days •{' '}
-                        {formatPriceFromPaise(plan.pricePaise, 'INR')}
+                      <p className="text-[12px] text-slate-500">
+                        {plan.durationDays} days ·{' '}
+                        <strong>
+                          {formatPriceFromPaise(plan.pricePaise, 'INR')}
+                        </strong>
                       </p>
                     </div>
                     <button
                       type="button"
-                      disabled={plansDraft.length <= 1}
                       onClick={() =>
                         setPlansDraft((prev) =>
                           prev.filter((p) => p.id !== plan.id),
                         )
                       }
-                      aria-label={`Remove ${plan.name}`}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-40 cursor-pointer"
+                      className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 cursor-pointer"
                     >
-                      <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                      <Trash2 className="h-4 w-4" aria-hidden />
                     </button>
                   </div>
                 ))}
               </div>
 
-              <div className="grid gap-2.5 sm:grid-cols-12 rounded-2xl border border-dashed border-slate-300 p-3.5">
+              <div className="grid gap-2 sm:grid-cols-4 pt-2 border-t border-slate-100">
                 <input
                   type="text"
-                  placeholder="Plan name (e.g. 2 Months Summer)"
+                  placeholder="New Plan Name"
                   value={newPlanName}
                   onChange={(e) => setNewPlanName(e.target.value)}
-                  className="sm:col-span-5 h-10 rounded-xl border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-900"
+                  className="h-9.5 rounded-xl border border-slate-300 px-3 text-[13px]"
                 />
                 <input
                   type="number"
-                  min={1}
-                  max={1095}
-                  placeholder="Days"
+                  placeholder="Days (e.g. 90)"
                   value={newPlanDays}
                   onChange={(e) => setNewPlanDays(e.target.value)}
-                  className="sm:col-span-2 h-10 rounded-xl border border-slate-300 bg-white px-3 text-[13px] font-bold text-slate-900"
+                  className="h-9.5 rounded-xl border border-slate-300 px-3 text-[13px]"
                 />
                 <input
                   type="number"
-                  min={0}
-                  placeholder="Fee (₹)"
+                  placeholder="Fee ₹ (e.g. 4000)"
                   value={newPlanRupees}
                   onChange={(e) => setNewPlanRupees(e.target.value)}
-                  className="sm:col-span-3 h-10 rounded-xl border border-slate-300 bg-white px-3 text-[13px] font-bold text-slate-900"
+                  className="h-9.5 rounded-xl border border-slate-300 px-3 text-[13px]"
                 />
                 <button
                   type="button"
                   onClick={handleAddPlan}
-                  className="sm:col-span-2 h-10 rounded-xl bg-slate-900 px-3 text-[12.5px] font-extrabold text-[#A3E635] hover:bg-slate-800 cursor-pointer"
+                  className="h-9.5 rounded-xl border border-[#0F1115] text-[12.5px] font-extrabold text-[#0F1115] hover:bg-slate-100 cursor-pointer"
                 >
-                  + Add
+                  + Add Plan
                 </button>
               </div>
-            </div>
 
-            <button
-              type="submit"
-              disabled={savingConfig}
-              className="inline-flex h-11 items-center justify-center rounded-xl bg-[#0F172A] px-6 text-[14px] font-black text-[#A3E635] hover:bg-slate-800 disabled:opacity-60 cursor-pointer"
-            >
-              {savingConfig ? 'Saving…' : 'Save Plans & Expiry Rules'}
-            </button>
-          </form>
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={savingConfig}
+                  className="h-10 rounded-xl bg-[#0F1115] px-5 text-[13px] font-extrabold text-[#C8F135] cursor-pointer"
+                >
+                  {savingConfig ? 'Saving…' : 'Save Plans & Settings ✓'}
+                </button>
+              </div>
+            </form>
+
+            {isBusinessLive && (
+              <QRCodeManager business={business} defaultMode="gym" />
+            )}
+          </div>
         )}
 
+        {/* AI REVIEWS & GOOGLE REPUTATION */}
         {activeTab === 'reviews' && (
           <div className="space-y-5">
+            <div className="border-b border-slate-200 pb-4">
+              <h1 className="text-[22px] font-extrabold text-[#0F1115]">
+                Gym AI Google Reviews &amp; Reputation
+              </h1>
+              <p className="text-[13px] text-slate-500">
+                Configure your Google Review link, AI reply voice, and Gym
+                Knowledge context.
+              </p>
+            </div>
+            <AIConfigurationSettings business={business} />
+            <BusinessKnowledgeSettings business={business} />
             <GoogleUrlSettings
-              key={`gym-google-${business.id}`}
               business={business}
               onUpdated={onBusinessUpdated}
-            />
-            <AIConfigurationSettings
-              key={`gym-ai-${business.id}`}
-              business={business}
-            />
-            <BusinessKnowledgeSettings
-              key={`gym-knowledge-${business.id}`}
-              business={business}
             />
           </div>
         )}

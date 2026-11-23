@@ -80,15 +80,35 @@ import type {
   PublicBarberQueueStatusPayload,
 } from '../../types/barberQueue';
 import type {
+  GymBodyMeasurement,
+  GymBodyMeasurementInput,
+  GymCatalogExercise,
+  GymCatalogExerciseInput,
   GymConfig,
   GymConfigInput,
   GymDailyCheckInResult,
   GymFitnessGoal,
+  GymFreezeAction,
+  GymLeaderboardEntry,
+  GymLogSetResult,
   GymMember,
   GymMemberProgressHistory,
+  GymMemberWorkoutPlanPayload,
+  GymMemberWorkoutSummaryPayload,
   GymOwnerDashboardPayload,
   GymOwnerMemberAction,
+  GymPaymentMethod,
+  GymRetailProduct,
+  GymRetailProductInput,
+  GymRetailSale,
+  GymRoutineExerciseItem,
+  GymTrainer,
+  GymTrainerCommissionRow,
+  GymTrainerInput,
   GymWorkoutFocus,
+  GymWorkoutRoutine,
+  GymWorkoutSession,
+  LogGymWorkoutSessionInput,
   PublicGymPortalPayload,
   SubmitGymRegistrationInput,
 } from '../../types/gym';
@@ -811,24 +831,25 @@ export interface IBusinessRepository {
     phone: string;
   }): Promise<GymMember | null>;
 
-  /** Records a 1-tap daily gym check-in with workout focus & note (1/day, updates focus if already checked in). */
+  /** Records a 1-tap daily gym check-in with workout focus, streak calculation, & optional PT deduction. */
   gymMemberDailyCheckIn(params: {
     businessSlug: string;
     phone: string;
     workoutFocus?: GymWorkoutFocus;
     memberNote?: string | null;
+    isPtSession?: boolean;
     /** Optional explicit YYYY-MM-DD date override for deterministic multi-day tests. */
     checkInDateOverride?: string | null;
   }): Promise<GymDailyCheckInResult>;
 
-  /** Owner dashboard view: live today's attendance, monthly & projected revenue, inactive alerts, renewals & members. */
+  /** Owner dashboard view: live attendance, combined monthly revenue, dues, weekly comparison, PT, retail & leaderboard. */
   getGymOwnerDashboard(
     businessId: string,
     options?: AIConfigAccessOptions,
     monthKey?: string | null,
   ): Promise<GymOwnerDashboardPayload>;
 
-  /** Owner-only member progress history: full timestamped attendance timeline & workout split breakdown. */
+  /** Owner-only member progress history: full timestamped attendance timeline, body journal & workout split breakdown. */
   getGymMemberProgressHistory(params: {
     businessId: string;
     memberId: string;
@@ -847,7 +868,7 @@ export interface IBusinessRepository {
     options?: AIConfigAccessOptions;
   }): Promise<GymMember>;
 
-  /** Owner action: approve payment & start plan, renew plan (+N days), reject, or suspend member. */
+  /** Owner action: approve payment (full or installment) + optional PT package, renew, reject, or suspend member. */
   ownerApproveOrRenewGymMember(params: {
     businessId: string;
     memberId: string;
@@ -855,9 +876,156 @@ export interface IBusinessRepository {
     planId?: string | null;
     durationDays?: number | null;
     feePaise?: number | null;
+    amountPaidPaise?: number | null;
+    balanceDueDate?: string | null;
+    ptTrainerId?: string | null;
+    ptPackageName?: string | null;
+    ptSessions?: number;
+    ptFeePaise?: number;
+    paymentMethod?: GymPaymentMethod;
     staffLabel?: string;
     options?: AIConfigAccessOptions;
   }): Promise<GymMember>;
+
+  /** Collects part or full installment balance due on a member's plan. */
+  collectGymBalanceDue(params: {
+    businessId: string;
+    memberId: string;
+    collectedPaise: number;
+    paymentMethod?: GymPaymentMethod;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMember>;
+
+  /** Pauses ('freeze') or resumes ('resume') a membership, auto-extending endDate by exact paused days on resume. */
+  toggleGymMembershipFreeze(params: {
+    businessId: string;
+    memberId: string;
+    action: GymFreezeAction;
+    /** Optional YYYY-MM-DD override for deterministic multi-day freeze tests in Mock mode. */
+    resumeDateOverride?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMember>;
+
+  /** Creates a Personal Trainer profile with commission percentage (0-100%). */
+  createGymTrainer(
+    businessId: string,
+    input: GymTrainerInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymTrainer>;
+
+  /** Deletes a Personal Trainer profile from this gym. */
+  deleteGymTrainer(
+    businessId: string,
+    trainerId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void>;
+
+  /** Returns monthly PT sessions delivered & exact commission payouts for all gym trainers. */
+  getGymTrainerCommissions(
+    businessId: string,
+    monthKey?: string | null,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymTrainerCommissionRow[]>;
+
+  /** Logs a member's 30-day body transformation entry (weight, waist, chest, biceps, BMI). */
+  logGymBodyMeasurement(
+    input: GymBodyMeasurementInput,
+  ): Promise<GymBodyMeasurement>;
+
+  /** Saves a completed guided workout session (exercises, sets, weights, RPE, volume kg & PRs hit). */
+  logGymWorkoutSession(
+    input: LogGymWorkoutSessionInput,
+  ): Promise<GymWorkoutSession>;
+
+  /** Privacy-safe Top-10 Monthly Consistency & Streak Leaderboard for a gym. */
+  getGymMonthlyLeaderboard(businessSlug: string): Promise<GymLeaderboardEntry[]>;
+
+  /** Creates a front-desk supplement / protein bar product. */
+  createGymRetailProduct(
+    businessId: string,
+    input: GymRetailProductInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymRetailProduct>;
+
+  /** 1-tap seeds the 4 starter supplement bar items (Whey Scoop, Pre-Workout, Water, Protein Bar). */
+  seedGymRetailStarterProducts(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymRetailProduct[]>;
+
+  /** Deletes a front-desk supplement product. */
+  deleteGymRetailProduct(
+    businessId: string,
+    productId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void>;
+
+  /** Records a 2-second supplement / protein bar POS sale & decrements stock. */
+  recordGymRetailSale(params: {
+    businessId: string;
+    productId: string;
+    quantity?: number;
+    paymentMethod?: GymPaymentMethod;
+    memberName?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<{ sale: GymRetailSale; product: GymRetailProduct }>;
+
+  /** Returns the built-in 24+ gym exercise catalog plus this gym's custom exercises. */
+  getGymExerciseCatalog(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymCatalogExercise[]>;
+
+  /** Creates a gym-specific custom exercise in this gym's catalog. */
+  createGymCustomExercise(
+    businessId: string,
+    input: GymCatalogExerciseInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymCatalogExercise>;
+
+  /** Creates a reusable workout routine (e.g., Push/Pull/Legs) and optionally assigns it to a member. */
+  createOrAssignGymRoutine(params: {
+    businessId: string;
+    routineName: string;
+    targetGoal?: string;
+    exercises: GymRoutineExerciseItem[];
+    assignToMemberId?: string | null;
+    createdBy?: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymWorkoutRoutine>;
+
+  /** Assigns an existing routine template to a member (or clears it when routineId is null). */
+  assignGymRoutineToMember(params: {
+    businessId: string;
+    memberId: string;
+    routineId: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMember>;
+
+  /** Public member workout plan: assigned routine, exercise catalog, today's sets, PRs & weekly volume kg. */
+  getGymMemberWorkoutPlan(params: {
+    businessSlug: string;
+    memberId: string;
+  }): Promise<GymMemberWorkoutPlanPayload | null>;
+
+  /** Logs a single exercise set (kg x reps), computes Epley 1RM, detects 🏆 Personal Records & updates daily volume. */
+  logGymMemberWorkoutSet(params: {
+    businessSlug: string;
+    memberId: string;
+    exerciseId?: string | null;
+    exerciseName: string;
+    muscleGroup: string;
+    setNumber: number;
+    weightKg: number;
+    reps: number;
+  }): Promise<GymLogSetResult>;
+
+  /** Owner/Trainer progress summary: logged sets, total volume lifted (kg) & all-time PR milestones. */
+  getGymMemberWorkoutSummary(params: {
+    businessId: string;
+    memberId: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMemberWorkoutSummaryPayload>;
 
   // ---------------------------------------------------------------------------
   // Module 7: Dedicated CafeOS (Stamp Pass, Birthday Coffee, Inventory & Counter)

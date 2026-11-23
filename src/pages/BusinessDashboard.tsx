@@ -276,18 +276,16 @@ export default function BusinessDashboard() {
   }
   if (workspaceType === 'gym') {
     return (
-      <div className="px-4 py-5 sm:px-6">
-        <GymOwnerWorkspace
-          key={currentBusiness.id}
-          business={currentBusiness}
-          gymBusinesses={businesses}
-          hasOtherBusinesses={businesses.some(
-            (b) => getIndustryWorkspaceType(b.category) !== 'gym',
-          )}
-          onSelectBusiness={handleSelectBusiness}
-          onBusinessUpdated={handleBusinessUpdated}
-        />
-      </div>
+      <GymOwnerWorkspace
+        key={currentBusiness.id}
+        business={currentBusiness}
+        gymBusinesses={businesses}
+        hasOtherBusinesses={businesses.some(
+          (b) => getIndustryWorkspaceType(b.category) !== 'gym',
+        )}
+        onSelectBusiness={handleSelectBusiness}
+        onBusinessUpdated={handleBusinessUpdated}
+      />
     );
   }
 

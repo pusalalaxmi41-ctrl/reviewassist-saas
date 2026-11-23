@@ -108,16 +108,36 @@ import {
   validateJoinBarberQueueInput,
 } from '../../utils/barberQueueValidation';
 import type {
+  GymBodyMeasurement,
+  GymBodyMeasurementInput,
+  GymCatalogExercise,
+  GymCatalogExerciseInput,
   GymConfig,
   GymConfigInput,
   GymDailyCheckInResult,
   GymFitnessGoal,
+  GymFreezeAction,
+  GymLeaderboardEntry,
+  GymLogSetResult,
   GymMember,
   GymMemberProgressHistory,
+  GymMemberWorkoutPlanPayload,
+  GymMemberWorkoutSummaryPayload,
   GymOwnerDashboardPayload,
   GymOwnerMemberAction,
+  GymPaymentMethod,
   GymPlan,
+  GymRetailProduct,
+  GymRetailProductInput,
+  GymRetailSale,
+  GymRoutineExerciseItem,
+  GymTrainer,
+  GymTrainerCommissionRow,
+  GymTrainerInput,
   GymWorkoutFocus,
+  GymWorkoutRoutine,
+  GymWorkoutSession,
+  LogGymWorkoutSessionInput,
   PublicGymPortalPayload,
   SubmitGymRegistrationInput,
 } from '../../types/gym';
@@ -146,13 +166,17 @@ import {
   validateCafeInventoryItemInput,
 } from '../../utils/cafeValidation';
 import {
+  GYM_RETAIL_STARTER_PRODUCTS,
   normalizeGymConfig,
   normalizeGymFitnessGoal,
   normalizeGymPhone,
   normalizeGymWorkoutFocus,
+  validateGymBodyMeasurementInput,
   validateGymConfigInput,
   validateGymOwnerAction,
   validateGymRegistrationInput,
+  validateGymRetailProductInput,
+  validateGymTrainerInput,
   validateGymWeightKg,
 } from '../../utils/gymValidation';
 import { MENU_PRESET_PACKS } from '../../config/menuPresets';
@@ -4928,6 +4952,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     phone: string;
     workoutFocus?: GymWorkoutFocus;
     memberNote?: string | null;
+    isPtSession?: boolean;
     checkInDateOverride?: string | null;
   }): Promise<GymDailyCheckInResult> {
     const normPhone = normalizeGymPhone(params.phone);
@@ -4947,6 +4972,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       p_phone: normPhone,
       p_workout_focus: focus,
       p_member_note: cleanNote,
+      p_is_pt_session: Boolean(params.isPtSession),
     });
 
     if (!error && data && typeof data === 'object') {
@@ -4957,6 +4983,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       error &&
       (error.message.includes('pending payment') ||
         error.message.includes('expired') ||
+        error.message.includes('paused') ||
         error.message.includes('Member not found'))
     ) {
       const isDemo = await mockBusinessRepository.getBusinessBySlug(cleanSlug);
@@ -4991,10 +5018,23 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         checkedInTodayCount: payload.checkedInTodayCount ?? 0,
         todaysAttendance: payload.todaysAttendance ?? [],
         monthlyRevenuePaise: Number(payload.monthlyRevenuePaise ?? 0),
+        membershipRevenuePaise: Number(
+          payload.membershipRevenuePaise ?? payload.monthlyRevenuePaise ?? 0,
+        ),
+        retailRevenuePaise: Number(payload.retailRevenuePaise ?? 0),
         projectedNextMonthRevenuePaise: Number(
           payload.projectedNextMonthRevenuePaise ?? 0,
         ),
+        totalBalanceDuePaise: Number(payload.totalBalanceDuePaise ?? 0),
+        balanceDueMembersCount: Number(payload.balanceDueMembersCount ?? 0),
+        weeklyRevenueComparison: payload.weeklyRevenueComparison ?? [],
         inactiveAlertMembers: payload.inactiveAlertMembers ?? [],
+        trainers: payload.trainers ?? [],
+        retailProducts: payload.retailProducts ?? [],
+        recentRetailSales: payload.recentRetailSales ?? [],
+        monthlyLeaderboard: payload.monthlyLeaderboard ?? [],
+        routines: payload.routines ?? [],
+        exerciseCatalog: payload.exerciseCatalog ?? [],
       };
     }
 
@@ -5098,6 +5138,13 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     planId?: string | null;
     durationDays?: number | null;
     feePaise?: number | null;
+    amountPaidPaise?: number | null;
+    balanceDueDate?: string | null;
+    ptTrainerId?: string | null;
+    ptPackageName?: string | null;
+    ptSessions?: number;
+    ptFeePaise?: number;
+    paymentMethod?: GymPaymentMethod;
     staffLabel?: string;
     options?: AIConfigAccessOptions;
   }): Promise<GymMember> {
@@ -5118,6 +5165,13 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       p_duration_days: params.durationDays ?? null,
       p_fee_paise: params.feePaise ?? null,
       p_staff_label: params.staffLabel ?? 'Owner',
+      p_amount_paid_paise: params.amountPaidPaise ?? null,
+      p_balance_due_date: params.balanceDueDate ?? null,
+      p_pt_trainer_id: params.ptTrainerId ?? null,
+      p_pt_package_name: params.ptPackageName ?? null,
+      p_pt_sessions: params.ptSessions ?? 0,
+      p_pt_fee_paise: params.ptFeePaise ?? 0,
+      p_payment_method: params.paymentMethod ?? 'upi',
     });
 
     if (!error && data && typeof data === 'object') {
@@ -5133,6 +5187,559 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     }
 
     return mockBusinessRepository.ownerApproveOrRenewGymMember(params);
+  }
+
+  async collectGymBalanceDue(params: {
+    businessId: string;
+    memberId: string;
+    collectedPaise: number;
+    paymentMethod?: GymPaymentMethod;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMember> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('collect_gym_balance_due', {
+      p_business_id: cleanId,
+      p_member_id: params.memberId,
+      p_collected_paise: Math.round(params.collectedPaise),
+      p_payment_method: params.paymentMethod ?? 'upi',
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as GymMember;
+    }
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('balance due'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.collectGymBalanceDue(params);
+  }
+
+  async toggleGymMembershipFreeze(params: {
+    businessId: string;
+    memberId: string;
+    action: GymFreezeAction;
+    resumeDateOverride?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMember> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('toggle_gym_membership_freeze', {
+      p_business_id: cleanId,
+      p_member_id: params.memberId,
+      p_action: params.action,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      return data as GymMember;
+    }
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('frozen'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.toggleGymMembershipFreeze(params);
+  }
+
+  async createGymTrainer(
+    businessId: string,
+    input: GymTrainerInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymTrainer> {
+    const check = validateGymTrainerInput(businessId, input);
+    if (!check.ok) throw new Error(check.error);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('gym_trainers')
+      .insert({
+        business_id: cleanId,
+        trainer_name: check.value.trainerName,
+        specialty: check.value.specialty,
+        commission_percent: check.value.commissionPercent,
+        is_active: check.value.isActive,
+      })
+      .select('*')
+      .single();
+
+    if (!error && data) {
+      const r = data as {
+        id: string;
+        business_id: string;
+        trainer_name: string;
+        specialty: string;
+        commission_percent: number;
+        is_active: boolean;
+        created_at: string;
+      };
+      return {
+        id: r.id,
+        businessId: r.business_id,
+        trainerName: r.trainer_name,
+        specialty: r.specialty,
+        commissionPercent: Number(r.commission_percent),
+        isActive: r.is_active,
+        createdAt: r.created_at,
+      };
+    }
+    return mockBusinessRepository.createGymTrainer(cleanId, input, options);
+  }
+
+  async deleteGymTrainer(
+    businessId: string,
+    trainerId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { error } = await client
+      .from('gym_trainers')
+      .delete()
+      .eq('id', trainerId)
+      .eq('business_id', cleanId);
+    if (error) {
+      await mockBusinessRepository.deleteGymTrainer(cleanId, trainerId, options);
+    }
+  }
+
+  async getGymTrainerCommissions(
+    businessId: string,
+    monthKey?: string | null,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymTrainerCommissionRow[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('get_gym_trainer_commissions', {
+      p_business_id: cleanId,
+      p_month_key: monthKey ?? null,
+    });
+    if (!error && Array.isArray(data)) {
+      return data as GymTrainerCommissionRow[];
+    }
+    return mockBusinessRepository.getGymTrainerCommissions(
+      cleanId,
+      monthKey,
+      options,
+    );
+  }
+
+  async logGymBodyMeasurement(
+    input: GymBodyMeasurementInput,
+  ): Promise<GymBodyMeasurement> {
+    const check = validateGymBodyMeasurementInput(input);
+    if (!check.ok) throw new Error(check.error);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('log_gym_body_measurement', {
+      p_slug: check.value.businessSlug,
+      p_phone: check.value.phone,
+      p_weight_kg: check.value.weightKg,
+      p_waist_inches: check.value.waistInches,
+      p_chest_inches: check.value.chestInches,
+      p_biceps_inches: check.value.bicepsInches,
+      p_bmi: check.value.bmi,
+      p_note: check.value.note,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as GymBodyMeasurement;
+    }
+    return mockBusinessRepository.logGymBodyMeasurement(input);
+  }
+
+  async logGymWorkoutSession(
+    input: LogGymWorkoutSessionInput,
+  ): Promise<GymWorkoutSession> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('log_gym_workout_session', {
+      p_slug: input.businessSlug.trim().toLowerCase(),
+      p_phone: normalizeGymPhone(input.phone),
+      p_plan_id: input.planId,
+      p_routine_name: input.routineName,
+      p_workout_focus: input.workoutFocus,
+      p_duration_minutes: input.durationMinutes,
+      p_total_volume_kg: input.totalVolumeKg,
+      p_total_sets: input.totalSets,
+      p_prs_hit_count: input.prsHitCount,
+      p_muscles_trained: input.musclesTrained,
+      p_exercises: input.exercises,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as GymWorkoutSession;
+    }
+    return mockBusinessRepository.logGymWorkoutSession(input);
+  }
+
+  async getGymMonthlyLeaderboard(
+    businessSlug: string,
+  ): Promise<GymLeaderboardEntry[]> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('get_gym_monthly_leaderboard', {
+      p_slug: businessSlug.trim().toLowerCase(),
+    });
+    if (!error && Array.isArray(data)) {
+      return data as GymLeaderboardEntry[];
+    }
+    return mockBusinessRepository.getGymMonthlyLeaderboard(businessSlug);
+  }
+
+  async createGymRetailProduct(
+    businessId: string,
+    input: GymRetailProductInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymRetailProduct> {
+    const check = validateGymRetailProductInput(businessId, input);
+    if (!check.ok) throw new Error(check.error);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('gym_retail_products')
+      .insert({
+        business_id: cleanId,
+        product_name: check.value.productName,
+        price_paise: check.value.pricePaise,
+        stock_qty: check.value.stockQty,
+      })
+      .select('*')
+      .single();
+
+    if (!error && data) {
+      const r = data as {
+        id: string;
+        business_id: string;
+        product_name: string;
+        price_paise: number;
+        stock_qty: number;
+        is_active: boolean;
+      };
+      return {
+        id: r.id,
+        businessId: r.business_id,
+        productName: r.product_name,
+        pricePaise: Number(r.price_paise),
+        stockQty: Number(r.stock_qty),
+        isActive: r.is_active,
+      };
+    }
+    return mockBusinessRepository.createGymRetailProduct(cleanId, input, options);
+  }
+
+  async seedGymRetailStarterProducts(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymRetailProduct[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const dash = await this.getGymOwnerDashboard(cleanId, options);
+    const existing = new Set(
+      (dash.retailProducts ?? []).map((p) => p.productName.toLowerCase()),
+    );
+    const added: GymRetailProduct[] = [];
+    for (const preset of GYM_RETAIL_STARTER_PRODUCTS) {
+      if (!existing.has(preset.productName.toLowerCase())) {
+        const created = await this.createGymRetailProduct(cleanId, preset, options);
+        added.push(created);
+      }
+    }
+    return added;
+  }
+
+  async deleteGymRetailProduct(
+    businessId: string,
+    productId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+    const { error } = await client
+      .from('gym_retail_products')
+      .delete()
+      .eq('id', productId)
+      .eq('business_id', cleanId);
+    if (error) {
+      await mockBusinessRepository.deleteGymRetailProduct(
+        cleanId,
+        productId,
+        options,
+      );
+    }
+  }
+
+  async recordGymRetailSale(params: {
+    businessId: string;
+    productId: string;
+    quantity?: number;
+    paymentMethod?: GymPaymentMethod;
+    memberName?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<{ sale: GymRetailSale; product: GymRetailProduct }> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('record_gym_retail_sale', {
+      p_business_id: cleanId,
+      p_product_id: params.productId,
+      p_quantity: params.quantity ?? 1,
+      p_payment_method: params.paymentMethod ?? 'upi',
+      p_member_name: params.memberName ?? null,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as { sale: GymRetailSale; product: GymRetailProduct };
+    }
+    return mockBusinessRepository.recordGymRetailSale(params);
+  }
+
+  async getGymExerciseCatalog(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymCatalogExercise[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('gym_exercises')
+      .select('*')
+      .or(`business_id.is.null,business_id.eq.${cleanId}`)
+      .order('muscle_group', { ascending: true })
+      .order('name', { ascending: true });
+
+    if (!error && Array.isArray(data)) {
+      return (data as Array<{
+        id: string;
+        business_id: string | null;
+        name: string;
+        muscle_group: GymCatalogExercise['muscleGroup'];
+        equipment: GymCatalogExercise['equipment'];
+        default_sets: number;
+        default_reps: string;
+        rest_seconds: number;
+      }>).map((e) => ({
+        id: e.id,
+        businessId: e.business_id,
+        name: e.name,
+        muscleGroup: e.muscle_group,
+        equipment: e.equipment,
+        defaultSets: Number(e.default_sets),
+        defaultReps: e.default_reps,
+        restSeconds: Number(e.rest_seconds),
+      }));
+    }
+    return mockBusinessRepository.getGymExerciseCatalog(cleanId, options);
+  }
+
+  async createGymCustomExercise(
+    businessId: string,
+    input: GymCatalogExerciseInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymCatalogExercise> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('gym_exercises')
+      .insert({
+        business_id: cleanId,
+        name: input.name.trim().slice(0, 100),
+        muscle_group: input.muscleGroup,
+        equipment: input.equipment,
+        default_sets: input.defaultSets ?? 3,
+        default_reps: input.defaultReps ?? '10-12',
+        rest_seconds: input.restSeconds ?? 60,
+      })
+      .select('*')
+      .single();
+
+    if (!error && data) {
+      const e = data as {
+        id: string;
+        business_id: string | null;
+        name: string;
+        muscle_group: GymCatalogExercise['muscleGroup'];
+        equipment: GymCatalogExercise['equipment'];
+        default_sets: number;
+        default_reps: string;
+        rest_seconds: number;
+      };
+      return {
+        id: e.id,
+        businessId: e.business_id,
+        name: e.name,
+        muscleGroup: e.muscle_group,
+        equipment: e.equipment,
+        defaultSets: Number(e.default_sets),
+        defaultReps: e.default_reps,
+        restSeconds: Number(e.rest_seconds),
+      };
+    }
+    return mockBusinessRepository.createGymCustomExercise(cleanId, input, options);
+  }
+
+  async createOrAssignGymRoutine(params: {
+    businessId: string;
+    routineName: string;
+    targetGoal?: string;
+    exercises: GymRoutineExerciseItem[];
+    assignToMemberId?: string | null;
+    createdBy?: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymWorkoutRoutine> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('create_or_assign_gym_routine', {
+      p_business_id: cleanId,
+      p_routine_name: params.routineName,
+      p_target_goal: params.targetGoal ?? 'general_fitness',
+      p_exercises: params.exercises,
+      p_assign_to_member_id: params.assignToMemberId ?? null,
+      p_created_by: params.createdBy ?? 'Owner',
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as GymWorkoutRoutine;
+    }
+    return mockBusinessRepository.createOrAssignGymRoutine(params);
+  }
+
+  async assignGymRoutineToMember(params: {
+    businessId: string;
+    memberId: string;
+    routineId: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMember> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { error } = await client
+      .from('gym_members')
+      .update({
+        assigned_routine_id: params.routineId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', params.memberId)
+      .eq('business_id', cleanId);
+
+    if (!error) {
+      const dash = await this.getGymOwnerDashboard(cleanId, params.options);
+      const found = dash.members.find((m) => m.id === params.memberId);
+      if (found) return found;
+    }
+    return mockBusinessRepository.assignGymRoutineToMember(params);
+  }
+
+  async getGymMemberWorkoutPlan(params: {
+    businessSlug: string;
+    memberId: string;
+  }): Promise<GymMemberWorkoutPlanPayload | null> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('get_gym_member_workout_plan', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_member_id: params.memberId,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as GymMemberWorkoutPlanPayload;
+    }
+    return mockBusinessRepository.getGymMemberWorkoutPlan(params);
+  }
+
+  async logGymMemberWorkoutSet(params: {
+    businessSlug: string;
+    memberId: string;
+    exerciseId?: string | null;
+    exerciseName: string;
+    muscleGroup: string;
+    setNumber: number;
+    weightKg: number;
+    reps: number;
+  }): Promise<GymLogSetResult> {
+    const client = this.requireClient();
+    const uuidRe =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const validExId =
+      params.exerciseId && uuidRe.test(params.exerciseId)
+        ? params.exerciseId
+        : null;
+    const { data, error } = await client.rpc('log_gym_member_workout_set', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_member_id: params.memberId,
+      p_exercise_id: validExId,
+      p_exercise_name: params.exerciseName,
+      p_muscle_group: params.muscleGroup,
+      p_set_number: params.setNumber,
+      p_weight_kg: params.weightKg,
+      p_reps: params.reps,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as GymLogSetResult;
+    }
+    if (error && (error.message.includes('paused') || error.message.includes('Active membership'))) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.logGymMemberWorkoutSet(params);
+  }
+
+  async getGymMemberWorkoutSummary(params: {
+    businessId: string;
+    memberId: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMemberWorkoutSummaryPayload> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('get_gym_member_workout_summary', {
+      p_business_id: cleanId,
+      p_member_id: params.memberId,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as GymMemberWorkoutSummaryPayload;
+    }
+    return mockBusinessRepository.getGymMemberWorkoutSummary(params);
   }
 
   // ---------------------------------------------------------------------------

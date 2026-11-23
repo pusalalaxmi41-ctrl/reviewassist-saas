@@ -22,6 +22,8 @@
     "test:barber-hybrid": "deno run --allow-read --allow-env tests/verify-barber-hybrid-and-revenue.ts",
     "test:gym": "deno run --allow-read --allow-env tests/verify-gym-membership.ts",
     "test:gym-attendance": "deno run --allow-read --allow-env tests/verify-gym-attendance-and-goals.ts",
+    "test:gym-flagship": "deno run --allow-read --allow-env tests/verify-gym-flagship-os.ts",
+    "test:gym-workout": "deno run --allow-read --allow-env tests/verify-gym-workout-engine.ts",
     "test:hospitality": "deno run --allow-read --allow-env tests/verify-complete-hospitality-os.ts",
     "test:cafe": "deno run --allow-read --allow-env tests/verify-cafe-os.ts",
     "preview": "vite preview"

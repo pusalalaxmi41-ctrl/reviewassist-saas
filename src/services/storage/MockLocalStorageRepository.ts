@@ -123,35 +123,68 @@ import {
 } from '../../utils/barberQueueValidation';
 import type {
   GymAttendanceLog,
+  GymBodyMeasurement,
+  GymBodyMeasurementInput,
+  GymCatalogExercise,
+  GymCatalogExerciseInput,
+  GymCatalogMuscleGroup,
   GymConfig,
   GymConfigInput,
   GymDailyCheckInResult,
   GymEffectiveMemberStatus,
   GymFitnessGoal,
+  GymFreezeAction,
   GymInactiveAlertMember,
+  GymLeaderboardEntry,
+  GymLogSetResult,
   GymMember,
   GymMemberProgressHistory,
+  GymMemberWorkoutPlanPayload,
+  GymMemberWorkoutSummaryPayload,
   GymOwnerDashboardPayload,
   GymOwnerMemberAction,
   GymPaymentLog,
+  GymPaymentMethod,
+  GymPersonalRecordRow,
+  GymRetailProduct,
+  GymRetailProductInput,
+  GymRetailSale,
+  GymRoutineExerciseItem,
   GymTodayAttendanceEntry,
+  GymTrainer,
+  GymTrainerCommissionRow,
+  GymTrainerInput,
+  GymWeeklyRevenueBucket,
   GymWorkoutFocus,
+  GymWorkoutRoutine,
+  GymWorkoutSession,
+  GymWorkoutSetRecord,
+  LogGymWorkoutSessionInput,
   PublicGymPortalPayload,
   SubmitGymRegistrationInput,
 } from '../../types/gym';
 import {
   addDaysToIsoDate,
   diffDaysBetweenIsoDates,
+  formatPrivacySafeLeaderboardName,
   getTodayIsoDateKey,
+  GYM_RETAIL_STARTER_PRODUCTS,
   normalizeGymConfig,
   normalizeGymFitnessGoal,
   normalizeGymPhone,
   normalizeGymWorkoutFocus,
+  validateGymBodyMeasurementInput,
   validateGymConfigInput,
   validateGymOwnerAction,
   validateGymRegistrationInput,
+  validateGymRetailProductInput,
+  validateGymTrainerInput,
   validateGymWeightKg,
 } from '../../utils/gymValidation';
+import {
+  BUILTIN_GYM_CATALOG_EXERCISES,
+  calculateEpley1RM,
+} from '../../utils/gymWorkoutEngine';
 import type {
   CafeConfig,
   CafeConfigInput,
@@ -241,6 +274,14 @@ const STORAGE_KEYS = {
   GYM_MEMBERS: 'reviewassist_mock_gym_members_v1',
   GYM_CHECK_INS: 'reviewassist_mock_gym_check_ins_v1',
   GYM_PAYMENT_LOGS: 'reviewassist_mock_gym_payment_logs_v1',
+  GYM_TRAINERS: 'reviewassist_mock_gym_trainers_v1',
+  GYM_BODY_MEASUREMENTS: 'reviewassist_mock_gym_body_measurements_v1',
+  GYM_RETAIL_PRODUCTS: 'reviewassist_mock_gym_retail_products_v1',
+  GYM_RETAIL_SALES: 'reviewassist_mock_gym_retail_sales_v1',
+  GYM_WORKOUT_SESSIONS: 'reviewassist_mock_gym_workout_sessions_v1',
+  GYM_CUSTOM_EXERCISES: 'reviewassist_mock_gym_custom_exercises_v1',
+  GYM_WORKOUT_ROUTINES: 'reviewassist_mock_gym_workout_routines_v1',
+  GYM_WORKOUT_SET_LOGS: 'reviewassist_mock_gym_workout_set_logs_v1',
   CAFE_CONFIGS: 'reviewassist_mock_cafe_configs_v1',
   CAFE_STAMP_PASSES: 'reviewassist_mock_cafe_stamp_passes_v1',
   CAFE_INVENTORY_ITEMS: 'reviewassist_mock_cafe_inventory_items_v1',
@@ -6080,7 +6121,12 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     let effectiveStatus: GymEffectiveMemberStatus = raw.status;
     let daysRemaining = 0;
 
-    if (raw.status === 'active' && raw.endDate) {
+    if (raw.isFrozen && raw.status === 'active') {
+      effectiveStatus = 'frozen';
+      daysRemaining = raw.endDate
+        ? Math.max(0, diffDaysBetweenIsoDates(raw.endDate, todayIso))
+        : 0;
+    } else if (raw.status === 'active' && raw.endDate) {
       const diff = diffDaysBetweenIsoDates(raw.endDate, todayIso);
       if (diff < 0) {
         effectiveStatus = 'expired';
@@ -6107,8 +6153,65 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       (l) => l.checkInDate.slice(0, 7) === targetMonth,
     ).length;
 
+    const trainers = this.read<GymTrainer[]>(STORAGE_KEYS.GYM_TRAINERS, []);
+    const matchedTrainer = raw.ptTrainerId
+      ? trainers.find((t) => t.id === raw.ptTrainerId)
+      : undefined;
+
+    const routines = this.read<GymWorkoutRoutine[]>(
+      STORAGE_KEYS.GYM_WORKOUT_ROUTINES,
+      [],
+    );
+    const matchedRoutine = raw.assignedRoutineId
+      ? routines.find((r) => r.id === raw.assignedRoutineId)
+      : undefined;
+
+    const measurements = this.read<GymBodyMeasurement[]>(
+      STORAGE_KEYS.GYM_BODY_MEASUREMENTS,
+      [],
+    )
+      .filter((bm) => bm.businessId === raw.businessId && bm.memberId === raw.id)
+      .sort((a, b) =>
+        b.recordedDate !== a.recordedDate
+          ? b.recordedDate.localeCompare(a.recordedDate)
+          : b.createdAt.localeCompare(a.createdAt),
+      )
+      .slice(0, 12);
+
+    const workouts = this.read<GymWorkoutSession[]>(
+      STORAGE_KEYS.GYM_WORKOUT_SESSIONS,
+      [],
+    )
+      .filter((ws) => ws.businessId === raw.businessId && ws.memberId === raw.id)
+      .sort((a, b) =>
+        b.sessionDate !== a.sessionDate
+          ? b.sessionDate.localeCompare(a.sessionDate)
+          : b.createdAt.localeCompare(a.createdAt),
+      )
+      .slice(0, 25);
+
     return {
       ...raw,
+      totalPlanAmountPaise: raw.totalPlanAmountPaise ?? raw.feePaise,
+      amountPaidPaise:
+        raw.amountPaidPaise ??
+        (raw.status === 'active' || raw.status === 'expired' ? raw.feePaise : 0),
+      balanceDuePaise: raw.balanceDuePaise ?? 0,
+      balanceDueDate: raw.balanceDueDate ?? null,
+      ptTrainerId: raw.ptTrainerId ?? null,
+      ptTrainerName: matchedTrainer?.trainerName ?? raw.ptTrainerName ?? null,
+      ptPackageName: raw.ptPackageName ?? null,
+      ptPackageFeePaise: raw.ptPackageFeePaise ?? 0,
+      ptTotalSessions: raw.ptTotalSessions ?? 0,
+      ptRemainingSessions: raw.ptRemainingSessions ?? 0,
+      isFrozen: Boolean(raw.isFrozen),
+      frozenStartedAt: raw.frozenStartedAt ?? null,
+      totalFrozenDays: raw.totalFrozenDays ?? 0,
+      currentStreakDays: raw.currentStreakDays ?? 0,
+      bestStreakDays: raw.bestStreakDays ?? 0,
+      assignedRoutineId: raw.assignedRoutineId ?? null,
+      assignedRoutineName:
+        matchedRoutine?.routineName ?? raw.assignedRoutineName ?? null,
       fitnessGoal: normalizeGymFitnessGoal(raw.fitnessGoal),
       startingWeightKg: raw.startingWeightKg ?? null,
       targetWeightKg: raw.targetWeightKg ?? null,
@@ -6121,7 +6224,9 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       todayWorkoutFocus: todayLog?.workoutFocus ?? null,
       todayCheckedInAt: todayLog?.checkedInAt ?? null,
       todayCheckIn: todayLog,
-      recentAttendanceLogs: logs.slice(0, 14),
+      recentAttendanceLogs: logs.slice(0, 21),
+      bodyMeasurements: measurements,
+      recentWorkouts: workouts,
     };
   }
 
@@ -6535,6 +6640,7 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     phone: string;
     workoutFocus?: GymWorkoutFocus;
     memberNote?: string | null;
+    isPtSession?: boolean;
     checkInDateOverride?: string | null;
   }): Promise<GymDailyCheckInResult> {
     const normPhone = normalizeGymPhone(params.phone);
@@ -6589,6 +6695,11 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         'Your membership is pending payment approval at the front desk.',
       );
     }
+    if (hydrated.isFrozen || hydrated.effectiveStatus === 'frozen') {
+      throw new Error(
+        'Membership is currently paused — ask front desk to resume.',
+      );
+    }
     if (
       hydrated.effectiveStatus !== 'active' &&
       hydrated.effectiveStatus !== 'expiring_soon'
@@ -6609,6 +6720,9 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     let todayLog: GymAttendanceLog;
     let alreadyCheckedInToday = false;
     let totalCheckIns = members[idx].totalCheckIns;
+    let currentStreakDays = members[idx].currentStreakDays ?? 0;
+    let bestStreakDays = members[idx].bestStreakDays ?? 0;
+    let ptRemainingSessions = members[idx].ptRemainingSessions ?? 0;
 
     if (existingLogIdx !== -1) {
       alreadyCheckedInToday = true;
@@ -6620,6 +6734,24 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       allLogs[existingLogIdx] = todayLog;
       this.write(STORAGE_KEYS.GYM_CHECK_INS, allLogs);
     } else {
+      const yesterdayIso = addDaysToIsoDate(targetDate, -1);
+      const hadYesterday =
+        members[idx].lastCheckInDate === yesterdayIso ||
+        allLogs.some(
+          (l) =>
+            l.businessId === business.id &&
+            l.memberId === hydrated.id &&
+            l.checkInDate === yesterdayIso,
+        );
+      currentStreakDays = hadYesterday ? Math.max(1, currentStreakDays + 1) : 1;
+      bestStreakDays = Math.max(bestStreakDays, currentStreakDays);
+
+      const usePt = Boolean(params.isPtSession) && ptRemainingSessions > 0;
+      const usedTrainerId = usePt ? (members[idx].ptTrainerId ?? null) : null;
+      if (usePt) {
+        ptRemainingSessions = Math.max(0, ptRemainingSessions - 1);
+      }
+
       todayLog = {
         id: `gymci-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         businessId: business.id,
@@ -6629,6 +6761,8 @@ export class MockLocalStorageRepository implements IBusinessRepository {
           targetDate === today ? nowIso : `${targetDate}T07:30:00.000Z`,
         workoutFocus: focus,
         memberNote: cleanNote,
+        isPtSession: usePt,
+        trainerId: usedTrainerId,
       };
       allLogs.push(todayLog);
       this.write(STORAGE_KEYS.GYM_CHECK_INS, allLogs);
@@ -6647,6 +6781,9 @@ export class MockLocalStorageRepository implements IBusinessRepository {
           latestDate === targetDate
             ? todayLog.checkedInAt
             : (members[idx].lastCheckInAt ?? todayLog.checkedInAt),
+        currentStreakDays,
+        bestStreakDays,
+        ptRemainingSessions,
         checkedInToday:
           targetDate === today ? true : hydrated.checkedInToday,
         updatedAt: nowIso,
@@ -6671,6 +6808,11 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       totalCheckIns,
       daysAttendedThisMonth,
       daysRemaining: hydrated.daysRemaining,
+      currentStreakDays,
+      bestStreakDays,
+      ptRemainingSessions,
+      isPtSession: Boolean(todayLog.isPtSession),
+      trainerId: todayLog.trainerId ?? null,
       checkedInDate: todayLog.checkInDate,
       checkedInAt: todayLog.checkedInAt,
       workoutFocus: todayLog.workoutFocus,
@@ -6762,15 +6904,85 @@ export class MockLocalStorageRepository implements IBusinessRepository {
 
     const checkedInTodayCount = todaysAttendance.length;
 
-    const monthlyRevenuePaise = allPayments
+    const membershipRevenuePaise = allPayments
       .filter((p) => p.paidDate.slice(0, 7) === targetMonth)
       .reduce((sum, p) => sum + p.amountPaise, 0);
+
+    const allRetailSales = this.read<GymRetailSale[]>(
+      STORAGE_KEYS.GYM_RETAIL_SALES,
+      [],
+    ).filter((s) => s.businessId === cleanId);
+    const retailRevenuePaise = allRetailSales
+      .filter((s) => s.soldAt.slice(0, 7) === targetMonth)
+      .reduce((sum, s) => sum + s.totalPaise, 0);
+    const monthlyRevenuePaise = membershipRevenuePaise + retailRevenuePaise;
+
+    const totalBalanceDuePaise = members
+      .filter(
+        (m) =>
+          (m.status === 'active' || m.status === 'pending_approval') &&
+          (m.balanceDuePaise ?? 0) > 0,
+      )
+      .reduce((sum, m) => sum + (m.balanceDuePaise ?? 0), 0);
+    const balanceDueMembersCount = members.filter(
+      (m) =>
+        (m.status === 'active' || m.status === 'pending_approval') &&
+        (m.balanceDuePaise ?? 0) > 0,
+    ).length;
+
+    // Previous month key (YYYY-MM) for Week 1..4 Revenue Comparison
+    const [yrNum, moNum] = targetMonth.split('-').map(Number);
+    const prevDate = new Date(Date.UTC(yrNum, (moNum || 1) - 2, 1));
+    const prevMonthKey = `${prevDate.getUTCFullYear()}-${String(prevDate.getUTCMonth() + 1).padStart(2, '0')}`;
+    const getWeekBucket = (isoDate: string) => {
+      const day = Number.parseInt(isoDate.slice(8, 10), 10) || 1;
+      return Math.min(4, Math.floor((day - 1) / 7) + 1);
+    };
+    const weeklyRevenueComparison: GymWeeklyRevenueBucket[] = [1, 2, 3, 4].map(
+      (wk) => {
+        const tmPay = allPayments
+          .filter(
+            (p) =>
+              p.paidDate.slice(0, 7) === targetMonth &&
+              getWeekBucket(p.paidDate) === wk,
+          )
+          .reduce((s, p) => s + p.amountPaise, 0);
+        const tmRet = allRetailSales
+          .filter(
+            (s) =>
+              s.soldAt.slice(0, 7) === targetMonth &&
+              getWeekBucket(s.soldAt.slice(0, 10)) === wk,
+          )
+          .reduce((s, x) => s + x.totalPaise, 0);
+        const lmPay = allPayments
+          .filter(
+            (p) =>
+              p.paidDate.slice(0, 7) === prevMonthKey &&
+              getWeekBucket(p.paidDate) === wk,
+          )
+          .reduce((s, p) => s + p.amountPaise, 0);
+        const lmRet = allRetailSales
+          .filter(
+            (s) =>
+              s.soldAt.slice(0, 7) === prevMonthKey &&
+              getWeekBucket(s.soldAt.slice(0, 10)) === wk,
+          )
+          .reduce((s, x) => s + x.totalPaise, 0);
+        return {
+          weekIndex: wk,
+          label: `Week ${wk}`,
+          thisMonthPaise: tmPay + tmRet,
+          lastMonthPaise: lmPay + lmRet,
+        };
+      },
+    );
 
     const projectedNextMonthRevenuePaise = members
       .filter(
         (m) =>
           (m.effectiveStatus === 'active' ||
             m.effectiveStatus === 'expiring_soon') &&
+          !m.isFrozen &&
           m.endDate !== null &&
           diffDaysBetweenIsoDates(m.endDate, today) >= 0 &&
           diffDaysBetweenIsoDates(m.endDate, today) <= 30,
@@ -6780,8 +6992,9 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     const inactiveAlertMembers: GymInactiveAlertMember[] = members
       .filter(
         (m) =>
-          m.effectiveStatus === 'active' ||
-          m.effectiveStatus === 'expiring_soon',
+          (m.effectiveStatus === 'active' ||
+            m.effectiveStatus === 'expiring_soon') &&
+          !m.isFrozen,
       )
       .map((m) => {
         const refDate = m.lastCheckInDate ?? m.startDate ?? today;
@@ -6800,6 +7013,29 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       .filter((x) => x.daysSinceLastCheckIn >= 5)
       .sort((a, b) => b.daysSinceLastCheckIn - a.daysSinceLastCheckIn);
 
+    const trainers = await this.getGymTrainerCommissions(
+      cleanId,
+      targetMonth,
+      options,
+    );
+    const retailProducts = this.read<GymRetailProduct[]>(
+      STORAGE_KEYS.GYM_RETAIL_PRODUCTS,
+      [],
+    ).filter((p) => p.businessId === cleanId);
+    const recentRetailSales = [...allRetailSales]
+      .sort((a, b) => b.soldAt.localeCompare(a.soldAt))
+      .slice(0, 25);
+    const monthlyLeaderboard = await this.getGymMonthlyLeaderboard(
+      business.slug,
+    );
+    const routines = this.read<GymWorkoutRoutine[]>(
+      STORAGE_KEYS.GYM_WORKOUT_ROUTINES,
+      [],
+    )
+      .filter((r) => r.businessId === cleanId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const exerciseCatalog = await this.getGymExerciseCatalog(cleanId, options);
+
     return {
       config,
       monthKey: targetMonth,
@@ -6807,8 +7043,19 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       checkedInTodayCount,
       todaysAttendance,
       monthlyRevenuePaise,
+      membershipRevenuePaise,
+      retailRevenuePaise,
       projectedNextMonthRevenuePaise,
+      totalBalanceDuePaise,
+      balanceDueMembersCount,
+      weeklyRevenueComparison,
       inactiveAlertMembers,
+      trainers,
+      retailProducts,
+      recentRetailSales,
+      monthlyLeaderboard,
+      routines,
+      exerciseCatalog,
     };
   }
 
@@ -6879,6 +7126,8 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       daysAttendedThisMonth,
       attendanceLogs: memberLogs,
       workoutSplitCounts,
+      bodyMeasurements: member.bodyMeasurements ?? [],
+      recentWorkouts: member.recentWorkouts ?? [],
     };
   }
 
@@ -6961,6 +7210,13 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     planId?: string | null;
     durationDays?: number | null;
     feePaise?: number | null;
+    amountPaidPaise?: number | null;
+    balanceDueDate?: string | null;
+    ptTrainerId?: string | null;
+    ptPackageName?: string | null;
+    ptSessions?: number;
+    ptFeePaise?: number;
+    paymentMethod?: GymPaymentMethod;
     staffLabel?: string;
     options?: AIConfigAccessOptions;
   }): Promise<GymMember> {
@@ -7010,8 +7266,40 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       }
     }
 
+    let ptTrainerId: string | null = null;
+    if (params.ptTrainerId) {
+      const trainers = this.read<GymTrainer[]>(STORAGE_KEYS.GYM_TRAINERS, []);
+      const foundTrainer = trainers.find(
+        (t) => t.id === params.ptTrainerId && t.businessId === cleanId,
+      );
+      if (!foundTrainer) {
+        throw new Error('Selected Personal Trainer not found for this gym.');
+      }
+      ptTrainerId = foundTrainer.id;
+    }
+
+    const ptSessions = Math.max(
+      0,
+      Math.min(500, Math.round(params.ptSessions ?? 0)),
+    );
+    const ptFeePaise = Math.max(
+      0,
+      Math.min(100_000_000, Math.round(params.ptFeePaise ?? 0)),
+    );
+    const ptPackageName =
+      params.ptPackageName?.trim().slice(0, 80) ||
+      (ptSessions > 0 ? `${ptSessions} PT Sessions` : null);
+
     durationDays = Math.max(1, Math.min(1095, Math.round(durationDays)));
     feePaise = Math.max(0, Math.min(100_000_000, Math.round(feePaise)));
+    const totalDuePaise = feePaise + ptFeePaise;
+    const paidNowPaise =
+      params.amountPaidPaise == null
+        ? totalDuePaise
+        : Math.max(0, Math.min(totalDuePaise, Math.round(params.amountPaidPaise)));
+    const newBalanceDue = Math.max(0, totalDuePaise - paidNowPaise);
+    const paymentMethod: GymPaymentMethod =
+      params.paymentMethod === 'cash' ? 'cash' : 'upi';
     const label = (params.staffLabel ?? 'Owner').trim().slice(0, 80) || 'Owner';
 
     let updated: GymMember = { ...existing, updatedAt: now };
@@ -7020,58 +7308,109 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       updated = {
         ...updated,
         status: 'active',
+        isFrozen: false,
+        frozenStartedAt: null,
         planId,
         planName,
         durationDays,
         feePaise,
+        totalPlanAmountPaise: totalDuePaise,
+        amountPaidPaise: paidNowPaise,
+        balanceDuePaise: newBalanceDue,
+        balanceDueDate:
+          newBalanceDue > 0
+            ? (params.balanceDueDate ?? addDaysToIsoDate(today, 14))
+            : null,
+        ptTrainerId: ptTrainerId ?? existing.ptTrainerId ?? null,
+        ptPackageName: ptPackageName ?? existing.ptPackageName ?? null,
+        ptPackageFeePaise:
+          ptFeePaise > 0 ? ptFeePaise : (existing.ptPackageFeePaise ?? 0),
+        ptTotalSessions:
+          ptSessions > 0 ? ptSessions : (existing.ptTotalSessions ?? 0),
+        ptRemainingSessions:
+          ptSessions > 0 ? ptSessions : (existing.ptRemainingSessions ?? 0),
         startDate: today,
         endDate: addDaysToIsoDate(today, durationDays),
         approvedByLabel: label,
       };
-      const payments = this.getOrSeedMockGymPaymentLogs();
-      payments.push({
-        id: `gympay-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        businessId: cleanId,
-        memberId: existing.id,
-        paymentType: 'approval',
-        planId,
-        planName,
-        durationDays,
-        amountPaise: feePaise,
-        paidDate: today,
-        recordedByLabel: label,
-        createdAt: now,
-      });
-      this.write(STORAGE_KEYS.GYM_PAYMENT_LOGS, payments);
+      if (paidNowPaise > 0) {
+        const payments = this.getOrSeedMockGymPaymentLogs();
+        payments.push({
+          id: `gympay-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          businessId: cleanId,
+          memberId: existing.id,
+          paymentType: 'approval',
+          paymentMethod,
+          planId,
+          planName,
+          durationDays,
+          amountPaise: paidNowPaise,
+          ptTrainerId,
+          ptFeePaise,
+          paidDate: today,
+          recordedByLabel: label,
+          createdAt: now,
+        });
+        this.write(STORAGE_KEYS.GYM_PAYMENT_LOGS, payments);
+      }
     } else if (actionCheck.value === 'renew') {
       const baseDate =
         existing.endDate && existing.endDate > today ? existing.endDate : today;
+      const combinedBalance = (existing.balanceDuePaise ?? 0) + newBalanceDue;
       updated = {
         ...updated,
         status: 'active',
+        isFrozen: false,
+        frozenStartedAt: null,
         planId,
         planName,
         durationDays,
         feePaise,
+        totalPlanAmountPaise: totalDuePaise,
+        amountPaidPaise: paidNowPaise,
+        balanceDuePaise: combinedBalance,
+        balanceDueDate:
+          combinedBalance > 0
+            ? (params.balanceDueDate ??
+              existing.balanceDueDate ??
+              addDaysToIsoDate(today, 14))
+            : null,
+        ptTrainerId: ptTrainerId ?? existing.ptTrainerId ?? null,
+        ptPackageName: ptPackageName ?? existing.ptPackageName ?? null,
+        ptPackageFeePaise:
+          ptFeePaise > 0 ? ptFeePaise : (existing.ptPackageFeePaise ?? 0),
+        ptTotalSessions:
+          ptSessions > 0
+            ? (existing.ptTotalSessions ?? 0) + ptSessions
+            : (existing.ptTotalSessions ?? 0),
+        ptRemainingSessions:
+          ptSessions > 0
+            ? (existing.ptRemainingSessions ?? 0) + ptSessions
+            : (existing.ptRemainingSessions ?? 0),
         startDate: existing.startDate ?? today,
         endDate: addDaysToIsoDate(baseDate, durationDays),
         approvedByLabel: label,
       };
-      const payments = this.getOrSeedMockGymPaymentLogs();
-      payments.push({
-        id: `gympay-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        businessId: cleanId,
-        memberId: existing.id,
-        paymentType: 'renewal',
-        planId,
-        planName,
-        durationDays,
-        amountPaise: feePaise,
-        paidDate: today,
-        recordedByLabel: label,
-        createdAt: now,
-      });
-      this.write(STORAGE_KEYS.GYM_PAYMENT_LOGS, payments);
+      if (paidNowPaise > 0) {
+        const payments = this.getOrSeedMockGymPaymentLogs();
+        payments.push({
+          id: `gympay-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          businessId: cleanId,
+          memberId: existing.id,
+          paymentType: 'renewal',
+          paymentMethod,
+          planId,
+          planName,
+          durationDays,
+          amountPaise: paidNowPaise,
+          ptTrainerId,
+          ptFeePaise,
+          paidDate: today,
+          recordedByLabel: label,
+          createdAt: now,
+        });
+        this.write(STORAGE_KEYS.GYM_PAYMENT_LOGS, payments);
+      }
     } else if (actionCheck.value === 'reject') {
       updated = { ...updated, status: 'rejected' };
     } else if (actionCheck.value === 'suspend') {
@@ -7086,6 +7425,930 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     members[idx] = hydrated;
     this.write(STORAGE_KEYS.GYM_MEMBERS, members);
     return hydrated;
+  }
+
+  async collectGymBalanceDue(params: {
+    businessId: string;
+    memberId: string;
+    collectedPaise: number;
+    paymentMethod?: GymPaymentMethod;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMember> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    if (!Number.isFinite(params.collectedPaise) || params.collectedPaise <= 0) {
+      throw new Error('Collected amount must be greater than zero.');
+    }
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    const members = this.getOrSeedMockGymMembers();
+    const idx = members.findIndex(
+      (m) => m.id === params.memberId && m.businessId === cleanId,
+    );
+    if (idx === -1) throw new Error('Gym member not found for this business.');
+    const existing = members[idx];
+    const currentDue = existing.balanceDuePaise ?? 0;
+    if (currentDue <= 0) {
+      throw new Error('This member has no pending balance due.');
+    }
+
+    const applied = Math.min(currentDue, Math.round(params.collectedPaise));
+    const nextBalance = Math.max(0, currentDue - applied);
+    const today = getTodayIsoDateKey();
+    const now = new Date().toISOString();
+
+    const updated: GymMember = {
+      ...existing,
+      amountPaidPaise: (existing.amountPaidPaise ?? 0) + applied,
+      balanceDuePaise: nextBalance,
+      balanceDueDate: nextBalance === 0 ? null : (existing.balanceDueDate ?? null),
+      updatedAt: now,
+    };
+    const cfgStore = this.read<Record<string, GymConfig>>(
+      STORAGE_KEYS.GYM_CONFIGS,
+      {},
+    );
+    const config = normalizeGymConfig(cleanId, cfgStore[cleanId]);
+    const hydrated = this.hydrateGymMember(
+      updated,
+      config.renewalAlertDays,
+      today,
+    );
+    members[idx] = hydrated;
+    this.write(STORAGE_KEYS.GYM_MEMBERS, members);
+
+    const payments = this.getOrSeedMockGymPaymentLogs();
+    payments.push({
+      id: `gympay-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      businessId: cleanId,
+      memberId: existing.id,
+      paymentType: 'balance_due',
+      paymentMethod: params.paymentMethod === 'cash' ? 'cash' : 'upi',
+      planId: existing.planId,
+      planName: `${existing.planName} (Balance Due)`,
+      durationDays: existing.durationDays,
+      amountPaise: applied,
+      paidDate: today,
+      recordedByLabel: 'Owner',
+      createdAt: now,
+    });
+    this.write(STORAGE_KEYS.GYM_PAYMENT_LOGS, payments);
+    return hydrated;
+  }
+
+  async toggleGymMembershipFreeze(params: {
+    businessId: string;
+    memberId: string;
+    action: GymFreezeAction;
+    resumeDateOverride?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMember> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    if (params.action !== 'freeze' && params.action !== 'resume') {
+      throw new Error('Freeze action must be "freeze" or "resume".');
+    }
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    const members = this.getOrSeedMockGymMembers();
+    const idx = members.findIndex(
+      (m) => m.id === params.memberId && m.businessId === cleanId,
+    );
+    if (idx === -1) throw new Error('Gym member not found for this business.');
+    const existing = members[idx];
+    if (existing.status !== 'active') {
+      throw new Error('Only active memberships can be frozen or resumed.');
+    }
+
+    const today = getTodayIsoDateKey();
+    const now = new Date().toISOString();
+    let updated: GymMember;
+
+    if (params.action === 'freeze') {
+      if (existing.isFrozen) {
+        throw new Error('Membership is already frozen.');
+      }
+      updated = {
+        ...existing,
+        isFrozen: true,
+        frozenStartedAt: today,
+        updatedAt: now,
+      };
+    } else {
+      if (!existing.isFrozen) {
+        throw new Error('Membership is not currently frozen.');
+      }
+      const resumeDate =
+        params.resumeDateOverride &&
+        /^\d{4}-\d{2}-\d{2}$/.test(params.resumeDateOverride.trim())
+          ? params.resumeDateOverride.trim()
+          : today;
+      const startFreeze = existing.frozenStartedAt ?? today;
+      const pausedDays = Math.max(
+        1,
+        diffDaysBetweenIsoDates(resumeDate, startFreeze),
+      );
+      const baseEnd = existing.endDate ?? today;
+      updated = {
+        ...existing,
+        isFrozen: false,
+        frozenStartedAt: null,
+        endDate: addDaysToIsoDate(baseEnd, pausedDays),
+        totalFrozenDays: (existing.totalFrozenDays ?? 0) + pausedDays,
+        updatedAt: now,
+      };
+    }
+
+    const cfgStore = this.read<Record<string, GymConfig>>(
+      STORAGE_KEYS.GYM_CONFIGS,
+      {},
+    );
+    const config = normalizeGymConfig(cleanId, cfgStore[cleanId]);
+    const hydrated = this.hydrateGymMember(
+      updated,
+      config.renewalAlertDays,
+      today,
+    );
+    members[idx] = hydrated;
+    this.write(STORAGE_KEYS.GYM_MEMBERS, members);
+    return hydrated;
+  }
+
+  async createGymTrainer(
+    businessId: string,
+    input: GymTrainerInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymTrainer> {
+    const check = validateGymTrainerInput(businessId, input);
+    if (!check.ok) throw new Error(check.error);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const trainers = this.read<GymTrainer[]>(STORAGE_KEYS.GYM_TRAINERS, []);
+    const created: GymTrainer = {
+      id: `gymtr-${crypto.randomUUID()}`,
+      businessId: cleanId,
+      trainerName: check.value.trainerName,
+      specialty: check.value.specialty,
+      commissionPercent: check.value.commissionPercent,
+      isActive: check.value.isActive,
+      createdAt: new Date().toISOString(),
+    };
+    trainers.push(created);
+    this.write(STORAGE_KEYS.GYM_TRAINERS, trainers);
+    return created;
+  }
+
+  async deleteGymTrainer(
+    businessId: string,
+    trainerId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const trainers = this.read<GymTrainer[]>(STORAGE_KEYS.GYM_TRAINERS, []);
+    this.write(
+      STORAGE_KEYS.GYM_TRAINERS,
+      trainers.filter((t) => !(t.businessId === cleanId && t.id === trainerId)),
+    );
+  }
+
+  async getGymTrainerCommissions(
+    businessId: string,
+    monthKey?: string | null,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymTrainerCommissionRow[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const targetMonth =
+      monthKey && /^\d{4}-(0[1-9]|1[0-2])$/.test(monthKey.trim())
+        ? monthKey.trim()
+        : getTodayIsoDateKey().slice(0, 7);
+
+    const trainers = this.read<GymTrainer[]>(STORAGE_KEYS.GYM_TRAINERS, []).filter(
+      (t) => t.businessId === cleanId,
+    );
+    const members = this.getOrSeedMockGymMembers().filter(
+      (m) => m.businessId === cleanId,
+    );
+    const logs = this.getOrSeedMockGymCheckIns().filter(
+      (l) => l.businessId === cleanId && l.checkInDate.slice(0, 7) === targetMonth,
+    );
+    const payments = this.getOrSeedMockGymPaymentLogs().filter(
+      (p) => p.businessId === cleanId && p.paidDate.slice(0, 7) === targetMonth,
+    );
+
+    return trainers.map((t) => {
+      const activePtClients = members.filter(
+        (m) =>
+          m.ptTrainerId === t.id &&
+          m.status === 'active' &&
+          (m.ptRemainingSessions ?? 0) > 0,
+      ).length;
+      const ptSessionsDeliveredThisMonth = logs.filter(
+        (l) => l.isPtSession && l.trainerId === t.id,
+      ).length;
+      const ptPackageRevenuePaise = payments
+        .filter((p) => p.ptTrainerId === t.id)
+        .reduce((sum, p) => sum + (p.ptFeePaise ?? 0), 0);
+      const commissionPayoutPaise = Math.round(
+        (ptPackageRevenuePaise * t.commissionPercent) / 100,
+      );
+      return {
+        ...t,
+        activePtClients,
+        ptSessionsDeliveredThisMonth,
+        ptPackageRevenuePaise,
+        commissionPayoutPaise,
+      };
+    });
+  }
+
+  async logGymBodyMeasurement(
+    input: GymBodyMeasurementInput,
+  ): Promise<GymBodyMeasurement> {
+    const check = validateGymBodyMeasurementInput(input);
+    if (!check.ok) throw new Error(check.error);
+
+    const business = await this.getBusinessBySlug(check.value.businessSlug);
+    if (
+      !business ||
+      business.status !== 'active' ||
+      business.accountState !== 'active'
+    ) {
+      throw new Error('Gym is not active.');
+    }
+
+    const member = this.getOrSeedMockGymMembers().find(
+      (m) => m.businessId === business.id && m.phone === check.value.phone,
+    );
+    if (!member) {
+      throw new Error('Member not found for this phone number.');
+    }
+
+    const list = this.read<GymBodyMeasurement[]>(
+      STORAGE_KEYS.GYM_BODY_MEASUREMENTS,
+      [],
+    );
+    const created: GymBodyMeasurement = {
+      id: `gymbm-${crypto.randomUUID()}`,
+      businessId: business.id,
+      memberId: member.id,
+      recordedDate: getTodayIsoDateKey(),
+      weightKg: check.value.weightKg,
+      waistInches: check.value.waistInches,
+      chestInches: check.value.chestInches,
+      bicepsInches: check.value.bicepsInches,
+      bmi: check.value.bmi,
+      note: check.value.note,
+      createdAt: new Date().toISOString(),
+    };
+    list.push(created);
+    this.write(STORAGE_KEYS.GYM_BODY_MEASUREMENTS, list);
+    return created;
+  }
+
+  async logGymWorkoutSession(
+    input: LogGymWorkoutSessionInput,
+  ): Promise<GymWorkoutSession> {
+    const normPhone = normalizeGymPhone(input.phone);
+    const business = await this.getBusinessBySlug(input.businessSlug);
+    if (
+      !business ||
+      business.status !== 'active' ||
+      business.accountState !== 'active'
+    ) {
+      throw new Error('Gym is not active.');
+    }
+    const member = this.getOrSeedMockGymMembers().find(
+      (m) => m.businessId === business.id && m.phone === normPhone,
+    );
+    if (!member) throw new Error('Member not found for this phone number.');
+
+    const list = this.read<GymWorkoutSession[]>(
+      STORAGE_KEYS.GYM_WORKOUT_SESSIONS,
+      [],
+    );
+    const created: GymWorkoutSession = {
+      id: `gymws-${crypto.randomUUID()}`,
+      businessId: business.id,
+      memberId: member.id,
+      sessionDate: getTodayIsoDateKey(),
+      planId: input.planId || 'ppl',
+      routineName: input.routineName.trim().slice(0, 80) || 'Custom Workout',
+      workoutFocus: input.workoutFocus,
+      durationMinutes: Math.max(1, Math.min(360, Math.round(input.durationMinutes || 45))),
+      totalVolumeKg: Math.max(0, Math.round((input.totalVolumeKg || 0) * 10) / 10),
+      totalSets: Math.max(0, Math.round(input.totalSets || 0)),
+      prsHitCount: Math.max(0, Math.round(input.prsHitCount || 0)),
+      musclesTrained: input.musclesTrained ?? [],
+      exercises: input.exercises ?? [],
+      createdAt: new Date().toISOString(),
+    };
+    list.push(created);
+    this.write(STORAGE_KEYS.GYM_WORKOUT_SESSIONS, list);
+    return created;
+  }
+
+  async getGymMonthlyLeaderboard(
+    businessSlug: string,
+  ): Promise<GymLeaderboardEntry[]> {
+    const business = await this.getBusinessBySlug(businessSlug);
+    if (
+      !business ||
+      business.status !== 'active' ||
+      business.accountState !== 'active'
+    ) {
+      return [];
+    }
+    const currMonth = getTodayIsoDateKey().slice(0, 7);
+    const logs = this.getOrSeedMockGymCheckIns().filter(
+      (l) => l.businessId === business.id && l.checkInDate.slice(0, 7) === currMonth,
+    );
+    const members = this.getOrSeedMockGymMembers().filter(
+      (m) => m.businessId === business.id && m.status === 'active',
+    );
+
+    const ranked = members
+      .map((m) => {
+        const workoutsThisMonth = logs.filter((l) => l.memberId === m.id).length;
+        return {
+          memberCode: m.memberCode,
+          displayName: formatPrivacySafeLeaderboardName(m.fullName),
+          workoutsThisMonth,
+          currentStreakDays: m.currentStreakDays ?? 0,
+          bestStreakDays: m.bestStreakDays ?? 0,
+          totalCheckIns: m.totalCheckIns,
+        };
+      })
+      .filter((r) => r.workoutsThisMonth > 0 || r.currentStreakDays > 0)
+      .sort(
+        (a, b) =>
+          b.workoutsThisMonth - a.workoutsThisMonth ||
+          b.currentStreakDays - a.currentStreakDays ||
+          b.totalCheckIns - a.totalCheckIns,
+      )
+      .slice(0, 10);
+
+    return ranked.map((r, i) => ({
+      rank: i + 1,
+      memberCode: r.memberCode,
+      displayName: r.displayName,
+      workoutsThisMonth: r.workoutsThisMonth,
+      currentStreakDays: r.currentStreakDays,
+      bestStreakDays: r.bestStreakDays,
+    }));
+  }
+
+  async createGymRetailProduct(
+    businessId: string,
+    input: GymRetailProductInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymRetailProduct> {
+    const check = validateGymRetailProductInput(businessId, input);
+    if (!check.ok) throw new Error(check.error);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const products = this.read<GymRetailProduct[]>(
+      STORAGE_KEYS.GYM_RETAIL_PRODUCTS,
+      [],
+    );
+    const created: GymRetailProduct = {
+      id: `gymrp-${crypto.randomUUID()}`,
+      businessId: cleanId,
+      productName: check.value.productName,
+      pricePaise: check.value.pricePaise,
+      stockQty: check.value.stockQty,
+      isActive: true,
+    };
+    products.push(created);
+    this.write(STORAGE_KEYS.GYM_RETAIL_PRODUCTS, products);
+    return created;
+  }
+
+  async seedGymRetailStarterProducts(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymRetailProduct[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const existing = this.read<GymRetailProduct[]>(
+      STORAGE_KEYS.GYM_RETAIL_PRODUCTS,
+      [],
+    ).filter((p) => p.businessId === cleanId);
+    const existingNames = new Set(existing.map((p) => p.productName.toLowerCase()));
+    const added: GymRetailProduct[] = [];
+    for (const preset of GYM_RETAIL_STARTER_PRODUCTS) {
+      if (!existingNames.has(preset.productName.toLowerCase())) {
+        const created = await this.createGymRetailProduct(cleanId, preset, options);
+        added.push(created);
+      }
+    }
+    return added;
+  }
+
+  async deleteGymRetailProduct(
+    businessId: string,
+    productId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const products = this.read<GymRetailProduct[]>(
+      STORAGE_KEYS.GYM_RETAIL_PRODUCTS,
+      [],
+    );
+    this.write(
+      STORAGE_KEYS.GYM_RETAIL_PRODUCTS,
+      products.filter((p) => !(p.businessId === cleanId && p.id === productId)),
+    );
+  }
+
+  async recordGymRetailSale(params: {
+    businessId: string;
+    productId: string;
+    quantity?: number;
+    paymentMethod?: GymPaymentMethod;
+    memberName?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<{ sale: GymRetailSale; product: GymRetailProduct }> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    const products = this.read<GymRetailProduct[]>(
+      STORAGE_KEYS.GYM_RETAIL_PRODUCTS,
+      [],
+    );
+    const idx = products.findIndex(
+      (p) => p.id === params.productId && p.businessId === cleanId,
+    );
+    if (idx === -1) throw new Error('Supplement product not found for this gym.');
+
+    const qty = Math.max(1, Math.min(100, Math.round(params.quantity ?? 1)));
+    const updatedProduct: GymRetailProduct = {
+      ...products[idx],
+      stockQty: Math.max(0, products[idx].stockQty - qty),
+    };
+    products[idx] = updatedProduct;
+    this.write(STORAGE_KEYS.GYM_RETAIL_PRODUCTS, products);
+
+    const sales = this.read<GymRetailSale[]>(STORAGE_KEYS.GYM_RETAIL_SALES, []);
+    const sale: GymRetailSale = {
+      id: `gymrs-${crypto.randomUUID()}`,
+      businessId: cleanId,
+      productId: updatedProduct.id,
+      productName: updatedProduct.productName,
+      quantity: qty,
+      totalPaise: updatedProduct.pricePaise * qty,
+      paymentMethod: params.paymentMethod === 'cash' ? 'cash' : 'upi',
+      memberName: params.memberName?.trim().slice(0, 80) || null,
+      soldAt: new Date().toISOString(),
+    };
+    sales.push(sale);
+    this.write(STORAGE_KEYS.GYM_RETAIL_SALES, sales);
+    return { sale, product: updatedProduct };
+  }
+
+  async getGymExerciseCatalog(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymCatalogExercise[]> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const custom = this.read<GymCatalogExercise[]>(
+      STORAGE_KEYS.GYM_CUSTOM_EXERCISES,
+      [],
+    ).filter((e) => e.businessId === cleanId);
+    return [...BUILTIN_GYM_CATALOG_EXERCISES, ...custom];
+  }
+
+  async createGymCustomExercise(
+    businessId: string,
+    input: GymCatalogExerciseInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymCatalogExercise> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanName = (input.name ?? '').trim().slice(0, 100);
+    if (cleanName.length < 2) {
+      throw new Error('Exercise name must be at least 2 characters.');
+    }
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const list = this.read<GymCatalogExercise[]>(
+      STORAGE_KEYS.GYM_CUSTOM_EXERCISES,
+      [],
+    );
+    const created: GymCatalogExercise = {
+      id: `gymex-${crypto.randomUUID()}`,
+      businessId: cleanId,
+      name: cleanName,
+      muscleGroup: input.muscleGroup,
+      equipment: input.equipment,
+      defaultSets: Math.max(1, Math.min(10, Math.round(input.defaultSets ?? 3))),
+      defaultReps: (input.defaultReps ?? '10-12').trim().slice(0, 24) || '10-12',
+      restSeconds: Math.max(15, Math.min(300, Math.round(input.restSeconds ?? 60))),
+    };
+    list.push(created);
+    this.write(STORAGE_KEYS.GYM_CUSTOM_EXERCISES, list);
+    return created;
+  }
+
+  async createOrAssignGymRoutine(params: {
+    businessId: string;
+    routineName: string;
+    targetGoal?: string;
+    exercises: GymRoutineExerciseItem[];
+    assignToMemberId?: string | null;
+    createdBy?: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymWorkoutRoutine> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanName = (params.routineName ?? '').trim().slice(0, 100);
+    if (cleanName.length < 2) {
+      throw new Error('Routine name must be at least 2 characters.');
+    }
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    const routines = this.read<GymWorkoutRoutine[]>(
+      STORAGE_KEYS.GYM_WORKOUT_ROUTINES,
+      [],
+    );
+    const created: GymWorkoutRoutine = {
+      id: `gymrt-${crypto.randomUUID()}`,
+      businessId: cleanId,
+      routineName: cleanName,
+      targetGoal: params.targetGoal?.trim() || 'general_fitness',
+      exercises: Array.isArray(params.exercises) ? params.exercises : [],
+      createdBy: params.createdBy?.trim().slice(0, 80) || 'Owner',
+      createdAt: new Date().toISOString(),
+    };
+    routines.push(created);
+    this.write(STORAGE_KEYS.GYM_WORKOUT_ROUTINES, routines);
+
+    if (params.assignToMemberId) {
+      await this.assignGymRoutineToMember({
+        businessId: cleanId,
+        memberId: params.assignToMemberId,
+        routineId: created.id,
+        options: params.options,
+      });
+    }
+
+    return created;
+  }
+
+  async assignGymRoutineToMember(params: {
+    businessId: string;
+    memberId: string;
+    routineId: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMember> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    const members = this.getOrSeedMockGymMembers();
+    const idx = members.findIndex(
+      (m) => m.id === params.memberId && m.businessId === cleanId,
+    );
+    if (idx === -1) throw new Error('Gym member not found for this business.');
+
+    if (params.routineId) {
+      const routines = this.read<GymWorkoutRoutine[]>(
+        STORAGE_KEYS.GYM_WORKOUT_ROUTINES,
+        [],
+      );
+      if (!routines.some((r) => r.id === params.routineId && r.businessId === cleanId)) {
+        throw new Error('Workout routine not found for this gym.');
+      }
+    }
+
+    const updated: GymMember = {
+      ...members[idx],
+      assignedRoutineId: params.routineId,
+      updatedAt: new Date().toISOString(),
+    };
+    const cfgStore = this.read<Record<string, GymConfig>>(
+      STORAGE_KEYS.GYM_CONFIGS,
+      {},
+    );
+    const config = normalizeGymConfig(cleanId, cfgStore[cleanId]);
+    const hydrated = this.hydrateGymMember(
+      updated,
+      config.renewalAlertDays,
+      getTodayIsoDateKey(),
+    );
+    members[idx] = hydrated;
+    this.write(STORAGE_KEYS.GYM_MEMBERS, members);
+    return hydrated;
+  }
+
+  async getGymMemberWorkoutPlan(params: {
+    businessSlug: string;
+    memberId: string;
+  }): Promise<GymMemberWorkoutPlanPayload | null> {
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (
+      !business ||
+      business.status !== 'active' ||
+      business.accountState !== 'active'
+    ) {
+      return null;
+    }
+    const member = this.getOrSeedMockGymMembers().find(
+      (m) => m.businessId === business.id && m.id === params.memberId,
+    );
+    if (!member) return null;
+
+    const assignedRoutine = member.assignedRoutineId
+      ? (this.read<GymWorkoutRoutine[]>(
+          STORAGE_KEYS.GYM_WORKOUT_ROUTINES,
+          [],
+        ).find(
+          (r) => r.id === member.assignedRoutineId && r.businessId === business.id,
+        ) ?? null)
+      : null;
+
+    const customExercises = this.read<GymCatalogExercise[]>(
+      STORAGE_KEYS.GYM_CUSTOM_EXERCISES,
+      [],
+    ).filter((e) => e.businessId === business.id);
+    const exerciseCatalog = [...BUILTIN_GYM_CATALOG_EXERCISES, ...customExercises];
+
+    const today = getTodayIsoDateKey();
+    const weekStart = addDaysToIsoDate(today, -6);
+    const memberSets = this.read<GymWorkoutSetRecord[]>(
+      STORAGE_KEYS.GYM_WORKOUT_SET_LOGS,
+      [],
+    ).filter((l) => l.businessId === business.id && l.memberId === member.id);
+
+    const todaySets = memberSets
+      .filter((l) => l.workoutDate === today)
+      .sort((a, b) => a.loggedAt.localeCompare(b.loggedAt));
+
+    const weeklyVolumeKg =
+      Math.round(
+        memberSets
+          .filter((l) => l.workoutDate >= weekStart)
+          .reduce((sum, l) => sum + l.weightKg * l.reps, 0) * 10,
+      ) / 10;
+
+    const prMap = new Map<string, GymPersonalRecordRow>();
+    for (const s of memberSets) {
+      const key = s.exerciseName.toLowerCase();
+      const curr = prMap.get(key);
+      if (
+        !curr ||
+        s.estimated1rmKg > curr.best1rmKg ||
+        s.weightKg > curr.bestWeightKg
+      ) {
+        prMap.set(key, {
+          exerciseName: s.exerciseName,
+          muscleGroup: s.muscleGroup,
+          bestWeightKg: Math.max(curr?.bestWeightKg ?? 0, s.weightKg),
+          best1rmKg: Math.max(curr?.best1rmKg ?? 0, s.estimated1rmKg),
+          lastDate: s.workoutDate,
+        });
+      }
+    }
+
+    return {
+      assignedRoutine,
+      exerciseCatalog,
+      todaySets,
+      personalRecords: Array.from(prMap.values()).sort(
+        (a, b) => b.best1rmKg - a.best1rmKg,
+      ),
+      weeklyVolumeKg,
+    };
+  }
+
+  async logGymMemberWorkoutSet(params: {
+    businessSlug: string;
+    memberId: string;
+    exerciseId?: string | null;
+    exerciseName: string;
+    muscleGroup: string;
+    setNumber: number;
+    weightKg: number;
+    reps: number;
+  }): Promise<GymLogSetResult> {
+    const cleanExName = (params.exerciseName ?? '').trim().slice(0, 100);
+    if (cleanExName.length < 2) throw new Error('Exercise name is required.');
+
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (
+      !business ||
+      business.status !== 'active' ||
+      business.accountState !== 'active'
+    ) {
+      throw new Error('Gym is not active.');
+    }
+
+    const member = this.getOrSeedMockGymMembers().find(
+      (m) => m.businessId === business.id && m.id === params.memberId,
+    );
+    if (!member) throw new Error('Gym member not found.');
+    if (member.isFrozen) {
+      throw new Error(
+        'Membership is currently paused — ask front desk to resume.',
+      );
+    }
+    const today = getTodayIsoDateKey();
+    if (
+      member.status !== 'active' ||
+      (member.endDate !== null && member.endDate < today)
+    ) {
+      throw new Error('Active membership is required to log workout sets.');
+    }
+
+    const weightKg = Math.max(0, Math.min(1000, Math.round(params.weightKg * 100) / 100));
+    const reps = Math.max(1, Math.min(200, Math.round(params.reps)));
+    const setNumber = Math.max(1, Math.min(20, Math.round(params.setNumber)));
+    const estimated1rmKg = Math.round(calculateEpley1RM(weightKg, reps) * 100) / 100;
+
+    const allSets = this.read<GymWorkoutSetRecord[]>(
+      STORAGE_KEYS.GYM_WORKOUT_SET_LOGS,
+      [],
+    );
+    const priorForEx = allSets.filter(
+      (l) =>
+        l.businessId === business.id &&
+        l.memberId === member.id &&
+        l.exerciseName.toLowerCase() === cleanExName.toLowerCase(),
+    );
+    const prevBestWt = priorForEx.reduce((m, s) => Math.max(m, s.weightKg), 0);
+    const prevBest1rm = priorForEx.reduce(
+      (m, s) => Math.max(m, s.estimated1rmKg),
+      0,
+    );
+    const isPersonalRecord =
+      weightKg > 0 &&
+      (priorForEx.length === 0 ||
+        weightKg > prevBestWt ||
+        estimated1rmKg > prevBest1rm);
+
+    const validMuscles: readonly GymCatalogMuscleGroup[] = [
+      'chest',
+      'back',
+      'legs',
+      'shoulders',
+      'arms',
+      'core',
+      'cardio',
+      'full_body',
+    ];
+    const muscleGroup: GymCatalogMuscleGroup = validMuscles.includes(
+      params.muscleGroup as GymCatalogMuscleGroup,
+    )
+      ? (params.muscleGroup as GymCatalogMuscleGroup)
+      : 'full_body';
+
+    const created: GymWorkoutSetRecord = {
+      id: `gymset-${crypto.randomUUID()}`,
+      businessId: business.id,
+      memberId: member.id,
+      exerciseId: params.exerciseId ?? null,
+      exerciseName: cleanExName,
+      muscleGroup,
+      workoutDate: today,
+      setNumber,
+      weightKg,
+      reps,
+      estimated1rmKg,
+      isPersonalRecord,
+      loggedAt: new Date().toISOString(),
+    };
+    allSets.push(created);
+    this.write(STORAGE_KEYS.GYM_WORKOUT_SET_LOGS, allSets);
+
+    const totalVolumeTodayKg =
+      Math.round(
+        allSets
+          .filter(
+            (l) =>
+              l.businessId === business.id &&
+              l.memberId === member.id &&
+              l.workoutDate === today,
+          )
+          .reduce((sum, l) => sum + l.weightKg * l.reps, 0) * 10,
+      ) / 10;
+
+    return {
+      setLog: created,
+      isPersonalRecord,
+      totalVolumeTodayKg,
+    };
+  }
+
+  async getGymMemberWorkoutSummary(params: {
+    businessId: string;
+    memberId: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymMemberWorkoutSummaryPayload> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    const member = this.getOrSeedMockGymMembers().find(
+      (m) => m.businessId === cleanId && m.id === params.memberId,
+    );
+    if (!member) throw new Error('Gym member not found for this business.');
+
+    const sets = this.read<GymWorkoutSetRecord[]>(
+      STORAGE_KEYS.GYM_WORKOUT_SET_LOGS,
+      [],
+    )
+      .filter((l) => l.businessId === cleanId && l.memberId === member.id)
+      .sort((a, b) => b.loggedAt.localeCompare(a.loggedAt));
+
+    const totalVolumeKg =
+      Math.round(
+        sets.reduce((sum, l) => sum + l.weightKg * l.reps, 0) * 10,
+      ) / 10;
+
+    const prMap = new Map<string, GymPersonalRecordRow>();
+    for (const s of sets) {
+      const key = s.exerciseName.toLowerCase();
+      const curr = prMap.get(key);
+      if (
+        !curr ||
+        s.estimated1rmKg > curr.best1rmKg ||
+        s.weightKg > curr.bestWeightKg
+      ) {
+        prMap.set(key, {
+          exerciseName: s.exerciseName,
+          muscleGroup: s.muscleGroup,
+          bestWeightKg: Math.max(curr?.bestWeightKg ?? 0, s.weightKg),
+          best1rmKg: Math.max(curr?.best1rmKg ?? 0, s.estimated1rmKg),
+          lastDate: s.workoutDate,
+        });
+      }
+    }
+
+    return {
+      memberId: member.id,
+      assignedRoutineId: member.assignedRoutineId ?? null,
+      totalVolumeKg,
+      personalRecords: Array.from(prMap.values()).sort(
+        (a, b) => b.best1rmKg - a.best1rmKg,
+      ),
+      recentSets: sets.slice(0, 80),
+    };
   }
 
   // ---------------------------------------------------------------------------

@@ -554,3 +554,235 @@ export function getGymRenewalWhatsAppLink(
   const waPhone = digits.length === 10 ? `91${digits}` : digits;
   return `https://wa.me/${waPhone}?text=${encodeURIComponent(msg)}`;
 }
+
+// ---------------------------------------------------------------------------
+// GymOS Flagship Utilities (PT, Installments, Freeze, Measurements, Retail)
+// ---------------------------------------------------------------------------
+
+export const GYM_RETAIL_STARTER_PRODUCTS: ReadonlyArray<{
+  productName: string;
+  pricePaise: number;
+  stockQty: number;
+}> = [
+  { productName: 'Whey Protein Scoop', pricePaise: 12000, stockQty: 60 },
+  { productName: 'Pre-Workout Shot', pricePaise: 15000, stockQty: 40 },
+  { productName: 'Mineral Water 1L', pricePaise: 2000, stockQty: 120 },
+  { productName: 'High-Protein Bar', pricePaise: 10000, stockQty: 50 },
+];
+
+export function computeGymBmi(
+  weightKg: number,
+  heightCm?: number | null,
+): number | null {
+  if (!Number.isFinite(weightKg) || weightKg < 20 || weightKg > 300) return null;
+  if (!heightCm || !Number.isFinite(heightCm) || heightCm < 100 || heightCm > 250) {
+    return null;
+  }
+  const heightM = heightCm / 100;
+  return Math.round((weightKg / (heightM * heightM)) * 10) / 10;
+}
+
+export function formatPrivacySafeLeaderboardName(fullName: string): string {
+  const clean = stripControlChars(fullName).replace(/\s+/g, ' ');
+  if (!clean) return 'Member';
+  const parts = clean.split(' ');
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[1].charAt(0).toUpperCase()}.`;
+}
+
+export function buildWeeklyActivityDays(
+  recentLogs: ReadonlyArray<{ checkInDate: string }> = [],
+  now: Date = new Date(),
+): Array<{ dayLabel: string; isoDate: string; trained: boolean; isToday: boolean }> {
+  const trainedSet = new Set(recentLogs.map((l) => l.checkInDate));
+  const todayIso = getTodayIsoDateKey(now);
+  // Start on Monday of the current week
+  const jsDay = now.getDay(); // 0=Sun..6=Sat
+  const offsetFromMon = jsDay === 0 ? 6 : jsDay - 1;
+  const monDate = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() - offsetFromMon,
+  );
+  const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  return labels.map((dayLabel, i) => {
+    const dt = new Date(
+      monDate.getFullYear(),
+      monDate.getMonth(),
+      monDate.getDate() + i,
+    );
+    const isoDate = getTodayIsoDateKey(dt);
+    return {
+      dayLabel,
+      isoDate,
+      trained: trainedSet.has(isoDate),
+      isToday: isoDate === todayIso,
+    };
+  });
+}
+
+export function validateGymTrainerInput(
+  businessId: unknown,
+  input: unknown,
+):
+  | {
+      ok: true;
+      value: {
+        trainerName: string;
+        specialty: string;
+        commissionPercent: number;
+        isActive: boolean;
+      };
+    }
+  | { ok: false; error: string } {
+  const idErr = validateBusinessId(businessId);
+  if (idErr) return { ok: false, error: idErr };
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { ok: false, error: 'Trainer details are required.' };
+  }
+  const rec = input as Record<string, unknown>;
+  const trainerName = stripControlChars(String(rec.trainerName ?? '')).slice(0, 80);
+  if (trainerName.length < 2) {
+    return { ok: false, error: 'Trainer name must be at least 2 characters.' };
+  }
+  const specialty =
+    stripControlChars(String(rec.specialty ?? '')).slice(0, 120) ||
+    'Strength & Conditioning';
+  const commissionPercent = Number(rec.commissionPercent ?? 50);
+  if (
+    !Number.isFinite(commissionPercent) ||
+    commissionPercent < 0 ||
+    commissionPercent > 100
+  ) {
+    return { ok: false, error: 'Commission percentage must be between 0 and 100.' };
+  }
+  return {
+    ok: true,
+    value: {
+      trainerName,
+      specialty,
+      commissionPercent: Math.round(commissionPercent * 100) / 100,
+      isActive: rec.isActive !== false,
+    },
+  };
+}
+
+export function validateGymRetailProductInput(
+  businessId: unknown,
+  input: unknown,
+):
+  | {
+      ok: true;
+      value: { productName: string; pricePaise: number; stockQty: number };
+    }
+  | { ok: false; error: string } {
+  const idErr = validateBusinessId(businessId);
+  if (idErr) return { ok: false, error: idErr };
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { ok: false, error: 'Product details are required.' };
+  }
+  const rec = input as Record<string, unknown>;
+  const productName = stripControlChars(String(rec.productName ?? '')).slice(0, 100);
+  if (productName.length < 2) {
+    return { ok: false, error: 'Product name must be at least 2 characters.' };
+  }
+  const pricePaise = Math.round(Number(rec.pricePaise ?? 0));
+  if (!Number.isFinite(pricePaise) || pricePaise < 0 || pricePaise > 10_000_000) {
+    return { ok: false, error: 'Product price must be 0 or greater.' };
+  }
+  const stockQty = Math.round(Number(rec.stockQty ?? 50));
+  if (!Number.isFinite(stockQty) || stockQty < 0 || stockQty > 100_000) {
+    return { ok: false, error: 'Stock quantity cannot be negative.' };
+  }
+  return {
+    ok: true,
+    value: { productName, pricePaise, stockQty },
+  };
+}
+
+export function validateGymBodyMeasurementInput(input: unknown):
+  | {
+      ok: true;
+      value: {
+        businessSlug: string;
+        phone: string;
+        weightKg: number;
+        waistInches: number | null;
+        chestInches: number | null;
+        bicepsInches: number | null;
+        bmi: number | null;
+        note: string | null;
+      };
+    }
+  | { ok: false; error: string } {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { ok: false, error: 'Measurement data is required.' };
+  }
+  const rec = input as Record<string, unknown>;
+  const businessSlug = stripControlChars(String(rec.businessSlug ?? '')).toLowerCase();
+  if (!/^[a-z0-9-]{3,80}$/.test(businessSlug)) {
+    return { ok: false, error: 'Invalid gym slug.' };
+  }
+  const phone = normalizeGymPhone(String(rec.phone ?? ''));
+  if (phone.length < 8) {
+    return { ok: false, error: 'Valid phone number is required.' };
+  }
+  const wtCheck = validateGymWeightKg(rec.weightKg);
+  if (!wtCheck.ok || wtCheck.value === null) {
+    return { ok: false, error: 'Weight (20–300 kg) is required.' };
+  }
+
+  const parseOpt = (raw: unknown, min: number, max: number, label: string) => {
+    if (raw === undefined || raw === null || raw === '') return { ok: true as const, value: null };
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < min || n > max) {
+      return { ok: false as const, error: `${label} must be between ${min} and ${max}.` };
+    }
+    return { ok: true as const, value: Math.round(n * 10) / 10 };
+  };
+
+  const waist = parseOpt(rec.waistInches, 15, 80, 'Waist');
+  if (!waist.ok) return waist;
+  const chest = parseOpt(rec.chestInches, 20, 80, 'Chest');
+  if (!chest.ok) return chest;
+  const biceps = parseOpt(rec.bicepsInches, 6, 35, 'Biceps');
+  if (!biceps.ok) return biceps;
+
+  let bmi: number | null = null;
+  if (rec.bmi !== undefined && rec.bmi !== null && rec.bmi !== '') {
+    const bmiCheck = parseOpt(rec.bmi, 10, 70, 'BMI');
+    if (!bmiCheck.ok) return bmiCheck;
+    bmi = bmiCheck.value;
+  } else if (rec.heightCm !== undefined && rec.heightCm !== null && rec.heightCm !== '') {
+    bmi = computeGymBmi(wtCheck.value, Number(rec.heightCm));
+  }
+
+  const note = stripControlChars(String(rec.note ?? '')).slice(0, 280) || null;
+  return {
+    ok: true,
+    value: {
+      businessSlug,
+      phone,
+      weightKg: wtCheck.value,
+      waistInches: waist.value,
+      chestInches: chest.value,
+      bicepsInches: biceps.value,
+      bmi,
+      note,
+    },
+  };
+}
+
+export function getGymBalanceDueWhatsAppLink(
+  gymName: string,
+  member: Pick<GymMember, 'fullName' | 'phone' | 'balanceDuePaise' | 'balanceDueDate'>,
+): string {
+  const due = formatPriceFromPaise(member.balanceDuePaise ?? 0, 'INR');
+  const dueDate = member.balanceDueDate
+    ? ` (due by ${formatIsoDatePretty(member.balanceDueDate)})`
+    : '';
+  const msg = `Hi ${member.fullName}! Friendly reminder from ${gymName}: your pending installment balance is ${due}${dueDate}. You can pay via UPI or Cash at the reception desk on your next workout! 💪`;
+  const digits = normalizeGymPhone(member.phone);
+  const waPhone = digits.length === 10 ? `91${digits}` : digits;
+  return `https://wa.me/${waPhone}?text=${encodeURIComponent(msg)}`;
+}

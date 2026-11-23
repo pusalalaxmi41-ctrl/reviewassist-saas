@@ -109,9 +109,9 @@ Every feature MUST work identically in **both** modes via `src/services/storage/
 
 ---
 
-## 4. Complete Database Schema & Migrations (`001` – `022`)
+## 4. Complete Database Schema & Migrations (`001` – `023`)
 
-Migrations `001` – `021` are live on Supabase Cloud (`jwgofsrubthumuymhzva`), with Migration `022` adding the **Dedicated CafeOS (Wallet Coffee Stamp Card, Automatic Birthday Free Coffee, Raw Ingredient Inventory & Counter Pickup)**:
+Migrations `001` – `022` are live on Supabase Cloud (`jwgofsrubthumuymhzva`), with Migration `023` adding the **GymOS Flagship Operations & OpenGym-Inspired Workout Engine**:
 
 | Migration | Scope & Tables / Columns Added |
 | :--- | :--- |
@@ -134,6 +134,7 @@ Migrations `001` – `021` are live on Supabase Cloud (`jwgofsrubthumuymhzva`), 
 | `020` | **Interactive Floor Plan Studio & Waiter Flow**: Added `floor_width_ft` & `floor_height_ft` to `restaurant_profiles`; added `table_shape` (`square`/`rectangle`/`round`), `pos_x`, `pos_y`, `width_units`, `height_units` to `restaurant_tables`; added owner-verified `save_restaurant_floor_layout` RPC & upgraded `get_restaurant_floor_and_analytics` to return room dimensions and spatial node geometry; paired with Waiter Mobile App Take-Order (Direct-to-Chef KOT or Manager Approval) & Real-Time Manager→Waiter Assigned Task Voice Notifications |
 | `021` | **Order Status NULL Table & KDS Fix**: Fixed `update_table_order_status` & `update_restaurant_table_call_status` unassigned composite record bug (`ERROR 55000`) when `table_id IS NULL` (Swiggy/Zomato, Counter POS, Takeaway, General QR orders) so Main Dashboard & Chef KDS approve/prepare/serve seamlessly |
 | `022` | **Module 7 — Dedicated CafeOS**: Cleanly detaches `category = 'cafe'` from Restaurant (`BistroOS`) with 5 dedicated FORCE-RLS tables (`cafe_configs`, `cafe_stamp_passes`, `cafe_inventory_items`, `cafe_inventory_logs`, `cafe_counter_orders`), Realtime registration, `normalize_cafe_phone`, and 5 hardened `SECURITY DEFINER` RPCs (`get_public_cafe_hub`, `claim_cafe_counter_stamp` with 30s rotating SHA-256 anti-fraud QR + 3h cooldown + automatic free drink rollover, `redeem_cafe_pass_reward` for Stamp Free Drink & annual Birthday Free Coffee, `adjust_cafe_inventory_stock`, and `submit_cafe_counter_order` with daily `#C-01` pickup tokens) |
+| `023` | **GymOS Flagship Upgrade + OpenGym Workout Engine**: Adds 8 FORCE-RLS tables (`gym_trainers`, `gym_body_measurements`, `gym_retail_products`, `gym_retail_sales`, `gym_workout_sessions`, `gym_exercises` seeded with 24 global exercises, `gym_workout_routines`, `gym_workout_set_logs`), extends `gym_members` / `gym_check_ins` / `gym_payment_logs` for Part-Payment Installments + Balance Due collection, Personal Trainer (PT) Packages + Commission Payouts, Membership Freeze/Resume (auto-extending expiry), Daily Streaks, Monthly Consistency Leaderboard, Supplement Bar POS, Weekly Revenue Comparison, Trainer Workout Templates, Live Set/Rep Logger w/ Rest Timer, Epley 1RM & Automatic 🏆 PR Detection — all powered by ONE single static printed Entrance QR |
 
 ### Core Entity Relationships (Restaurant & Cafe Suite)
 
@@ -248,7 +249,7 @@ Run these commands from `C:\work\review-saas` after every change:
 npm run lint
 npm run build
 
-# 2. All 16 automated Deno verification suites
+# 2. All 18 automated Deno verification suites
 npm run test:qr              # 45 checks — QR URLs, scan tracking, poster rendering
 npm run test:ai-config       # 34 checks — AI tone/length/language config & tenant isolation
 npm run test:knowledge       # 28 checks — Business Knowledge, SEO, prompt-injection defense
@@ -265,6 +266,8 @@ npm run test:barber-hybrid   # 30 checks — Module 4B: Daily #1 token reset, W-
 npm run test:gym-attendance  # 21 checks — Module 5B: Fitness targets & weights, daily QR attendance timestamps, workout split tracking, same-day duplicate prevention, member progress history, trainer notes, monthly + projected 30d revenue & tenant isolation
 npm run test:hospitality     # 41 checks — Complete Hospitality OS (Migrations 019 & 020): Unified Tables + Hotel Rooms, Table/Room dish visibility, 1-tap guest requests + waiter assignment, 2-way live chat, multi-order open bills + CGST/SGST + UPI QR + checkout reset, Counter POS & Swiggy/Zomato isolation, repeat visit detection, custom interactive floor plan studio, waiter PIN direct-to-chef orders, manager->waiter assigned task alerts, tenant isolation & SQL guardrails
 npm run test:cafe            # 33 checks — Module 7 (CafeOS, Migration 022): Clean CafeOS detachment, 30s anti-fraud rotating counter QR + 3h cooldown, Digital Coffee Stamp Card free-drink rollover, automatic Birthday Free Coffee annual voucher, Cafe Raw Ingredient Inventory + low-stock radar + audit logs, #C-01 counter quick orders, multi-tenant isolation & Migration 022 SQL guardrails
+npm run test:gym-flagship    # 23 checks — GymOS Flagship Upgrade (Migration 023): Part-payment installments & balance due collection, PT packages & commission payouts, membership freeze/resume auto-extension, streak math, 30-day body journal, Top-10 leaderboard, Supplement Bar POS, Week 1-4 comparison, tenant isolation & Migration 023 SQL guardrails
+npm run test:gym-workout     # 11 checks — GymOS Workout Engine (Migration 023, openGym-inspired): 24-exercise catalog + custom gym exercise, trainer workout routine builder & member assignment, live Set/Rep logger with Epley 1RM & automatic 🏆 PR detection, weekly/daily volume kg, plate math calculator, CSV export & multi-tenant isolation
 
 # 3. Git push (both remotes) & Production Vercel Deploy
 git push origin main
