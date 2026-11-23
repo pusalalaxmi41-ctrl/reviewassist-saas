@@ -10,10 +10,10 @@ import {
 import { useAuth } from '../../context/useAuth';
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
-  `inline-flex min-h-9 sm:min-h-10 items-center gap-1.5 rounded-xl px-2.5 sm:px-3.5 py-1.5 text-[12.5px] sm:text-[13.5px] font-semibold whitespace-nowrap transition-all duration-150 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] ${
+  `inline-flex h-8.5 items-center gap-1.5 rounded-lg px-2.5 sm:px-3 text-[13px] font-semibold whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] ${
     isActive
-      ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-sm'
-      : 'text-[#6B7280] hover:bg-[#1E1B4B]/[0.05] hover:text-[#111827]'
+      ? 'bg-[#1E1B4B] text-[#FFFFFF]'
+      : 'text-[#4B5563] hover:bg-slate-100 hover:text-[#111827]'
   }`;
 
 export function Header() {
@@ -26,22 +26,22 @@ export function Header() {
   }
 
   return (
-    <header className="sticky top-0 z-30 border-b border-[#1E1B4B]/[0.08] bg-[#FFFFFF]/95 backdrop-blur-md">
-      <div className="flex h-14 sm:h-15 w-full items-center justify-between gap-2 px-3 sm:px-5">
+    <header className="sticky top-0 z-30 border-b border-slate-200 bg-[#FFFFFF]">
+      <div className="flex h-13 w-full items-center justify-between gap-2 px-3 sm:px-5">
         <Link
           to="/"
-          className="flex min-w-0 items-center gap-2.5 text-[15px] sm:text-[18px] font-bold tracking-tight text-[#111827] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] rounded-xl"
+          className="flex min-w-0 items-center gap-2 text-[15px] sm:text-[17px] font-bold tracking-tight text-[#111827] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] rounded-lg"
         >
-          <span className="flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-xl bg-[#1E1B4B] text-[#D2DB76] shadow-sm">
-            <Sparkles className="h-4 w-4 sm:h-4.5 sm:w-4.5" aria-hidden />
+          <span className="flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-lg bg-[#1E1B4B] text-[#D2DB76]">
+            <Sparkles className="h-4 w-4" aria-hidden />
           </span>
           <span className="truncate">Vitaran</span>
-          <span className="hidden rounded-full bg-[#1E1B4B]/[0.07] px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wider text-[#1E1B4B] md:inline-block">
+          <span className="hidden rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 md:inline-block">
             Local OS
           </span>
         </Link>
         <nav
-          className="flex shrink-0 items-center gap-1 sm:gap-2 overflow-x-auto"
+          className="flex shrink-0 items-center gap-1 sm:gap-1.5 overflow-x-auto"
           aria-label="Main"
         >
           <NavLink to="/dashboard" className={navClass}>
@@ -66,14 +66,14 @@ export function Header() {
           )}
           {isConfigured &&
             (user ? (
-              <div className="flex items-center gap-2.5 border-l border-[#1E1B4B]/10 pl-2.5 sm:pl-3.5">
-                <span className="hidden text-[12.5px] font-medium text-[#6B7280] lg:inline">
+              <div className="flex items-center gap-2.5 border-l border-slate-200 pl-2.5 sm:pl-3">
+                <span className="hidden text-[12px] font-medium text-slate-500 lg:inline">
                   {user.email}
                 </span>
                 <button
                   type="button"
                   onClick={() => void handleSignOut()}
-                  className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-[#1E1B4B]/15 bg-[#FFFFFF] px-2.5 sm:px-3 py-1.5 text-[12.5px] font-semibold text-[#111827] hover:border-[#1E1B4B] hover:bg-[#F8F9FA] active:scale-[0.98] transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] cursor-pointer"
+                  className="inline-flex h-8.5 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[12.5px] font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-colors cursor-pointer"
                 >
                   <LogOut className="h-3.5 w-3.5" aria-hidden />
                   <span className="hidden sm:inline">Sign out</span>
@@ -82,7 +82,7 @@ export function Header() {
             ) : (
               <NavLink
                 to="/login"
-                className="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-[#1E1B4B] px-3 py-1.5 text-[12.5px] font-semibold text-[#FFFFFF] hover:bg-[#2E2A6E] active:scale-[0.98] transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B]"
+                className="inline-flex h-8.5 items-center gap-1.5 rounded-lg bg-[#1E1B4B] px-3 text-[12.5px] font-semibold text-[#FFFFFF] hover:bg-[#2E2A6E] transition-colors"
               >
                 <LogIn className="h-3.5 w-3.5" aria-hidden /> Sign In
               </NavLink>

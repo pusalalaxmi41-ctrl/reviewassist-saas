@@ -19,6 +19,7 @@ import {
   UserCheck,
   Users,
   Package,
+  TrendingUp,
 } from 'lucide-react';
 import type {
   Business,
@@ -42,24 +43,32 @@ import {
 import { BarberOwnerWorkspace } from '../components/barber/BarberOwnerWorkspace';
 import { GymOwnerWorkspace } from '../components/gym/GymOwnerWorkspace';
 import { getIndustryWorkspaceType } from '../utils/gymValidation';
+import {
+  loadWorkspaceModules,
+  saveWorkspaceModules,
+  type WorkspaceModuleVisibility,
+} from '../utils/workspaceModules';
 
 type PrimaryDestination =
   | 'overview'
+  | 'analytics'
   | 'menu'
+  | 'tables'
+  | 'ai_reviews'
   | 'staff'
   | 'inventory'
-  | 'tables'
-  | 'games_loyalty';
+  | 'games_loyalty'
+  | 'settings';
 
-type LoyaltyAndReviewsMode = 'loyalty' | 'ai_reviews';
 type AiReviewSubTab = 'drafts' | 'qr' | 'analytics' | 'settings';
 
 function parseDestinationFromParam(param: string | null): {
   destination: PrimaryDestination;
-  loyaltyMode?: LoyaltyAndReviewsMode;
   aiSubTab?: AiReviewSubTab;
 } {
   switch (param) {
+    case 'analytics':
+      return { destination: 'analytics' };
     case 'menu':
       return { destination: 'menu' };
     case 'staff':
@@ -69,32 +78,18 @@ function parseDestinationFromParam(param: string | null): {
     case 'tables':
       return { destination: 'tables' };
     case 'games_loyalty':
-      return { destination: 'games_loyalty', loyaltyMode: 'loyalty' };
+      return { destination: 'games_loyalty' };
+    case 'settings':
+      return { destination: 'settings' };
     case 'ai_reviews':
     case 'drafts':
-      return {
-        destination: 'games_loyalty',
-        loyaltyMode: 'ai_reviews',
-        aiSubTab: 'drafts',
-      };
+      return { destination: 'ai_reviews', aiSubTab: 'drafts' };
     case 'qr':
-      return {
-        destination: 'games_loyalty',
-        loyaltyMode: 'ai_reviews',
-        aiSubTab: 'qr',
-      };
-    case 'analytics':
-      return {
-        destination: 'games_loyalty',
-        loyaltyMode: 'ai_reviews',
-        aiSubTab: 'analytics',
-      };
-    case 'settings':
-      return {
-        destination: 'games_loyalty',
-        loyaltyMode: 'ai_reviews',
-        aiSubTab: 'settings',
-      };
+      return { destination: 'ai_reviews', aiSubTab: 'qr' };
+    case 'review_analytics':
+      return { destination: 'ai_reviews', aiSubTab: 'analytics' };
+    case 'review_settings':
+      return { destination: 'ai_reviews', aiSubTab: 'settings' };
     case 'restaurant':
     case 'overview':
     default:
@@ -113,13 +108,13 @@ export default function BusinessDashboard() {
   const [destination, setDestination] = useState<PrimaryDestination>(
     initialParsed.destination,
   );
-  const [loyaltyMode, setLoyaltyMode] = useState<LoyaltyAndReviewsMode>(
-    initialParsed.loyaltyMode ?? 'loyalty',
-  );
   const [aiSubTab, setAiSubTab] = useState<AiReviewSubTab>(
     initialParsed.aiSubTab ?? 'drafts',
   );
   const [loading, setLoading] = useState(true);
+  const [moduleOverrides, setModuleOverrides] = useState<
+    Record<string, WorkspaceModuleVisibility>
+  >({});
 
   const [metrics, setMetrics] = useState<BusinessMetrics>({
     qrScans: 0,
@@ -165,6 +160,20 @@ export default function BusinessDashboard() {
   const currentBusiness =
     businesses.find((b) => b.slug === selectedSlug) ?? businesses[0];
 
+  const moduleVisibility: WorkspaceModuleVisibility = currentBusiness
+    ? (moduleOverrides[currentBusiness.id] ??
+      loadWorkspaceModules(currentBusiness.id))
+    : loadWorkspaceModules('');
+
+  function handleUpdateModules(next: WorkspaceModuleVisibility) {
+    if (!currentBusiness) return;
+    saveWorkspaceModules(currentBusiness.id, next);
+    setModuleOverrides((prev) => ({
+      ...prev,
+      [currentBusiness.id]: next,
+    }));
+  }
+
   useEffect(() => {
     if (!currentBusiness) return;
 
@@ -204,8 +213,8 @@ export default function BusinessDashboard() {
     return (
       <div className="py-20 text-center" role="status" aria-live="polite">
         <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-[#1E1B4B] border-r-transparent" />
-        <p className="mt-3 text-[15px] font-medium text-[#6B7280]">
-          Loading BistroOS workspace…
+        <p className="mt-3 text-[14px] font-medium text-[#6B7280]">
+          Loading workspace…
         </p>
       </div>
     );
@@ -213,54 +222,58 @@ export default function BusinessDashboard() {
 
   if (!currentBusiness) {
     return (
-      <div className="bistro-card py-16 px-6 text-center">
-        <Building2 className="mx-auto h-12 w-12 text-[#6B7280]" aria-hidden />
-        <h2 className="mt-3 text-[20px] font-bold text-[#111827]">
-          No Restaurant Registered
-        </h2>
-        <p className="mt-1 text-[15px] text-[#6B7280]">
-          Set up your restaurant workspace to launch your Digital Menu, Table QRs, and Loyalty Hub.
-        </p>
-        <Link
-          to="/setup"
-          className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-[#1E1B4B] px-5 py-2.5 text-[14px] font-semibold text-[#FFFFFF] hover:bg-[#2E2A6E] active:scale-[0.98] transition-all"
-        >
-          <Plus className="h-4 w-4" aria-hidden /> Add Restaurant
-        </Link>
+      <div className="mx-auto max-w-xl px-4 py-12">
+        <div className="rounded-xl border border-slate-200 bg-white py-14 px-6 text-center">
+          <Building2 className="mx-auto h-10 w-10 text-slate-400" aria-hidden />
+          <h2 className="mt-3 text-[19px] font-bold text-[#111827]">
+            No Property Registered
+          </h2>
+          <p className="mt-1 text-[14px] text-slate-500">
+            Set up your restaurant or hotel workspace to launch live floor management, digital menus, and AI reviews.
+          </p>
+          <Link
+            to="/setup"
+            className="mt-4 inline-flex h-10 items-center gap-1.5 rounded-lg bg-[#1E1B4B] px-5 text-[13.5px] font-semibold text-[#FFFFFF] hover:bg-[#2E2A6E] transition-colors"
+          >
+            <Plus className="h-4 w-4" aria-hidden /> Add Property
+          </Link>
+        </div>
       </div>
     );
   }
 
-  // SMART MULTI-INDUSTRY WORKSPACE ROUTER:
-  // Locks each industry into ONLY its own dedicated application UI so a
-  // Barber never sees Chef Kitchen Queues and a Gym never sees Table QRs!
+  // SMART MULTI-INDUSTRY WORKSPACE ROUTER
   const workspaceType = getIndustryWorkspaceType(currentBusiness.category);
   if (workspaceType === 'barber') {
     return (
-      <BarberOwnerWorkspace
-        key={currentBusiness.id}
-        business={currentBusiness}
-        barberBusinesses={businesses}
-        hasRestaurantBusinesses={businesses.some(
-          (b) => getIndustryWorkspaceType(b.category) === 'restaurant',
-        )}
-        onSelectBusiness={handleSelectBusiness}
-        onBusinessUpdated={handleBusinessUpdated}
-      />
+      <div className="px-4 py-5 sm:px-6">
+        <BarberOwnerWorkspace
+          key={currentBusiness.id}
+          business={currentBusiness}
+          barberBusinesses={businesses}
+          hasRestaurantBusinesses={businesses.some(
+            (b) => getIndustryWorkspaceType(b.category) === 'restaurant',
+          )}
+          onSelectBusiness={handleSelectBusiness}
+          onBusinessUpdated={handleBusinessUpdated}
+        />
+      </div>
     );
   }
   if (workspaceType === 'gym') {
     return (
-      <GymOwnerWorkspace
-        key={currentBusiness.id}
-        business={currentBusiness}
-        gymBusinesses={businesses}
-        hasOtherBusinesses={businesses.some(
-          (b) => getIndustryWorkspaceType(b.category) !== 'gym',
-        )}
-        onSelectBusiness={handleSelectBusiness}
-        onBusinessUpdated={handleBusinessUpdated}
-      />
+      <div className="px-4 py-5 sm:px-6">
+        <GymOwnerWorkspace
+          key={currentBusiness.id}
+          business={currentBusiness}
+          gymBusinesses={businesses}
+          hasOtherBusinesses={businesses.some(
+            (b) => getIndustryWorkspaceType(b.category) !== 'gym',
+          )}
+          onSelectBusiness={handleSelectBusiness}
+          onBusinessUpdated={handleBusinessUpdated}
+        />
+      </div>
     );
   }
 
@@ -275,22 +288,22 @@ export default function BusinessDashboard() {
   > = {
     pending: {
       label: 'Awaiting Approval',
-      className: 'bg-amber-50 text-[#D97706] border-amber-200',
+      className: 'bg-amber-50 text-amber-800 border-amber-200',
       Icon: Clock,
     },
     active: {
       label: 'Active',
-      className: 'bg-emerald-50 text-[#059669] border-emerald-200',
+      className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
       Icon: CheckCircle2,
     },
     rejected: {
       label: 'Rejected',
-      className: 'bg-red-50 text-red-900 border-red-300',
+      className: 'bg-red-50 text-red-800 border-red-200',
       Icon: Ban,
     },
     suspended: {
       label: 'Suspended',
-      className: 'bg-gray-100 text-[#111827] border-gray-300',
+      className: 'bg-slate-100 text-slate-700 border-slate-200',
       Icon: ShieldAlert,
     },
   };
@@ -298,92 +311,131 @@ export default function BusinessDashboard() {
   const currentPill = statusPillConfig[currentStatus];
   const StatusIcon = currentPill.Icon;
 
-  const navDestinations: {
+  type NavItem = {
     id: PrimaryDestination;
     label: string;
     shortLabel: string;
     Icon: typeof LayoutDashboard;
     badge?: number;
-  }[] = [
+    visible?: boolean;
+  };
+
+  const navGroups: Array<{ groupLabel: string; items: NavItem[] }> = [
     {
-      id: 'overview',
-      label: 'Live Overview',
-      shortLabel: 'Overview',
-      Icon: LayoutDashboard,
+      groupLabel: 'Operations',
+      items: [
+        {
+          id: 'overview',
+          label: 'Live Desk',
+          shortLabel: 'Live',
+          Icon: LayoutDashboard,
+          visible: true,
+        },
+        {
+          id: 'analytics',
+          label: 'Analytics',
+          shortLabel: 'Stats',
+          Icon: TrendingUp,
+          visible: true,
+        },
+        {
+          id: 'menu',
+          label: 'Digital Menu',
+          shortLabel: 'Menu',
+          Icon: UtensilsCrossed,
+          visible: true,
+        },
+        {
+          id: 'tables',
+          label: 'Tables & Rooms',
+          shortLabel: 'Tables',
+          Icon: QrCode,
+          visible: true,
+        },
+      ],
     },
     {
-      id: 'menu',
-      label: 'Digital Menu',
-      shortLabel: 'Menu',
-      Icon: UtensilsCrossed,
+      groupLabel: 'Growth & Team',
+      items: [
+        {
+          id: 'ai_reviews',
+          label: 'AI Reviews',
+          shortLabel: 'Reviews',
+          Icon: Sparkles,
+          badge: drafts.length > 0 ? drafts.length : undefined,
+          visible: moduleVisibility.aiReviews,
+        },
+        {
+          id: 'staff',
+          label: 'Staff & Waiters',
+          shortLabel: 'Staff',
+          Icon: Users,
+          visible: moduleVisibility.staff,
+        },
+        {
+          id: 'inventory',
+          label: 'Stock & Expenses',
+          shortLabel: 'Stock',
+          Icon: Package,
+          visible: moduleVisibility.inventory,
+        },
+        {
+          id: 'games_loyalty',
+          label: 'Games & Loyalty',
+          shortLabel: 'Loyalty',
+          Icon: Gamepad2,
+          visible: moduleVisibility.gamesLoyalty,
+        },
+      ],
     },
     {
-      id: 'staff',
-      label: 'Staff & Waiters',
-      shortLabel: 'Staff',
-      Icon: Users,
-    },
-    {
-      id: 'inventory',
-      label: 'Stock & Expenses',
-      shortLabel: 'Stock',
-      Icon: Package,
-    },
-    {
-      id: 'tables',
-      label: 'Tables & QRs',
-      shortLabel: 'Tables',
-      Icon: QrCode,
-    },
-    {
-      id: 'games_loyalty',
-      label: 'Games & Loyalty',
-      shortLabel: 'Loyalty',
-      Icon: Gamepad2,
-      badge: drafts.length > 0 ? drafts.length : undefined,
+      groupLabel: 'System',
+      items: [
+        {
+          id: 'settings',
+          label: 'Settings',
+          shortLabel: 'Settings',
+          Icon: Settings,
+          visible: true,
+        },
+      ],
     },
   ];
 
-  const isRestaurantDestination =
-    destination === 'overview' ||
-    destination === 'menu' ||
-    destination === 'staff' ||
-    destination === 'inventory' ||
-    destination === 'tables' ||
-    (destination === 'games_loyalty' && loyaltyMode === 'loyalty');
+  const isRestaurantDestination = destination !== 'ai_reviews';
 
   return (
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-      {/* LEFT SIDEBAR — 6 Plain-English Destinations (Sleek 216px on Desktop, Zero Scrollbar) */}
+    <div className="flex min-h-[calc(100vh-52px)] w-full flex-col lg:flex-row">
+      {/* FULL-BLEED DOCKED LEFT SIDEBAR RAIL (Zero Outer Margin, Flush to Left Edge) */}
       <aside
-        aria-label="BistroOS Workspace Navigation"
-        className="w-full lg:w-[216px] lg:shrink-0 lg:sticky lg:top-18 bistro-card p-3.5 flex flex-col justify-between lg:min-h-[600px] space-y-4"
+        aria-label="Hospitality OS Workspace Navigation"
+        className="w-full lg:w-[224px] lg:shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 bg-white flex flex-col justify-between lg:sticky lg:top-[52px] lg:h-[calc(100vh-52px)] lg:overflow-y-auto"
       >
-        <div className="space-y-4">
-          {/* Restaurant Switcher Header */}
-          <div className="space-y-2 border-b border-[#1E1B4B]/10 pb-4">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#6B7280]">
-                Active Property
+        <div className="p-3 space-y-4">
+          {/* Active Property Selector */}
+          <div className="space-y-1.5 border-b border-slate-100 pb-3">
+            <div className="flex items-center justify-between gap-2 px-1">
+              <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+                Property
               </span>
               <Link
                 to="/setup"
-                className="inline-flex items-center gap-1 text-[12px] font-bold text-[#1E1B4B] hover:underline"
+                className="inline-flex items-center gap-0.5 text-[11.5px] font-semibold text-[#1E1B4B] hover:underline"
               >
-                <Plus className="h-3.5 w-3.5" aria-hidden /> New
+                <Plus className="h-3 w-3" aria-hidden /> New
               </Link>
             </div>
 
-            <div className="flex h-10 items-center gap-2 rounded-xl border border-[#1E1B4B]/15 bg-[#F8F9FA] px-2.5">
+            <div className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5">
               <Building2
-                className="h-4 w-4 shrink-0 text-[#1E1B4B]"
+                className="h-3.5 w-3.5 shrink-0 text-[#1E1B4B]"
                 aria-hidden
               />
               <select
-                aria-label="Select active restaurant"
+                aria-label="Select active property"
                 value={currentBusiness.slug}
                 onChange={(e) => handleSelectBusiness(e.target.value)}
-                className="w-full min-w-0 truncate bg-transparent text-[13.5px] font-bold text-[#111827] focus:outline-none cursor-pointer"
+                className="w-full min-w-0 truncate bg-transparent text-[13px] font-semibold text-[#111827] focus:outline-none cursor-pointer"
               >
                 {businesses.map((b) => (
                   <option key={b.id} value={b.slug}>
@@ -394,68 +446,89 @@ export default function BusinessDashboard() {
             </div>
           </div>
 
-          {/* 6 Plain-English Destinations — Zero Horizontal Scrollbar on Desktop */}
-          <nav className="flex overflow-x-auto lg:overflow-x-visible lg:flex-col gap-1">
-            {navDestinations.map(({ id, label, shortLabel, Icon, badge }) => {
-              const isActive = destination === id;
+          {/* Clean Flat Grouped Navigation */}
+          <nav className="flex overflow-x-auto lg:overflow-x-visible lg:flex-col gap-3">
+            {navGroups.map((group) => {
+              const visibleItems = group.items.filter(
+                (i) => i.visible !== false,
+              );
+              if (visibleItems.length === 0) return null;
               return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => handleDestinationChange(id)}
-                  aria-current={isActive ? 'page' : undefined}
-                  className={`flex min-h-10.5 shrink-0 lg:shrink lg:w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition-all duration-150 active:scale-[0.98] cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] ${
-                    isActive
-                      ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-sm'
-                      : 'text-[#6B7280] hover:bg-[#F8F9FA] hover:text-[#111827]'
-                  }`}
+                <div
+                  key={group.groupLabel}
+                  className="flex lg:flex-col gap-0.5 shrink-0 lg:shrink"
                 >
-                  <span className="flex min-w-0 items-center gap-2.5">
-                    <Icon
-                      className={`h-4 w-4 shrink-0 ${
-                        isActive ? 'text-[#D2DB76]' : 'text-[#1E1B4B]'
-                      }`}
-                      aria-hidden
-                    />
-                    <span className="hidden sm:inline truncate">{label}</span>
-                    <span className="sm:hidden">{shortLabel}</span>
-                  </span>
-                  {badge !== undefined && (
-                    <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold tabular-nums ${
-                        isActive
-                          ? 'bg-[#D2DB76] text-[#1E1B4B]'
-                          : 'bg-[#1E1B4B]/[0.08] text-[#1E1B4B]'
-                      }`}
-                    >
-                      {badge}
-                    </span>
+                  <p className="hidden lg:block px-2.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    {group.groupLabel}
+                  </p>
+                  {visibleItems.map(
+                    ({ id, label, shortLabel, Icon, badge }) => {
+                      const isActive = destination === id;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => handleDestinationChange(id)}
+                          aria-current={isActive ? 'page' : undefined}
+                          className={`flex h-9 shrink-0 lg:shrink lg:w-full items-center justify-between gap-2 rounded-lg px-2.5 text-[13px] font-medium transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] ${
+                            isActive
+                              ? 'bg-[#1E1B4B] text-white font-semibold'
+                              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                          }`}
+                        >
+                          <span className="flex min-w-0 items-center gap-2.5">
+                            <Icon
+                              className={`h-4 w-4 shrink-0 ${
+                                isActive ? 'text-[#D2DB76]' : 'text-slate-500'
+                              }`}
+                              aria-hidden
+                            />
+                            <span className="hidden sm:inline truncate">
+                              {label}
+                            </span>
+                            <span className="sm:hidden">{shortLabel}</span>
+                          </span>
+                          {badge !== undefined && (
+                            <span
+                              className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10.5px] font-bold tabular-nums ${
+                                isActive
+                                  ? 'bg-[#D2DB76] text-[#1E1B4B]'
+                                  : 'bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              {badge}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    },
                   )}
-                </button>
+                </div>
               );
             })}
           </nav>
         </div>
 
-        {/* Owner Footer Badge in Sidebar */}
-        <div className="hidden lg:block border-t border-[#1E1B4B]/10 pt-4 space-y-3">
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#1E1B4B] text-[#D2DB76] font-bold text-[14px]">
-              <UserCheck className="h-4.5 w-4.5" aria-hidden />
+        {/* Clean Sidebar Property Footer */}
+        <div className="hidden lg:block border-t border-slate-100 p-3 space-y-2.5">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#1E1B4B] text-[#D2DB76]">
+              <UserCheck className="h-4 w-4" aria-hidden />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[14px] font-bold text-[#111827]">
+              <p className="truncate text-[13px] font-semibold text-[#111827]">
                 {currentBusiness.name}
               </p>
-              <p className="truncate text-[12px] text-[#6B7280]">
-                {categoryLabels[currentBusiness.category]} • {currentBusiness.city}
+              <p className="truncate text-[11px] text-slate-500">
+                {categoryLabels[currentBusiness.category]} •{' '}
+                {currentBusiness.city}
               </p>
             </div>
           </div>
 
           <div className="flex items-center justify-between gap-2">
             <span
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${currentPill.className}`}
+              className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10.5px] font-semibold ${currentPill.className}`}
             >
               <StatusIcon className="h-3 w-3 shrink-0" aria-hidden />
               {currentPill.label}
@@ -464,7 +537,7 @@ export default function BusinessDashboard() {
               <Link
                 to={`/r/${currentBusiness.slug}/menu`}
                 target="_blank"
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-[#1E1B4B] hover:underline"
+                className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-[#1E1B4B] hover:underline"
               >
                 Guest Hub <ExternalLink className="h-3 w-3" aria-hidden />
               </Link>
@@ -473,88 +546,25 @@ export default function BusinessDashboard() {
         </div>
       </aside>
 
-      {/* MAIN WORKSPACE CONTENT (Full Remaining Width) */}
-      <div className="flex-1 min-w-0 space-y-5">
-        {/* Non-Active Business Notice (only shown if account is pending/suspended) */}
+      {/* MAIN WORKSPACE CANVAS — 100% REMAINING WIDTH, ZERO WASTED MARGINS */}
+      <div className="flex-1 min-w-0 bg-[#F8F9FA] px-4 py-4 sm:px-6 sm:py-5 space-y-4">
         {!isBusinessLive && (
           <div
             role="status"
-            className="rounded-2xl border border-amber-300 bg-amber-50/90 p-5"
+            className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3"
           >
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <StatusIcon className="h-4 w-4 text-[#D97706]" aria-hidden />
-                  <h2 className="text-[15px] font-bold text-[#111827]">
-                    {currentBusiness.status === 'pending'
-                      ? 'Workspace in Preview Mode (Awaiting Platform Approval)'
-                      : 'Public Review Redirect Offline'}
-                  </h2>
-                </div>
-                <p className="text-[13px] text-[#6B7280]">
-                  You can configure your Digital Menu, Table QRs, and Loyalty Rules below. Public customer pages unlock as soon as your account is active.
-                </p>
-              </div>
+            <div className="flex items-center gap-2">
+              <StatusIcon className="h-4 w-4 text-amber-700" aria-hidden />
+              <p className="text-[13px] font-semibold text-amber-950">
+                {currentBusiness.status === 'pending'
+                  ? 'Preview Mode — Awaiting Platform Approval. You can set up Menu, Tables & Settings now.'
+                  : 'Public links are currently paused.'}
+              </p>
             </div>
           </div>
         )}
 
-        {/* TAB 6 MODE BAR: Switch cleanly between Games & Loyalty and AI Reviews */}
-        {destination === 'games_loyalty' && (
-          <div className="bistro-card p-2 inline-flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setLoyaltyMode('loyalty')}
-              className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
-                loyaltyMode === 'loyalty'
-                  ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
-                  : 'text-[#6B7280] hover:bg-[#F8F9FA] hover:text-[#111827]'
-              }`}
-            >
-              <Gamepad2
-                className={`h-4 w-4 ${
-                  loyaltyMode === 'loyalty'
-                    ? 'text-[#D2DB76]'
-                    : 'text-[#1E1B4B]'
-                }`}
-                aria-hidden
-              />
-              <span>Games, Loyalty &amp; Rewards</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setLoyaltyMode('ai_reviews')}
-              className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
-                loyaltyMode === 'ai_reviews'
-                  ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
-                  : 'text-[#6B7280] hover:bg-[#F8F9FA] hover:text-[#111827]'
-              }`}
-            >
-              <Sparkles
-                className={`h-4 w-4 ${
-                  loyaltyMode === 'ai_reviews'
-                    ? 'text-[#D2DB76]'
-                    : 'text-[#1E1B4B]'
-                }`}
-                aria-hidden
-              />
-              <span>AI Reviews &amp; Google QR</span>
-              {drafts.length > 0 && (
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[11px] font-extrabold tabular-nums ${
-                    loyaltyMode === 'ai_reviews'
-                      ? 'bg-[#D2DB76] text-[#1E1B4B]'
-                      : 'bg-[#1E1B4B]/10 text-[#1E1B4B]'
-                  }`}
-                >
-                  {drafts.length}
-                </span>
-              )}
-            </button>
-          </div>
-        )}
-
-        {/* DESTINATIONS 1–6 (Restaurant Workspace) */}
+        {/* RESTAURANT / HOSPITALITY WORKSPACE SECTIONS */}
         {isRestaurantDestination && (
           <RestaurantManagerView
             key={`restaurant-mgmt-${currentBusiness.id}`}
@@ -562,34 +572,37 @@ export default function BusinessDashboard() {
             isBusinessLive={isBusinessLive}
             activeSection={destination as RestaurantWorkspaceSection}
             onSectionChange={(sec) => handleDestinationChange(sec)}
+            moduleVisibility={moduleVisibility}
+            onModuleVisibilityChange={handleUpdateModules}
           />
         )}
 
-        {/* INTEGRATED AI REVIEWS SUB-VIEW INSIDE TAB 6 */}
-        {destination === 'games_loyalty' && loyaltyMode === 'ai_reviews' && (
-          <div className="space-y-6 animate-fadeSlideUp">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        {/* DEDICATED TOP-LEVEL AI REVIEWS SECTION (RESTORED!) */}
+        {destination === 'ai_reviews' && (
+          <div className="space-y-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-4">
               <div>
-                <h1 className="text-[28px] sm:text-[32px] font-extrabold tracking-tight text-[#111827]">
-                  AI Reviews
+                <h1 className="text-[22px] font-bold tracking-tight text-[#111827]">
+                  AI Google Reviews
                 </h1>
-                <p className="mt-1 text-[14px] text-[#6B7280]">
-                  Manage guest feedback drafts, Google Maps review QR codes, and AI drafting knowledge.
+                <p className="mt-0.5 text-[13px] text-slate-500">
+                  Manage customer review drafts, printable Google Review QR standees, funnel stats, and AI reply voice.
                 </p>
               </div>
               {isBusinessLive && (
                 <Link
                   to={`/r/${currentBusiness.slug}`}
                   target="_blank"
-                  className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-[#1E1B4B]/20 bg-[#FFFFFF] px-4 text-[13px] font-semibold text-[#1E1B4B] hover:bg-[#F8F9FA]"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 text-[12.5px] font-semibold text-[#1E1B4B] hover:bg-slate-50"
                 >
-                  Open 5-Step Review Page <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                  Open Review Page{' '}
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden />
                 </Link>
               )}
             </div>
 
-            {/* Clean Sub-Tab Switcher for AI Reviews */}
-            <div className="flex flex-wrap gap-2">
+            {/* Clean Underline Sub-Tabs (No Bubbly Pills) */}
+            <div className="flex flex-wrap items-center gap-1 border-b border-slate-200">
               {(
                 [
                   {
@@ -620,10 +633,10 @@ export default function BusinessDashboard() {
                     key={id}
                     type="button"
                     onClick={() => setAiSubTab(id)}
-                    className={`inline-flex h-10 items-center gap-2 rounded-full px-4 text-[13px] font-semibold transition-all duration-150 active:scale-[0.98] cursor-pointer ${
+                    className={`inline-flex h-10 items-center gap-2 border-b-2 px-3.5 text-[13px] font-semibold transition-colors cursor-pointer ${
                       active
-                        ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-sm'
-                        : 'border border-[#1E1B4B]/15 bg-[#FFFFFF] text-[#111827] hover:bg-[#F8F9FA]'
+                        ? 'border-[#1E1B4B] text-[#1E1B4B]'
+                        : 'border-transparent text-slate-500 hover:text-slate-900'
                     }`}
                   >
                     <Icon className="h-3.5 w-3.5" aria-hidden />
@@ -655,13 +668,13 @@ export default function BusinessDashboard() {
                   business={currentBusiness}
                 />
               ) : (
-                <div className="bistro-card p-10 text-center space-y-3">
-                  <Clock className="mx-auto h-8 w-8 text-[#D97706]" aria-hidden />
-                  <h3 className="text-[18px] font-bold text-[#111827]">
+                <div className="rounded-xl border border-slate-200 bg-white p-10 text-center space-y-2">
+                  <Clock className="mx-auto h-7 w-7 text-amber-600" aria-hidden />
+                  <h3 className="text-[16px] font-bold text-[#111827]">
                     Review QR Locked Until Approved
                   </h3>
-                  <p className="mx-auto max-w-md text-[14px] text-[#6B7280]">
-                    Once your account is active, your downloadable Google Review QR poster and WhatsApp links appear here.
+                  <p className="mx-auto max-w-md text-[13px] text-slate-500">
+                    Once your account is active, your downloadable Google Review QR standee and WhatsApp links appear here.
                   </p>
                 </div>
               ))}
@@ -675,7 +688,7 @@ export default function BusinessDashboard() {
             )}
 
             {aiSubTab === 'settings' && (
-              <div className="space-y-6">
+              <div className="space-y-5">
                 <BusinessCategorySettings
                   key={`biz-category-${currentBusiness.id}`}
                   business={currentBusiness}
