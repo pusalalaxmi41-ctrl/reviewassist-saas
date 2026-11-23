@@ -228,7 +228,7 @@ export default function AdminPanelPage() {
     return () => {
       cancelled = true;
     };
-  }, [repo, loadAllAdminData]);
+  }, [repo, loadAllAdminData, user?.id]);
 
   const selectedRecord = useMemo(
     () => clients.find((c) => c.id === selectedClientId) ?? null,
@@ -547,6 +547,14 @@ export default function AdminPanelPage() {
             <p className="text-xs text-slate-500 leading-relaxed">
               The page you are looking for doesn&apos;t exist or you don&apos;t have permission to view it.
             </p>
+            {user?.email && !simulateNonAdmin404 && (
+              <p className="pt-1 text-[11px] font-medium text-slate-500">
+                Currently signed in as{' '}
+                <span className="font-mono font-semibold text-slate-800">
+                  {user.email}
+                </span>
+              </p>
+            )}
           </div>
           <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:justify-center">
             <Link
@@ -555,6 +563,16 @@ export default function AdminPanelPage() {
             >
               Return to Business Dashboard
             </Link>
+            {!simulateNonAdmin404 && (
+              <button
+                type="button"
+                onClick={() => void handleSignOut()}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-medium text-white hover:bg-slate-800 cursor-pointer"
+              >
+                <LogOut className="h-3.5 w-3.5" aria-hidden />
+                Switch Account
+              </button>
+            )}
             {simulateNonAdmin404 && (
               <button
                 type="button"
