@@ -338,10 +338,15 @@ assert(
 
 const catB = await repo.getGymExerciseCatalog(gymB.id, ownerBOpts);
 const benchB = catB.find((e) => e.name.toLowerCase() === 'barbell bench press');
+const all24HaveGifs =
+  catB.length >= 24 &&
+  catB
+    .filter((e) => e.businessId === null)
+    .every((e) => typeof e.animationGifUrl === 'string' && e.animationGifUrl.startsWith('/exercises/') && e.animationGifUrl.endsWith('.gif'));
 assert(
-  benchB?.animationGifUrl === '/exercises/barbell-bench-press.gif',
-  'Gym B global exercise catalog keeps default Option-A bench GIF cleanly isolated without Gym A video override',
-  benchB,
+  benchB?.animationGifUrl === '/exercises/barbell-bench-press.gif' && all24HaveGifs,
+  'All 24 built-in exercises in Gym B catalog have animated /exercises/*.gif paths & stay isolated from Gym A override',
+  { benchB, totalBuiltin: catB.filter((e) => e.businessId === null).length },
 );
 
 // Test compact uploaded GIF Data URL preservation
@@ -445,6 +450,17 @@ assert(
     !/\bsubstring\s*\(/i.test(sql029Text) &&
     sql029Text.includes('/exercises/barbell-bench-press.gif'),
   'Migration 029 seeds /exercises/barbell-bench-press.gif and obeys pg_catalog.substr SQL guardrail',
+);
+
+const sql030Text = await Deno.readTextFile(
+  './supabase/migrations/030_gym_seed_all_24_exercise_gifs.sql',
+);
+assert(
+  sql030Text.includes('pg_catalog.lower(name)') &&
+    !/\bsubstring\s*\(/i.test(sql030Text) &&
+    sql030Text.includes('/exercises/treadmill-hiit-intervals.gif') &&
+    sql030Text.includes('/exercises/push-ups.gif'),
+  'Migration 030 seeds all 24 built-in exercises with /exercises/*.gif URLs cleanly',
 );
 
 console.log(
