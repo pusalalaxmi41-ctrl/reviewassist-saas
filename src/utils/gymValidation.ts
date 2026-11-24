@@ -1,11 +1,14 @@
 import type { BusinessCategory } from '../types/business';
 import type {
+  GymCheckInShift,
   GymConfig,
   GymConfigInput,
   GymFitnessGoal,
   GymMember,
   GymOwnerMemberAction,
   GymPlan,
+  GymPreferredShift,
+  GymThemePreset,
   GymWorkoutFocus,
   IndustryWorkspaceType,
   SubmitGymRegistrationInput,
@@ -118,6 +121,101 @@ export const GYM_WORKOUT_FOCUS_OPTIONS: ReadonlyArray<{
   { value: 'abs_core', label: 'Abs & Core', dayLabel: 'Abs & Core', barColor: 'bg-teal-600' },
   { value: 'full_body', label: 'Full Body', dayLabel: 'Full Body', barColor: 'bg-slate-700' },
 ];
+
+export const GYM_THEME_PRESETS: ReadonlyArray<{
+  key: GymThemePreset;
+  label: string;
+  tagline: string;
+  accentColor: string;
+  inkOnAccent: string;
+}> = [
+  {
+    key: 'volt_obsidian',
+    label: 'Volt Obsidian',
+    tagline: 'Signature Electric Lime & Obsidian',
+    accentColor: '#C8F135',
+    inkOnAccent: '#0B0D10',
+  },
+  {
+    key: 'crimson_iron',
+    label: 'Crimson Iron',
+    tagline: 'Powerlifting Red & Charcoal',
+    accentColor: '#EF4444',
+    inkOnAccent: '#FFFFFF',
+  },
+  {
+    key: 'cyber_cyan',
+    label: 'Cyber Cyan',
+    tagline: 'High-Energy Neon Ice',
+    accentColor: '#22D3EE',
+    inkOnAccent: '#0B0D10',
+  },
+  {
+    key: 'solar_gold',
+    label: 'Solar Gold',
+    tagline: 'Championship Amber Gold',
+    accentColor: '#F59E0B',
+    inkOnAccent: '#0B0D10',
+  },
+  {
+    key: 'emerald_pulse',
+    label: 'Emerald Pulse',
+    tagline: 'Fresh Athletic Emerald',
+    accentColor: '#10B981',
+    inkOnAccent: '#0B0D10',
+  },
+];
+
+export const GYM_SHIFT_OPTIONS: ReadonlyArray<{
+  value: GymPreferredShift;
+  emoji: string;
+  label: string;
+  windowLabel: string;
+}> = [
+  {
+    value: 'morning',
+    emoji: '🌅',
+    label: 'Morning',
+    windowLabel: '5 AM – 11 AM',
+  },
+  {
+    value: 'evening',
+    emoji: '🌆',
+    label: 'Evening',
+    windowLabel: '4 PM – 10 PM',
+  },
+  {
+    value: 'flexible',
+    emoji: '⏰',
+    label: 'Flexible',
+    windowLabel: 'Anytime',
+  },
+];
+
+export function normalizeGymPreferredShift(
+  raw?: string | null,
+): GymPreferredShift {
+  const clean = typeof raw === 'string' ? stripControlChars(raw).toLowerCase() : '';
+  if (clean === 'evening') return 'evening';
+  if (clean === 'flexible') return 'flexible';
+  return 'morning';
+}
+
+export function inferGymCheckInShiftFromHour(hour?: number): GymCheckInShift {
+  const h = typeof hour === 'number' && Number.isFinite(hour) ? hour : new Date().getHours();
+  return h < 14 ? 'morning' : 'evening';
+}
+
+export function normalizeGymAccentColor(raw?: string | null): string {
+  const clean = typeof raw === 'string' ? stripControlChars(raw) : '';
+  return /^#[0-9A-Fa-f]{6}$/.test(clean) ? clean.toUpperCase() : '#C8F135';
+}
+
+export function normalizeGymThemePreset(raw?: string | null): GymThemePreset {
+  const clean = typeof raw === 'string' ? stripControlChars(raw).toLowerCase() : '';
+  const match = GYM_THEME_PRESETS.find((t) => t.key === clean);
+  return match ? match.key : 'volt_obsidian';
+}
 
 export function normalizeGymFitnessGoal(
   raw?: string | null,
@@ -380,6 +478,9 @@ export function normalizeGymConfig(
         : true,
     renewalAlertDays,
     plans: normalizeGymPlans(partial?.plans),
+    logoUrl: typeof partial?.logoUrl === 'string' && partial.logoUrl.trim() ? partial.logoUrl.trim() : null,
+    accentColor: normalizeGymAccentColor(partial?.accentColor),
+    themePreset: normalizeGymThemePreset(partial?.themePreset),
     createdAt: partial?.createdAt ?? new Date().toISOString(),
     updatedAt: partial?.updatedAt ?? new Date().toISOString(),
   };
@@ -494,6 +595,7 @@ export function validateGymRegistrationInput(
       fullName,
       phone,
       planId,
+      preferredShift: normalizeGymPreferredShift(rec.preferredShift),
       fitnessGoal,
       startingWeightKg: startWtCheck.value,
       targetWeightKg: targetWtCheck.value,

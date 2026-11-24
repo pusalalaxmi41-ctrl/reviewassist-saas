@@ -4,6 +4,7 @@ interface Props {
   activeMuscles?: ReadonlyArray<GymMuscleGroup | GymCatalogMuscleGroup | string>;
   recoveringMuscles?: ReadonlyArray<GymMuscleGroup | string>;
   compact?: boolean;
+  accentColor?: string;
 }
 
 function normalizeSet(
@@ -44,26 +45,27 @@ export function GymMuscleMapSvg({
   activeMuscles = [],
   recoveringMuscles = [],
   compact = false,
+  accentColor = '#C8F135',
 }: Props) {
   const activeSet = normalizeSet(activeMuscles);
   const recoverSet = normalizeSet(recoveringMuscles);
 
   function fillFor(muscle: string): string {
-    if (activeSet.has(muscle)) return '#C8F135';
+    if (activeSet.has(muscle)) return accentColor || '#C8F135';
     if (recoverSet.has(muscle)) return '#F59E0B';
     return '#2A303C';
   }
 
   return (
     <div
-      className={`flex items-center justify-center gap-4 ${compact ? 'py-1' : 'py-2'}`}
+      className={`flex shrink-0 items-center justify-center ${compact ? 'gap-2 py-0.5' : 'gap-4 py-2'}`}
       aria-label="Muscle Group Body Map"
     >
       {/* FRONT VIEW */}
-      <div className="flex flex-col items-center gap-1">
+      <div className="flex flex-col items-center gap-0.5">
         <svg
           viewBox="0 0 110 210"
-          className={compact ? 'h-28 w-16' : 'h-40 w-24'}
+          className={compact ? 'h-16 w-9' : 'h-40 w-24'}
           role="img"
           aria-label="Front muscles"
         >
@@ -99,16 +101,16 @@ export function GymMuscleMapSvg({
           <rect x="40" y="154" width="10" height="44" rx="5" fill={fillFor('calves')} />
           <rect x="60" y="154" width="10" height="44" rx="5" fill={fillFor('calves')} />
         </svg>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
           Front
         </span>
       </div>
 
       {/* BACK VIEW */}
-      <div className="flex flex-col items-center gap-1">
+      <div className="flex flex-col items-center gap-0.5">
         <svg
           viewBox="0 0 110 210"
-          className={compact ? 'h-28 w-16' : 'h-40 w-24'}
+          className={compact ? 'h-16 w-9' : 'h-40 w-24'}
           role="img"
           aria-label="Back muscles"
         >

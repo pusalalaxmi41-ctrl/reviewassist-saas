@@ -108,6 +108,7 @@ import {
   validateJoinBarberQueueInput,
 } from '../../utils/barberQueueValidation';
 import type {
+  GymAnimationKey,
   GymBodyMeasurement,
   GymBodyMeasurementInput,
   GymCatalogExercise,
@@ -132,6 +133,7 @@ import type {
   GymOwnerMemberAction,
   GymPaymentMethod,
   GymPlan,
+  GymPreferredShift,
   GymRetailProduct,
   GymRetailProductInput,
   GymRetailSale,
@@ -144,8 +146,11 @@ import type {
   GymWorkoutSession,
   LogGymWorkoutSessionInput,
   MemberCreateCustomExerciseInput,
+  OwnerUpdateGymBrandingInput,
+  OwnerUpsertExerciseMediaInput,
   PublicGymPortalPayload,
   SubmitGymRegistrationInput,
+  UpdateMemberSelfPlanInput,
   UpsertGymCoachPlanInput,
 } from '../../types/gym';
 import type {
@@ -174,9 +179,13 @@ import {
 } from '../../utils/cafeValidation';
 import {
   GYM_RETAIL_STARTER_PRODUCTS,
+  inferGymCheckInShiftFromHour,
+  normalizeGymAccentColor,
   normalizeGymConfig,
   normalizeGymFitnessGoal,
   normalizeGymPhone,
+  normalizeGymPreferredShift,
+  normalizeGymThemePreset,
   normalizeGymWorkoutFocus,
   validateGymBodyMeasurementInput,
   validateGymConfigInput,
@@ -4779,9 +4788,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
 
     const { data, error } = await client
       .from('gym_configs')
-      .select(
-        'business_id, is_registration_open, renewal_alert_days, plans, created_at, updated_at',
-      )
+      .select('*')
       .eq('business_id', cleanId)
       .maybeSingle();
 
@@ -4791,6 +4798,9 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         is_registration_open: boolean;
         renewal_alert_days: number;
         plans: GymPlan[];
+        logo_url?: string | null;
+        accent_color?: string | null;
+        theme_preset?: string | null;
         created_at: string;
         updated_at: string;
       };
@@ -4798,6 +4808,11 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         isRegistrationOpen: row.is_registration_open,
         renewalAlertDays: row.renewal_alert_days,
         plans: row.plans,
+        logoUrl: row.logo_url ?? null,
+        accentColor: row.accent_color ?? undefined,
+        themePreset: row.theme_preset
+          ? normalizeGymThemePreset(row.theme_preset)
+          : undefined,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       });
@@ -4835,9 +4850,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         },
         { onConflict: 'business_id' },
       )
-      .select(
-        'business_id, is_registration_open, renewal_alert_days, plans, created_at, updated_at',
-      )
+      .select('*')
       .single();
 
     if (!error && data) {
@@ -4846,6 +4859,9 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         is_registration_open: boolean;
         renewal_alert_days: number;
         plans: GymPlan[];
+        logo_url?: string | null;
+        accent_color?: string | null;
+        theme_preset?: string | null;
         created_at: string;
         updated_at: string;
       };
@@ -4853,12 +4869,70 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         isRegistrationOpen: row.is_registration_open,
         renewalAlertDays: row.renewal_alert_days,
         plans: row.plans,
+        logoUrl: row.logo_url ?? null,
+        accentColor: row.accent_color ?? undefined,
+        themePreset: row.theme_preset
+          ? normalizeGymThemePreset(row.theme_preset)
+          : undefined,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       });
     }
 
     return mockBusinessRepository.updateGymConfig(cleanId, validation.value, options);
+  }
+
+  async ownerUpdateGymBranding(
+    input: OwnerUpdateGymBrandingInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymConfig> {
+    const idErr = validateBusinessId(input.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = input.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const cleanLogo =
+      input.logoUrl && /^https?:\/\//i.test(input.logoUrl.trim())
+        ? input.logoUrl.trim().slice(0, 600)
+        : null;
+    const accent = normalizeGymAccentColor(input.accentColor);
+    const preset = normalizeGymThemePreset(input.themePreset);
+
+    const { data, error } = await client.rpc('owner_update_gym_branding', {
+      p_business_id: cleanId,
+      p_logo_url: cleanLogo,
+      p_accent_color: accent,
+      p_theme_preset: preset,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      const baseConfig = await this.getGymConfig(cleanId, options);
+      const res = data as {
+        logoUrl?: string | null;
+        accentColor?: string;
+        themePreset?: string;
+      };
+      return normalizeGymConfig(cleanId, {
+        ...baseConfig,
+        logoUrl: res.logoUrl ?? cleanLogo,
+        accentColor: res.accentColor ?? accent,
+        themePreset: res.themePreset
+          ? normalizeGymThemePreset(res.themePreset)
+          : preset,
+      });
+    }
+
+    if (
+      error &&
+      !error.message?.includes('does not exist') &&
+      error.code !== 'PGRST202' &&
+      error.code !== '42883'
+    ) {
+      throw new Error(error.message || 'Failed to update gym branding.');
+    }
+
+    return mockBusinessRepository.ownerUpdateGymBranding(input, options);
   }
 
   async getPublicGymPortal(
@@ -4900,7 +4974,23 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     });
 
     if (!error && data && typeof data === 'object') {
-      return data as GymMember;
+      const member = data as GymMember;
+      if (validation.value.preferredShift && member.id) {
+        try {
+          await client.rpc('update_gym_member_preferred_shift', {
+            p_slug: validation.value.businessSlug,
+            p_member_id: member.id,
+            p_preferred_shift: validation.value.preferredShift,
+          });
+          return {
+            ...member,
+            preferredShift: validation.value.preferredShift,
+          };
+        } catch {
+          // Graceful no-op if migration 028 has not run yet
+        }
+      }
+      return member;
     }
 
     if (
@@ -5018,12 +5108,71 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
 
     if (!error && data && typeof data === 'object') {
       const payload = data as Partial<GymOwnerDashboardPayload>;
+      let membersList = payload.members ?? [];
+      let todaysAttendance = payload.todaysAttendance ?? [];
+      let batchStats = payload.batchStats;
+
+      try {
+        const { data: batchData, error: batchErr } = await client.rpc(
+          'get_gym_members_batch_stats',
+          { p_business_id: cleanId },
+        );
+        if (!batchErr && batchData && typeof batchData === 'object') {
+          const stats = batchData as {
+            morningTotal?: number;
+            eveningTotal?: number;
+            flexibleTotal?: number;
+            morningCheckedIn?: number;
+            eveningCheckedIn?: number;
+            memberShifts?: Record<string, GymPreferredShift>;
+            todayCheckInShifts?: Record<string, 'morning' | 'evening'>;
+          };
+          const memberShifts = stats.memberShifts ?? {};
+          const todayShifts = stats.todayCheckInShifts ?? {};
+          membersList = membersList.map((m) => ({
+            ...m,
+            preferredShift: normalizeGymPreferredShift(
+              memberShifts[m.id] ?? m.preferredShift,
+            ),
+          }));
+          todaysAttendance = todaysAttendance.map((t) => ({
+            ...t,
+            preferredShift: normalizeGymPreferredShift(
+              memberShifts[t.memberId] ?? t.preferredShift,
+            ),
+            checkInShift:
+              todayShifts[t.memberId] ??
+              t.checkInShift ??
+              inferGymCheckInShiftFromHour(new Date(t.checkedInAt).getHours()),
+          }));
+          batchStats = {
+            morningCheckedIn: Number(stats.morningCheckedIn ?? 0),
+            eveningCheckedIn: Number(stats.eveningCheckedIn ?? 0),
+            morningTotal: Number(stats.morningTotal ?? 0),
+            eveningTotal: Number(stats.eveningTotal ?? 0),
+            flexibleTotal: Number(stats.flexibleTotal ?? 0),
+          };
+        }
+      } catch {
+        // Fallback: infer checkInShift client-side from timestamp
+        todaysAttendance = todaysAttendance.map((t) => ({
+          ...t,
+          checkInShift:
+            t.checkInShift ??
+            inferGymCheckInShiftFromHour(new Date(t.checkedInAt).getHours()),
+        }));
+      }
+
+      const rawConfig = payload.config
+        ? normalizeGymConfig(cleanId, payload.config)
+        : normalizeGymConfig(cleanId, null);
+
       return {
-        config: payload.config ?? normalizeGymConfig(cleanId, null),
+        config: rawConfig,
         monthKey: payload.monthKey ?? new Date().toISOString().slice(0, 7),
-        members: payload.members ?? [],
+        members: membersList,
         checkedInTodayCount: payload.checkedInTodayCount ?? 0,
-        todaysAttendance: payload.todaysAttendance ?? [],
+        todaysAttendance,
         monthlyRevenuePaise: Number(payload.monthlyRevenuePaise ?? 0),
         membershipRevenuePaise: Number(
           payload.membershipRevenuePaise ?? payload.monthlyRevenuePaise ?? 0,
@@ -5042,6 +5191,23 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         monthlyLeaderboard: payload.monthlyLeaderboard ?? [],
         routines: payload.routines ?? [],
         exerciseCatalog: payload.exerciseCatalog ?? [],
+        batchStats: batchStats ?? {
+          morningCheckedIn: todaysAttendance.filter(
+            (t) => t.checkInShift === 'morning',
+          ).length,
+          eveningCheckedIn: todaysAttendance.filter(
+            (t) => t.checkInShift === 'evening',
+          ).length,
+          morningTotal: membersList.filter(
+            (m) => normalizeGymPreferredShift(m.preferredShift) === 'morning',
+          ).length,
+          eveningTotal: membersList.filter(
+            (m) => normalizeGymPreferredShift(m.preferredShift) === 'evening',
+          ).length,
+          flexibleTotal: membersList.filter(
+            (m) => normalizeGymPreferredShift(m.preferredShift) === 'flexible',
+          ).length,
+        },
       };
     }
 
@@ -5546,6 +5712,26 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       .order('name', { ascending: true });
 
     if (!error && Array.isArray(data)) {
+      const overrideMap = new Map<string, string>();
+      try {
+        const { data: ovRows } = await client
+          .from('gym_exercise_media_overrides')
+          .select('exercise_key, media_url')
+          .eq('business_id', cleanId);
+        if (Array.isArray(ovRows)) {
+          for (const ov of ovRows as Array<{
+            exercise_key: string;
+            media_url: string;
+          }>) {
+            if (ov.exercise_key && ov.media_url) {
+              overrideMap.set(ov.exercise_key.toLowerCase(), ov.media_url);
+            }
+          }
+        }
+      } catch {
+        // Ignore if table not migrated yet
+      }
+
       return (data as Array<{
         id: string;
         business_id: string | null;
@@ -5555,6 +5741,9 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         default_sets: number;
         default_reps: string;
         rest_seconds: number;
+        animation_key?: string | null;
+        animation_gif_url?: string | null;
+        form_cues?: string | null;
       }>).map((e) => ({
         id: e.id,
         businessId: e.business_id,
@@ -5564,9 +5753,63 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         defaultSets: Number(e.default_sets),
         defaultReps: e.default_reps,
         restSeconds: Number(e.rest_seconds),
+        animationKey: e.animation_key
+          ? (e.animation_key as GymAnimationKey)
+          : undefined,
+        animationGifUrl:
+          overrideMap.get(e.name.trim().toLowerCase()) ??
+          overrideMap.get(e.id.trim().toLowerCase()) ??
+          e.animation_gif_url ??
+          null,
+        formCues: e.form_cues ?? null,
       }));
     }
     return mockBusinessRepository.getGymExerciseCatalog(cleanId, options);
+  }
+
+  async ownerUpsertGymExerciseMedia(
+    input: OwnerUpsertExerciseMediaInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<{ exerciseKey: string; mediaUrl: string; mediaType?: string }> {
+    const idErr = validateBusinessId(input.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = input.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const cleanUrl = (input.mediaUrl || '').trim().slice(0, 600);
+    const detectedType =
+      input.mediaType ??
+      (/\.(mp4|webm|mov)(\?|#|$)/i.test(cleanUrl) ? 'video' : 'gif');
+
+    const { data, error } = await client.rpc(
+      'owner_upsert_gym_exercise_media',
+      {
+        p_business_id: cleanId,
+        p_exercise_key: input.exerciseKey.trim().toLowerCase(),
+        p_media_url: cleanUrl,
+        p_media_type: detectedType,
+      },
+    );
+
+    if (!error && data && typeof data === 'object') {
+      return data as {
+        exerciseKey: string;
+        mediaUrl: string;
+        mediaType?: string;
+      };
+    }
+
+    if (
+      error &&
+      !error.message?.includes('does not exist') &&
+      error.code !== 'PGRST202' &&
+      error.code !== '42883'
+    ) {
+      throw new Error(error.message || 'Failed to save exercise media.');
+    }
+
+    return mockBusinessRepository.ownerUpsertGymExerciseMedia(input, options);
   }
 
   async createGymCustomExercise(
@@ -5961,6 +6204,69 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       throw new Error(error.message || 'Failed to create custom exercise.');
     }
     return mockBusinessRepository.memberCreateCustomGymExercise(input);
+  }
+
+  async updateGymMemberSelfPlan(
+    input: UpdateMemberSelfPlanInput,
+  ): Promise<GymCoachPlan> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('update_gym_member_self_plan', {
+      p_slug: input.businessSlug.trim().toLowerCase(),
+      p_member_id: input.memberId,
+      p_schedule_mode: input.scheduleMode ?? 'fixed_week',
+      p_weekly_schedule: input.weeklySchedule,
+      p_plan_title: input.planTitle ?? null,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as GymCoachPlan;
+    }
+    if (
+      error &&
+      !error.message?.includes('does not exist') &&
+      error.code !== 'PGRST202' &&
+      error.code !== '42883'
+    ) {
+      throw new Error(error.message || 'Failed to save custom workout plan.');
+    }
+    return mockBusinessRepository.updateGymMemberSelfPlan(input);
+  }
+
+  async updateGymMemberPreferredShift(params: {
+    businessSlug: string;
+    memberId: string;
+    preferredShift: GymPreferredShift;
+  }): Promise<GymMember> {
+    const client = this.requireClient();
+    const cleanShift = normalizeGymPreferredShift(params.preferredShift);
+    const { data, error } = await client.rpc(
+      'update_gym_member_preferred_shift',
+      {
+        p_slug: params.businessSlug.trim().toLowerCase(),
+        p_member_id: params.memberId,
+        p_preferred_shift: cleanShift,
+      },
+    );
+    if (!error && data && typeof data === 'object') {
+      const res = data as Record<string, unknown>;
+      return {
+        ...res,
+        id: String(res.memberId ?? params.memberId),
+        preferredShift: normalizeGymPreferredShift(
+          typeof res.preferredShift === 'string'
+            ? res.preferredShift
+            : cleanShift,
+        ),
+      } as unknown as GymMember;
+    }
+    if (
+      error &&
+      !error.message?.includes('does not exist') &&
+      error.code !== 'PGRST202' &&
+      error.code !== '42883'
+    ) {
+      throw new Error(error.message || 'Failed to update workout batch shift.');
+    }
+    return mockBusinessRepository.updateGymMemberPreferredShift(params);
   }
 
   async getGymCommunityMessagesForOwner(params: {

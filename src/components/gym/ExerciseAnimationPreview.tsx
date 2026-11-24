@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Minimize2, Pause, Play } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Minimize2, Pause, Play, Video } from 'lucide-react';
 import type { GymAnimationKey } from '../../types/gym';
 import { inferGymAnimationKey } from '../../utils/gymWorkoutEngine';
 
@@ -13,7 +13,11 @@ interface ExerciseAnimationPreviewProps {
   onMinimize?: () => void;
 }
 
-/** Crisp studio-grade white-stage anatomical muscle demonstration with dual-pose motion & pause control. */
+function isVideoMediaUrl(url: string): boolean {
+  return /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(url.trim());
+}
+
+/** Crisp studio-grade demonstration supporting real-person MP4/WebM loops, GIFs, and anatomical SVG fallback. */
 export function ExerciseAnimationPreview({
   animationKey,
   animationGifUrl,
@@ -23,8 +27,13 @@ export function ExerciseAnimationPreview({
   className = '',
   onMinimize,
 }: ExerciseAnimationPreviewProps) {
-  const [gifFailed, setGifFailed] = useState(false);
-  const [paused, setPaused] = useState(false);
+  const cleanUrl = animationGifUrl?.trim() || '';
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const [pausedKey, setPausedKey] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const mediaFailed = Boolean(cleanUrl && failedUrl === cleanUrl);
+  const paused = pausedKey === (cleanUrl || 'svg');
 
   const resolvedKey: GymAnimationKey =
     animationKey ?? inferGymAnimationKey(exerciseName, muscleGroup);
@@ -34,15 +43,59 @@ export function ExerciseAnimationPreview({
     ? `relative overflow-hidden rounded-2xl bg-white border border-slate-200 w-full h-56 flex items-center justify-center shadow-sm ${className}`
     : `relative overflow-hidden rounded-xl bg-white border border-slate-200 w-12 h-12 shrink-0 flex items-center justify-center ${className}`;
 
-  if (animationGifUrl && !gifFailed) {
+  if (cleanUrl && !mediaFailed) {
+    const isVideo = isVideoMediaUrl(cleanUrl);
     return (
       <div className={frameClass}>
-        <img
-          src={animationGifUrl}
-          alt={`${exerciseName} anatomical demonstration`}
-          onError={() => setGifFailed(true)}
-          className="h-full w-full object-contain p-1"
-        />
+        {isVideo ? (
+          <video
+            ref={videoRef}
+            src={cleanUrl}
+            autoPlay
+            loop
+            muted
+            playsInline
+            onError={() => setFailedUrl(cleanUrl)}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <img
+            src={cleanUrl}
+            alt={`${exerciseName} real-person demonstration`}
+            onError={() => setFailedUrl(cleanUrl)}
+            className="h-full w-full object-cover"
+          />
+        )}
+        {isStage && (
+          <span className="absolute top-2.5 left-2.5 inline-flex items-center gap-1 rounded-full bg-slate-900/80 px-2.5 py-0.5 text-[10px] font-bold text-white backdrop-blur-xs">
+            <Video className="h-3 w-3" aria-hidden />
+            {isVideo ? 'Real Form Video' : 'Real Form Loop'}
+          </span>
+        )}
+        {isStage && isVideo && (
+          <button
+            type="button"
+            onClick={() => {
+              const nextPaused = !paused;
+              setPausedKey(nextPaused ? cleanUrl : null);
+              if (videoRef.current) {
+                if (nextPaused) videoRef.current.pause();
+                else void videoRef.current.play().catch(() => {});
+              }
+            }}
+            className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 rounded-full bg-slate-900/80 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur-xs cursor-pointer"
+          >
+            {paused ? (
+              <>
+                <Play className="h-3 w-3" aria-hidden /> Play
+              </>
+            ) : (
+              <>
+                <Pause className="h-3 w-3" aria-hidden /> Pause
+              </>
+            )}
+          </button>
+        )}
         {isStage && onMinimize && (
           <button
             type="button"
@@ -368,7 +421,7 @@ export function ExerciseAnimationPreview({
           )}
           <button
             type="button"
-            onClick={() => setPaused((p) => !p)}
+            onClick={() => setPausedKey(paused ? null : cleanUrl || 'svg')}
             className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 rounded-full bg-slate-900/70 px-3 py-1 text-[11px] font-bold text-white backdrop-blur-xs hover:bg-slate-900 cursor-pointer"
           >
             {paused ? (

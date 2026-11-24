@@ -16,6 +16,7 @@ import {
   IndianRupee,
   Megaphone,
   MessageCircle,
+  Palette,
   Play,
   Plus,
   QrCode,
@@ -24,10 +25,12 @@ import {
   Search,
   ShoppingBag,
   Snowflake,
+  Sparkles,
   Trash2,
   Trophy,
   UserPlus,
   Users,
+  Video,
   X,
 } from 'lucide-react';
 import type { Business } from '../../types/business';
@@ -41,8 +44,10 @@ import type {
   GymMemberWorkoutSummaryPayload,
   GymNutritionMeal,
   GymOwnerDashboardPayload,
-  GymWeeklyScheduleDay,
   GymPaymentMethod,
+  GymPreferredShift,
+  GymThemePreset,
+  GymWeeklyScheduleDay,
 } from '../../types/gym';
 import { businessRepository } from '../../services/storage';
 import {
@@ -55,6 +60,11 @@ import {
   getTodayIsoDateKey,
   getWorkoutFocusMeta,
   GYM_FITNESS_GOAL_OPTIONS,
+  GYM_SHIFT_OPTIONS,
+  GYM_THEME_PRESETS,
+  normalizeGymAccentColor,
+  normalizeGymPreferredShift,
+  normalizeGymThemePreset,
 } from '../../utils/gymValidation';
 import {
   buildDefaultWeeklyScheduleForGoal,
@@ -421,6 +431,20 @@ export function GymManagerView({
   const [announcementDraft, setAnnouncementDraft] = useState('');
   const [postingAnnouncement, setPostingAnnouncement] = useState(false);
 
+  // Batch shift filter + Gym Branding Studio + Real-Person Exercise Media Manager
+  const [batchFilter, setBatchFilter] = useState<'all' | GymPreferredShift>('all');
+  const [attendanceShiftFilter, setAttendanceShiftFilter] = useState<
+    'all' | 'morning' | 'evening'
+  >('all');
+  const [brandPreset, setBrandPreset] = useState<GymThemePreset>('volt_obsidian');
+  const [brandAccent, setBrandAccent] = useState('#C8F135');
+  const [brandLogoUrl, setBrandLogoUrl] = useState('');
+  const [savingBranding, setSavingBranding] = useState(false);
+
+  const [mediaTargetName, setMediaTargetName] = useState<string | null>(null);
+  const [mediaUrlInput, setMediaUrlInput] = useState('');
+  const [savingMedia, setSavingMedia] = useState(false);
+
   const gymPortalUrl = getGymPortalUrl(business.slug);
 
   function flashStatus(msg: string) {
@@ -445,6 +469,9 @@ export function GymManagerView({
       ]);
       setDashboard(data);
       setCommunityMessages(commMsgs);
+      setBrandPreset(normalizeGymThemePreset(data.config.themePreset));
+      setBrandAccent(normalizeGymAccentColor(data.config.accentColor));
+      setBrandLogoUrl(data.config.logoUrl ?? '');
       if (data.config.plans.length > 0) {
         setWalkInPlanId((prev) =>
           data.config.plans.some((p) => p.id === prev)
@@ -535,15 +562,20 @@ export function GymManagerView({
 
   const filteredMembers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return members;
-    return members.filter(
-      (m) =>
+    return members.filter((m) => {
+      const matchBatch =
+        batchFilter === 'all' ||
+        normalizeGymPreferredShift(m.preferredShift) === batchFilter;
+      if (!matchBatch) return false;
+      if (!q) return true;
+      return (
         m.fullName.toLowerCase().includes(q) ||
         m.phone.includes(q) ||
         m.memberCode.toLowerCase().includes(q) ||
-        (m.ptTrainerName ?? '').toLowerCase().includes(q),
-    );
-  }, [members, searchQuery]);
+        (m.ptTrainerName ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [members, searchQuery, batchFilter]);
 
   const maxWeeklyPaise = useMemo(() => {
     const maxVal = weeklyChart.reduce(
@@ -981,6 +1013,53 @@ export function GymManagerView({
       setErrorMsg((err as Error).message);
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function handleSaveBranding(e: FormEvent) {
+    e.preventDefault();
+    setSavingBranding(true);
+    setErrorMsg(null);
+    try {
+      await businessRepository.ownerUpdateGymBranding({
+        businessId: business.id,
+        themePreset: brandPreset,
+        accentColor: normalizeGymAccentColor(brandAccent),
+        logoUrl: brandLogoUrl.trim() || null,
+      });
+      flashStatus('Saved Gym Theme & Logo — live on Member Mobile App!');
+      await loadDashboard();
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setSavingBranding(false);
+    }
+  }
+
+  async function handleSaveExerciseMedia(e: FormEvent) {
+    e.preventDefault();
+    if (!mediaTargetName) return;
+    setSavingMedia(true);
+    setErrorMsg(null);
+    try {
+      const cleanUrl = mediaUrlInput.trim();
+      await businessRepository.ownerUpsertGymExerciseMedia({
+        businessId: business.id,
+        exerciseKey: mediaTargetName.toLowerCase(),
+        mediaUrl: cleanUrl,
+      });
+      flashStatus(
+        cleanUrl
+          ? `Attached real-person video/GIF to "${mediaTargetName}"!`
+          : `Reset "${mediaTargetName}" back to built-in anatomical illustration.`,
+      );
+      setMediaTargetName(null);
+      setMediaUrlInput('');
+      await loadDashboard();
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setSavingMedia(false);
     }
   }
 
@@ -1673,7 +1752,14 @@ const totalPendingDuesPaise = dashboard?.totalBalanceDuePaise ?? 0;
                       Today&apos;s Attendance
                     </h2>
                     <p className="text-[11.5px] text-slate-500 tabular-nums">
-                      {todaysAttendance.length} checked in via Entrance QR
+                      {todaysAttendance.length} checked in ·{' '}
+                      <span className="font-bold text-amber-700">
+                        🌅 {dashboard?.batchStats?.morningCheckedIn ?? 0} Morning
+                      </span>{' '}
+                      ·{' '}
+                      <span className="font-bold text-indigo-700">
+                        🌆 {dashboard?.batchStats?.eveningCheckedIn ?? 0} Evening
+                      </span>
                     </p>
                   </div>
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 ring-1 ring-inset ring-emerald-100">
@@ -1682,18 +1768,61 @@ const totalPendingDuesPaise = dashboard?.totalBalanceDuePaise ?? 0;
                   </span>
                 </div>
 
-                {todaysAttendance.length === 0 ? (
+                {/* Morning / Evening Shift Filter */}
+                <div className="mt-2.5 flex items-center gap-1 rounded-xl bg-slate-100 p-1 text-[11px] font-bold">
+                  {(
+                    [
+                      { id: 'all', label: `All (${todaysAttendance.length})` },
+                      {
+                        id: 'morning',
+                        label: `🌅 Morning (${dashboard?.batchStats?.morningCheckedIn ?? 0})`,
+                      },
+                      {
+                        id: 'evening',
+                        label: `🌆 Evening (${dashboard?.batchStats?.eveningCheckedIn ?? 0})`,
+                      },
+                    ] as const
+                  ).map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setAttendanceShiftFilter(tab.id)}
+                      className={`flex-1 rounded-lg py-1 transition-colors cursor-pointer ${
+                        attendanceShiftFilter === tab.id
+                          ? 'bg-[#0F1115] text-[#C8F135] shadow-xs'
+                          : 'text-slate-600 hover:text-[#0F1115]'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                {todaysAttendance.filter(
+                  (c) =>
+                    attendanceShiftFilter === 'all' ||
+                    (c.checkInShift ?? 'morning') === attendanceShiftFilter,
+                ).length === 0 ? (
                   <div className="mt-3 flex items-center gap-3 rounded-xl bg-slate-50 px-3.5 py-3.5">
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-slate-400 ring-1 ring-inset ring-slate-200">
                       <Dumbbell className="h-4 w-4" aria-hidden />
                     </span>
                     <p className="text-[12.5px] text-slate-500">
-                      Waiting for today&apos;s first Entrance QR check-in.
+                      {attendanceShiftFilter === 'all'
+                        ? "Waiting for today's first Entrance QR check-in."
+                        : `No ${attendanceShiftFilter} batch check-ins recorded today yet.`}
                     </p>
                   </div>
                 ) : (
                   <div className="mt-3 max-h-72 space-y-1.5 overflow-y-auto pr-0.5">
-                    {todaysAttendance.slice(0, 10).map((c) => (
+                    {todaysAttendance
+                      .filter(
+                        (c) =>
+                          attendanceShiftFilter === 'all' ||
+                          (c.checkInShift ?? 'morning') === attendanceShiftFilter,
+                      )
+                      .slice(0, 12)
+                      .map((c) => (
                       <button
                         key={c.id}
                         type="button"
@@ -1705,9 +1834,14 @@ const totalPendingDuesPaise = dashboard?.totalBalanceDuePaise ?? 0;
                           <p className="truncate text-[12.5px] font-bold text-[#0F1115]">
                             {toTitleCase(c.fullName)}
                           </p>
-                          <span className="inline-flex rounded-md bg-[#0F1115] px-1.5 py-0.5 text-[10px] font-bold text-[#C8F135]">
-                            {getWorkoutFocusMeta(c.workoutFocus).dayLabel}
-                          </span>
+                          <div className="mt-0.5 flex items-center gap-1.5">
+                            <span className="inline-flex rounded-md bg-[#0F1115] px-1.5 py-0.5 text-[10px] font-bold text-[#C8F135]">
+                              {getWorkoutFocusMeta(c.workoutFocus).dayLabel}
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-500">
+                              {c.checkInShift === 'evening' ? '🌆 Evening' : '🌅 Morning'}
+                            </span>
+                          </div>
                         </div>
                         <div className="flex shrink-0 flex-col items-end gap-1">
                           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10.5px] font-bold text-slate-700 tabular-nums">
@@ -1865,6 +1999,114 @@ const totalPendingDuesPaise = dashboard?.totalBalanceDuePaise ?? 0;
                 )}
               </section>
 
+              {/* Gym Brand Logo & Custom Vibe Color Studio */}
+              <form
+                onSubmit={(e) => void handleSaveBranding(e)}
+                className="gym-card gym-fade-up gym-stagger-3 space-y-3 p-4"
+              >
+                <div className="flex items-center justify-between">
+                  <h2 className="flex items-center gap-1.5 text-[14px] font-extrabold text-[#0F1115]">
+                    <Palette className="h-4 w-4 text-[#0F1115]" aria-hidden />
+                    Gym Branding &amp; Vibe Theme
+                  </h2>
+                  <span
+                    className="h-5 w-5 rounded-full border border-slate-300 shadow-xs"
+                    style={{ backgroundColor: brandAccent }}
+                    title={`Active Accent: ${brandAccent}`}
+                  />
+                </div>
+
+                {/* Preset Vibe Swatches */}
+                <div className="grid grid-cols-5 gap-1.5">
+                  {GYM_THEME_PRESETS.map((preset) => {
+                    const active = brandPreset === preset.key;
+                    return (
+                      <button
+                        key={preset.key}
+                        type="button"
+                      onClick={() => {
+                        setBrandPreset(preset.key);
+                        setBrandAccent(preset.accentColor);
+                      }}
+                      className={`flex flex-col items-center gap-1 rounded-xl border p-1.5 text-center transition-all cursor-pointer ${
+                        active
+                          ? 'border-[#0F1115] bg-slate-100 shadow-xs'
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                      title={preset.label}
+                    >
+                      <span
+                        className="h-5 w-5 rounded-full border border-black/15"
+                        style={{ backgroundColor: preset.accentColor }}
+                      />
+                        <span className="text-[9.5px] font-bold text-slate-700 leading-tight truncate w-full">
+                          {preset.label.split(' ')[0]}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 items-center">
+                  <label className="col-span-1 flex items-center gap-1.5 rounded-xl border border-slate-300 px-2 py-1.5 text-[11px] font-bold text-slate-700 cursor-pointer">
+                    <input
+                      type="color"
+                      value={brandAccent}
+                      onChange={(e) =>
+                        setBrandAccent(normalizeGymAccentColor(e.target.value))
+                      }
+                      className="h-5 w-6 cursor-pointer border-0 bg-transparent p-0"
+                    />
+                    <span className="font-mono text-[10.5px]">{brandAccent}</span>
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="Gym Logo PNG/JPG URL (https://...)"
+                    value={brandLogoUrl}
+                    onChange={(e) => setBrandLogoUrl(e.target.value)}
+                    className="col-span-2 h-9 rounded-xl border border-slate-300 px-2.5 text-[11.5px]"
+                  />
+                </div>
+
+                {/* Live Mini Preview Strip */}
+                <div className="flex items-center justify-between rounded-xl bg-[#0B0D10] px-3 py-2 text-white">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {brandLogoUrl.trim() ? (
+                      <img
+                        src={brandLogoUrl.trim()}
+                        alt="Logo preview"
+                        className="h-6 w-6 rounded-lg object-cover border border-white/15"
+                      />
+                    ) : (
+                      <span
+                        className="flex h-6 w-6 items-center justify-center rounded-lg text-[10px] font-black text-[#0B0D10]"
+                        style={{ backgroundColor: brandAccent }}
+                      >
+                        <Dumbbell className="h-3.5 w-3.5" aria-hidden />
+                      </span>
+                    )}
+                    <span className="truncate text-[11.5px] font-extrabold">
+                      {business.name} App Preview
+                    </span>
+                  </div>
+                  <span
+                    className="rounded-lg px-2 py-0.5 text-[10px] font-black text-[#0B0D10]"
+                    style={{ backgroundColor: brandAccent }}
+                  >
+                    Live Pass
+                  </span>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={savingBranding}
+                  className="gym-tactile flex h-9 w-full items-center justify-center gap-1.5 rounded-xl bg-[#0F1115] text-[12px] font-extrabold text-white hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-[#C8F135]" aria-hidden />
+                  {savingBranding ? 'Saving Theme...' : 'Apply Brand Theme & Logo'}
+                </button>
+              </form>
+
               {/* DARK OBSIDIAN STATIC ENTRANCE QR PROMO CARD */}
               <section className="gym-obsidian-mesh gym-fade-up gym-stagger-4 relative min-h-[212px] overflow-hidden rounded-2xl border border-white/10 p-5 text-white">
                 <AthleteIllustration className="pointer-events-none absolute -bottom-1 -right-3 h-[200px] w-[170px]" />
@@ -1911,15 +2153,47 @@ const totalPendingDuesPaise = dashboard?.totalBalanceDuePaise ?? 0;
       {/* ==================== SECTION 2: FULL MEMBERS DIRECTORY ==================== */}
       {activeSection === 'members' && (
         <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3.5">
             <div>
               <h2 className="text-[16px] font-extrabold text-[#0F1115]">
                 All Gym Members ({filteredMembers.length})
               </h2>
               <p className="text-[12px] text-slate-500">
-                Approve plans with installments/PT, freeze memberships, assign
-                workout routines, and inspect Strength PRs.
+                Approve plans with installments/PT, track Morning vs Evening batches,
+                and inspect Strength PRs.
               </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(
+                [
+                  { id: 'all', label: `All (${members.length})` },
+                  {
+                    id: 'morning',
+                    label: `🌅 Morning (${dashboard?.batchStats?.morningTotal ?? members.filter((m) => normalizeGymPreferredShift(m.preferredShift) === 'morning').length})`,
+                  },
+                  {
+                    id: 'evening',
+                    label: `🌆 Evening (${dashboard?.batchStats?.eveningTotal ?? members.filter((m) => normalizeGymPreferredShift(m.preferredShift) === 'evening').length})`,
+                  },
+                  {
+                    id: 'flexible',
+                    label: `⏰ Flex (${dashboard?.batchStats?.flexibleTotal ?? members.filter((m) => normalizeGymPreferredShift(m.preferredShift) === 'flexible').length})`,
+                  },
+                ] as const
+              ).map((bf) => (
+                <button
+                  key={bf.id}
+                  type="button"
+                  onClick={() => setBatchFilter(bf.id)}
+                  className={`rounded-xl border px-2.5 py-1 text-[11px] font-bold transition-colors cursor-pointer ${
+                    batchFilter === bf.id
+                      ? 'border-[#0F1115] bg-[#0F1115] text-[#C8F135]'
+                      : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {bf.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -1966,6 +2240,19 @@ const totalPendingDuesPaise = dashboard?.totalBalanceDuePaise ?? 0;
                           {m.ptTrainerName ? ` (${m.ptTrainerName})` : ''}
                         </span>
                       )}
+                      {(() => {
+                        const shiftMeta =
+                          GYM_SHIFT_OPTIONS.find(
+                            (o) =>
+                              o.value ===
+                              normalizeGymPreferredShift(m.preferredShift),
+                          ) ?? GYM_SHIFT_OPTIONS[0];
+                        return (
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10.5px] font-bold text-slate-700">
+                            {shiftMeta.emoji} {shiftMeta.label}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <p className="text-[12px] text-slate-500">
                       {m.phone} · {m.planName} ·{' '}
@@ -2489,22 +2776,87 @@ const totalPendingDuesPaise = dashboard?.totalBalanceDuePaise ?? 0;
             </form>
 
             <div className="lg:col-span-8 rounded-2xl border border-slate-200 bg-white p-5 space-y-3">
-              <h3 className="text-[14.5px] font-extrabold text-[#0F1115]">
-                Active Exercise Catalog ({exerciseCatalog.length} Exercises) &amp;
-                Saved Routines ({routines.length})
-              </h3>
-              <div className="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto">
-                {exerciseCatalog.map((ex) => (
-                  <span
-                    key={ex.id}
-                    className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11.5px] font-semibold text-[#0F1115]"
-                  >
-                    {ex.name}{' '}
-                    <span className="text-[10px] uppercase text-slate-400">
-                      · {ex.muscleGroup}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-[14.5px] font-extrabold text-[#0F1115]">
+                    Active Exercise Catalog ({exerciseCatalog.length} Exercises) &amp;
+                    Saved Routines ({routines.length})
+                  </h3>
+                  <p className="text-[11.5px] text-slate-500">
+                    Click any exercise to attach a real-person looping MP4 / Google Flow
+                    video or GIF URL for members to view during sets.
+                  </p>
+                </div>
+              </div>
+
+              {mediaTargetName && (
+                <form
+                  onSubmit={(e) => void handleSaveExerciseMedia(e)}
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5 space-y-2.5"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-[12.5px] font-extrabold text-[#0F1115]">
+                      <Video className="h-4 w-4 text-emerald-600" aria-hidden />
+                      Attach Real-Person Video / GIF for “{mediaTargetName}”
                     </span>
-                  </span>
-                ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMediaTargetName(null);
+                        setMediaUrlInput('');
+                      }}
+                      className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                    >
+                      <X className="h-4 w-4" aria-hidden />
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      type="url"
+                      placeholder="https://.../bench-press.mp4 or .gif (leave empty to reset)"
+                      value={mediaUrlInput}
+                      onChange={(e) => setMediaUrlInput(e.target.value)}
+                      className="h-9 flex-1 min-w-[220px] rounded-xl border border-slate-300 bg-white px-3 text-[12px]"
+                    />
+                    <button
+                      type="submit"
+                      disabled={savingMedia}
+                      className="h-9 rounded-xl bg-[#0F1115] px-4 text-[12px] font-extrabold text-[#C8F135] disabled:opacity-50 cursor-pointer"
+                    >
+                      {savingMedia ? 'Saving...' : 'Save Media URL'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              <div className="flex flex-wrap gap-1.5 max-h-60 overflow-y-auto">
+                {exerciseCatalog.map((ex) => {
+                  const hasMedia = Boolean(ex.animationGifUrl);
+                  return (
+                    <button
+                      key={ex.id}
+                      type="button"
+                      onClick={() => {
+                        setMediaTargetName(ex.name);
+                        setMediaUrlInput(ex.animationGifUrl ?? '');
+                      }}
+                      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11.5px] font-semibold transition-colors cursor-pointer ${
+                        hasMedia
+                          ? 'border-emerald-300 bg-emerald-50 text-emerald-950'
+                          : 'border-slate-200 bg-slate-50 text-[#0F1115] hover:border-slate-400'
+                      }`}
+                      title="Click to attach or change exercise video/GIF"
+                    >
+                      {hasMedia && (
+                        <Video className="h-3 w-3 text-emerald-600" aria-hidden />
+                      )}
+                      {ex.name}{' '}
+                      <span className="text-[10px] uppercase text-slate-400">
+                        · {ex.muscleGroup}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>

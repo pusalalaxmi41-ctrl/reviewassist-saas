@@ -20,6 +20,10 @@ export type GymPaymentMethod = 'cash' | 'upi';
 
 export type GymFreezeAction = 'freeze' | 'resume';
 
+export type GymPreferredShift = 'morning' | 'evening' | 'flexible';
+
+export type GymCheckInShift = 'morning' | 'evening';
+
 export type GymFitnessGoal =
   | 'weight_loss'
   | 'muscle_gain'
@@ -44,11 +48,21 @@ export interface GymPlan {
   badge?: string;
 }
 
+export type GymThemePreset =
+  | 'volt_obsidian'
+  | 'crimson_iron'
+  | 'cyber_cyan'
+  | 'solar_gold'
+  | 'emerald_pulse';
+
 export interface GymConfig {
   businessId: string;
   isRegistrationOpen: boolean;
   renewalAlertDays: number;
   plans: GymPlan[];
+  logoUrl?: string | null;
+  accentColor?: string;
+  themePreset?: GymThemePreset;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -57,6 +71,16 @@ export interface GymConfigInput {
   isRegistrationOpen: boolean;
   renewalAlertDays?: number;
   plans?: GymPlan[];
+  logoUrl?: string | null;
+  accentColor?: string;
+  themePreset?: GymThemePreset;
+}
+
+export interface OwnerUpdateGymBrandingInput {
+  businessId: string;
+  logoUrl?: string | null;
+  accentColor: string;
+  themePreset: GymThemePreset;
 }
 
 export interface GymAttendanceLog {
@@ -66,6 +90,7 @@ export interface GymAttendanceLog {
   checkInDate: string;
   checkedInAt: string;
   workoutFocus: GymWorkoutFocus;
+  checkInShift?: GymCheckInShift;
   memberNote?: string | null;
   isPtSession?: boolean;
   trainerId?: string | null;
@@ -404,6 +429,7 @@ export interface GymMember {
   bestStreakDays?: number;
   assignedRoutineId?: string | null;
   assignedRoutineName?: string | null;
+  preferredShift?: GymPreferredShift;
   fitnessGoal?: GymFitnessGoal;
   startingWeightKg?: number | null;
   targetWeightKg?: number | null;
@@ -437,6 +463,8 @@ export interface GymTodayAttendanceEntry {
   fullName: string;
   phone: string;
   fitnessGoal: GymFitnessGoal;
+  preferredShift?: GymPreferredShift;
+  checkInShift?: GymCheckInShift;
   checkInDate: string;
   checkedInAt: string;
   workoutFocus: GymWorkoutFocus;
@@ -475,6 +503,7 @@ export interface SubmitGymRegistrationInput {
   fullName: string;
   phone: string;
   planId: string;
+  preferredShift?: GymPreferredShift;
   fitnessGoal?: GymFitnessGoal;
   startingWeightKg?: number | null;
   targetWeightKg?: number | null;
@@ -496,6 +525,7 @@ export interface GymDailyCheckInResult {
   checkedInDate: string;
   checkedInAt: string;
   workoutFocus: GymWorkoutFocus;
+  checkInShift?: GymCheckInShift;
   memberNote?: string | null;
   todayLog: GymAttendanceLog;
 }
@@ -530,6 +560,13 @@ export interface GymOwnerDashboardPayload {
   monthlyLeaderboard?: GymLeaderboardEntry[];
   routines?: GymWorkoutRoutine[];
   exerciseCatalog?: GymCatalogExercise[];
+  batchStats?: {
+    morningTotal: number;
+    eveningTotal: number;
+    flexibleTotal: number;
+    morningCheckedIn: number;
+    eveningCheckedIn: number;
+  };
 }
 
 export type GymWeekDayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
@@ -605,6 +642,11 @@ export interface GymExerciseLastSession {
 
 export interface GymMemberAthleteHubPayload {
   memberId: string;
+  preferredShift?: GymPreferredShift;
+  ptTrainerName?: string | null;
+  ptTrainerSpecialty?: string | null;
+  ptRemainingSessions?: number;
+  ptTotalSessions?: number;
   weekStreakCount: number;
   totalVolumeLiftedKg: number;
   totalWorkoutsCount: number;
@@ -618,6 +660,21 @@ export interface GymMemberAthleteHubPayload {
   lastSessionByExercise: Record<string, GymExerciseLastSession>;
   personalRecords: GymPersonalRecordRow[];
   exerciseCatalog: GymCatalogExercise[];
+}
+
+export interface UpdateMemberSelfPlanInput {
+  businessSlug: string;
+  memberId: string;
+  scheduleMode: 'fixed_week' | 'rotation';
+  weeklySchedule: GymWeeklyScheduleDay[];
+  planTitle?: string | null;
+}
+
+export interface OwnerUpsertExerciseMediaInput {
+  businessId: string;
+  exerciseKey: string;
+  mediaUrl: string;
+  mediaType?: 'video' | 'gif';
 }
 
 export type GymCommunityMessageType =

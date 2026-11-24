@@ -154,6 +154,7 @@ import type {
   GymPaymentLog,
   GymPaymentMethod,
   GymPersonalRecordRow,
+  GymPreferredShift,
   GymRetailProduct,
   GymRetailProductInput,
   GymRetailSale,
@@ -169,8 +170,11 @@ import type {
   GymWorkoutSetRecord,
   LogGymWorkoutSessionInput,
   MemberCreateCustomExerciseInput,
+  OwnerUpdateGymBrandingInput,
+  OwnerUpsertExerciseMediaInput,
   PublicGymPortalPayload,
   SubmitGymRegistrationInput,
+  UpdateMemberSelfPlanInput,
   UpsertGymCoachPlanInput,
 } from '../../types/gym';
 import {
@@ -179,9 +183,13 @@ import {
   formatPrivacySafeLeaderboardName,
   getTodayIsoDateKey,
   GYM_RETAIL_STARTER_PRODUCTS,
+  inferGymCheckInShiftFromHour,
+  normalizeGymAccentColor,
   normalizeGymConfig,
   normalizeGymFitnessGoal,
   normalizeGymPhone,
+  normalizeGymPreferredShift,
+  normalizeGymThemePreset,
   normalizeGymWorkoutFocus,
   validateGymBodyMeasurementInput,
   validateGymConfigInput,
@@ -295,6 +303,8 @@ const STORAGE_KEYS = {
   GYM_WORKOUT_SET_LOGS: 'reviewassist_mock_gym_workout_set_logs_v1',
   GYM_MEMBER_COACH_PLANS: 'reviewassist_mock_gym_member_coach_plans_v1',
   GYM_COMMUNITY_MESSAGES: 'reviewassist_mock_gym_community_messages_v1',
+  GYM_EXERCISE_MEDIA_OVERRIDES:
+    'reviewassist_mock_gym_exercise_media_overrides_v1',
   CAFE_CONFIGS: 'reviewassist_mock_cafe_configs_v1',
   CAFE_STAMP_PASSES: 'reviewassist_mock_cafe_stamp_passes_v1',
   CAFE_INVENTORY_ITEMS: 'reviewassist_mock_cafe_inventory_items_v1',
@@ -6410,14 +6420,60 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     );
     const prev = store[cleanId];
     const now = new Date().toISOString();
-    const updated: GymConfig = {
-      businessId: cleanId,
+    const updated = normalizeGymConfig(cleanId, {
       isRegistrationOpen: validation.value.isRegistrationOpen,
       renewalAlertDays: validation.value.renewalAlertDays,
       plans: validation.value.plans,
+      logoUrl:
+        input.logoUrl !== undefined ? input.logoUrl : (prev?.logoUrl ?? null),
+      accentColor:
+        input.accentColor !== undefined
+          ? normalizeGymAccentColor(input.accentColor)
+          : (prev?.accentColor ?? '#C8F135'),
+      themePreset:
+        input.themePreset !== undefined
+          ? normalizeGymThemePreset(input.themePreset)
+          : (prev?.themePreset ?? 'volt_obsidian'),
       createdAt: prev?.createdAt ?? now,
       updatedAt: now,
-    };
+    });
+    store[cleanId] = updated;
+    this.write(STORAGE_KEYS.GYM_CONFIGS, store);
+    return updated;
+  }
+
+  async ownerUpdateGymBranding(
+    input: OwnerUpdateGymBrandingInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymConfig> {
+    const idErr = validateBusinessId(input.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = input.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    const store = this.read<Record<string, GymConfig>>(
+      STORAGE_KEYS.GYM_CONFIGS,
+      {},
+    );
+    const prev = normalizeGymConfig(cleanId, store[cleanId]);
+    const cleanLogo =
+      input.logoUrl && /^https?:\/\//i.test(input.logoUrl.trim())
+        ? input.logoUrl.trim().slice(0, 600)
+        : input.logoUrl === null || input.logoUrl === ''
+          ? null
+          : prev.logoUrl ?? null;
+
+    const updated = normalizeGymConfig(cleanId, {
+      ...prev,
+      logoUrl: cleanLogo,
+      accentColor: normalizeGymAccentColor(input.accentColor),
+      themePreset: normalizeGymThemePreset(input.themePreset),
+      updatedAt: new Date().toISOString(),
+    });
     store[cleanId] = updated;
     this.write(STORAGE_KEYS.GYM_CONFIGS, store);
     return updated;
@@ -6549,6 +6605,7 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         durationDays: matchedPlan.durationDays,
         feePaise: matchedPlan.pricePaise,
         fitnessGoal,
+        preferredShift: validation.value.preferredShift,
         startingWeightKg: startingWeightKg ?? existing.startingWeightKg ?? null,
         targetWeightKg: targetWeightKg ?? existing.targetWeightKg ?? null,
         status: 'pending_approval',
@@ -6581,6 +6638,7 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       durationDays: matchedPlan.durationDays,
       feePaise: matchedPlan.pricePaise,
       fitnessGoal,
+      preferredShift: validation.value.preferredShift,
       startingWeightKg,
       targetWeightKg,
       trainerNotes: null,
@@ -6739,10 +6797,16 @@ export class MockLocalStorageRepository implements IBusinessRepository {
 
     if (existingLogIdx !== -1) {
       alreadyCheckedInToday = true;
+      const resolvedShift =
+        allLogs[existingLogIdx].checkInShift ??
+        inferGymCheckInShiftFromHour(
+          new Date(allLogs[existingLogIdx].checkedInAt).getHours(),
+        );
       todayLog = {
         ...allLogs[existingLogIdx],
         workoutFocus: focus,
         memberNote: cleanNote ?? allLogs[existingLogIdx].memberNote ?? null,
+        checkInShift: resolvedShift,
       };
       allLogs[existingLogIdx] = todayLog;
       this.write(STORAGE_KEYS.GYM_CHECK_INS, allLogs);
@@ -6765,13 +6829,21 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         ptRemainingSessions = Math.max(0, ptRemainingSessions - 1);
       }
 
+      const checkedAt =
+        targetDate === today ? nowIso : `${targetDate}T07:30:00.000Z`;
+      const inferredShift =
+        members[idx].preferredShift === 'morning' ||
+        members[idx].preferredShift === 'evening'
+          ? members[idx].preferredShift
+          : inferGymCheckInShiftFromHour(new Date(checkedAt).getHours());
+
       todayLog = {
         id: `gymci-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         businessId: business.id,
         memberId: hydrated.id,
         checkInDate: targetDate,
-        checkedInAt:
-          targetDate === today ? nowIso : `${targetDate}T07:30:00.000Z`,
+        checkedInAt: checkedAt,
+        checkInShift: inferredShift,
         workoutFocus: focus,
         memberNote: cleanNote,
         isPtSession: usePt,
@@ -6828,6 +6900,9 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       trainerId: todayLog.trainerId ?? null,
       checkedInDate: todayLog.checkInDate,
       checkedInAt: todayLog.checkedInAt,
+      checkInShift:
+        todayLog.checkInShift ??
+        inferGymCheckInShiftFromHour(new Date(todayLog.checkedInAt).getHours()),
       workoutFocus: todayLog.workoutFocus,
       memberNote: todayLog.memberNote ?? null,
       todayLog,
@@ -6906,8 +6981,12 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         fullName: m.fullName,
         phone: m.phone,
         fitnessGoal: normalizeGymFitnessGoal(m.fitnessGoal),
+        preferredShift: normalizeGymPreferredShift(m.preferredShift),
         checkInDate: l.checkInDate,
         checkedInAt: l.checkedInAt,
+        checkInShift:
+          l.checkInShift ??
+          inferGymCheckInShiftFromHour(new Date(l.checkedInAt).getHours()),
         workoutFocus: l.workoutFocus,
         memberNote: l.memberNote ?? null,
         daysAttendedThisMonth: m.daysAttendedThisMonth ?? 1,
@@ -7048,6 +7127,27 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       .filter((r) => r.businessId === cleanId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     const exerciseCatalog = await this.getGymExerciseCatalog(cleanId, options);
+    const activeMembersList = members.filter(
+      (m) =>
+        m.effectiveStatus === 'active' || m.effectiveStatus === 'expiring_soon',
+    );
+    const batchStats = {
+      morningCheckedIn: todaysAttendance.filter(
+        (t) => t.checkInShift === 'morning',
+      ).length,
+      eveningCheckedIn: todaysAttendance.filter(
+        (t) => t.checkInShift === 'evening',
+      ).length,
+      morningTotal: activeMembersList.filter(
+        (m) => normalizeGymPreferredShift(m.preferredShift) === 'morning',
+      ).length,
+      eveningTotal: activeMembersList.filter(
+        (m) => normalizeGymPreferredShift(m.preferredShift) === 'evening',
+      ).length,
+      flexibleTotal: activeMembersList.filter(
+        (m) => normalizeGymPreferredShift(m.preferredShift) === 'flexible',
+      ).length,
+    };
 
     return {
       config,
@@ -7069,6 +7169,7 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       monthlyLeaderboard,
       routines,
       exerciseCatalog,
+      batchStats,
     };
   }
 
@@ -7957,6 +8058,36 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     return { sale, product: updatedProduct };
   }
 
+  private applyGymExerciseMediaOverrides(
+    businessId: string,
+    catalog: GymCatalogExercise[],
+  ): GymCatalogExercise[] {
+    const overrides = this.read<
+      Array<{
+        businessId: string;
+        exerciseKey: string;
+        mediaUrl: string;
+        mediaType?: string;
+      }>
+    >(STORAGE_KEYS.GYM_EXERCISE_MEDIA_OVERRIDES, []).filter(
+      (o) => o.businessId === businessId && o.mediaUrl,
+    );
+    if (overrides.length === 0) return catalog;
+    const byKey = new Map(
+      overrides.map((o) => [o.exerciseKey.toLowerCase(), o]),
+    );
+    return catalog.map((ex) => {
+      const ov =
+        byKey.get(ex.name.trim().toLowerCase()) ||
+        (ex.id ? byKey.get(ex.id.trim().toLowerCase()) : undefined);
+      if (!ov) return ex;
+      return {
+        ...ex,
+        animationGifUrl: ov.mediaUrl,
+      };
+    });
+  }
+
   async getGymExerciseCatalog(
     businessId: string,
     options?: AIConfigAccessOptions,
@@ -7972,7 +8103,70 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       STORAGE_KEYS.GYM_CUSTOM_EXERCISES,
       [],
     ).filter((e) => e.businessId === cleanId);
-    return [...BUILTIN_GYM_CATALOG_EXERCISES, ...custom];
+    return this.applyGymExerciseMediaOverrides(cleanId, [
+      ...BUILTIN_GYM_CATALOG_EXERCISES,
+      ...custom,
+    ]);
+  }
+
+  async ownerUpsertGymExerciseMedia(
+    input: OwnerUpsertExerciseMediaInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<{ exerciseKey: string; mediaUrl: string; mediaType?: string }> {
+    const idErr = validateBusinessId(input.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = input.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const exerciseKey = (input.exerciseKey || '').trim().toLowerCase().slice(0, 120);
+    if (!exerciseKey) {
+      throw new Error('Exercise name or key is required.');
+    }
+    const cleanUrl = (input.mediaUrl || '').trim().slice(0, 600);
+    const store = this.read<
+      Array<{
+        businessId: string;
+        exerciseKey: string;
+        mediaUrl: string;
+        mediaType?: string;
+        updatedAt: string;
+      }>
+    >(STORAGE_KEYS.GYM_EXERCISE_MEDIA_OVERRIDES, []);
+
+    const filtered = store.filter(
+      (item) =>
+        !(
+          item.businessId === cleanId &&
+          item.exerciseKey.toLowerCase() === exerciseKey
+        ),
+    );
+    if (cleanUrl) {
+      const detectedType =
+        input.mediaType ??
+        (/\.(mp4|webm|mov)(\?|#|$)/i.test(cleanUrl)
+          ? 'video'
+          : /\.(gif)(\?|#|$)/i.test(cleanUrl)
+            ? 'gif'
+            : 'image');
+      filtered.push({
+        businessId: cleanId,
+        exerciseKey,
+        mediaUrl: cleanUrl,
+        mediaType: detectedType,
+        updatedAt: new Date().toISOString(),
+      });
+      this.write(STORAGE_KEYS.GYM_EXERCISE_MEDIA_OVERRIDES, filtered);
+      return {
+        exerciseKey,
+        mediaUrl: cleanUrl,
+        mediaType: detectedType,
+      };
+    }
+
+    this.write(STORAGE_KEYS.GYM_EXERCISE_MEDIA_OVERRIDES, filtered);
+    return { exerciseKey, mediaUrl: '', mediaType: undefined };
   }
 
   async createGymCustomExercise(
@@ -8137,7 +8331,10 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       STORAGE_KEYS.GYM_CUSTOM_EXERCISES,
       [],
     ).filter((e) => e.businessId === business.id);
-    const exerciseCatalog = [...BUILTIN_GYM_CATALOG_EXERCISES, ...customExercises];
+    const exerciseCatalog = this.applyGymExerciseMediaOverrides(business.id, [
+      ...BUILTIN_GYM_CATALOG_EXERCISES,
+      ...customExercises,
+    ]);
 
     const today = getTodayIsoDateKey();
     const weekStart = addDaysToIsoDate(today, -6);
@@ -8642,6 +8839,13 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       [],
     ).filter((e) => e.businessId === business.id);
 
+    const trainers = this.read<GymTrainer[]>(STORAGE_KEYS.GYM_TRAINERS, []).filter(
+      (t) => t.businessId === business.id,
+    );
+    const assignedTrainer = member.ptTrainerId
+      ? trainers.find((t) => t.id === member.ptTrainerId) ?? null
+      : null;
+
     const streak = member.currentStreakDays ?? 0;
 
     return {
@@ -8654,14 +8858,131 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       volumeThisMonthKg,
       monthlyVolumeTargetKg: 25000,
       weightCheckInsThisMonth,
+      preferredShift: normalizeGymPreferredShift(member.preferredShift),
+      ptTrainerName: member.ptTrainerName ?? assignedTrainer?.trainerName ?? null,
+      ptTrainerSpecialty: assignedTrainer?.specialty ?? null,
+      ptRemainingSessions: member.ptRemainingSessions ?? 0,
+      ptTotalSessions: member.ptTotalSessions ?? 0,
       coachPlan,
       recoveryInsight,
       lastSessionByExercise,
       personalRecords: Array.from(prMap.values()).sort(
         (a, b) => b.best1rmKg - a.best1rmKg,
       ),
-      exerciseCatalog: [...BUILTIN_GYM_CATALOG_EXERCISES, ...customExercises],
+      exerciseCatalog: this.applyGymExerciseMediaOverrides(business.id, [
+        ...BUILTIN_GYM_CATALOG_EXERCISES,
+        ...customExercises,
+      ]),
     };
+  }
+
+  async updateGymMemberSelfPlan(
+    input: UpdateMemberSelfPlanInput,
+  ): Promise<GymCoachPlan> {
+    const business = await this.getBusinessBySlug(input.businessSlug);
+    if (!business || business.status !== 'active') {
+      throw new Error('Gym portal is not active.');
+    }
+
+    const members = this.getOrSeedMockGymMembers();
+    const member = members.find(
+      (m) => m.businessId === business.id && m.id === input.memberId,
+    );
+    if (!member || member.status !== 'active') {
+      throw new Error('Active gym membership required to customize your split.');
+    }
+
+    const now = new Date().toISOString();
+    const allPlans = this.read<GymCoachPlan[]>(
+      STORAGE_KEYS.GYM_MEMBER_COACH_PLANS,
+      [],
+    );
+    const existingIdx = allPlans.findIndex(
+      (p) => p.businessId === business.id && p.memberId === member.id,
+    );
+    const existing = existingIdx >= 0 ? allPlans[existingIdx] : null;
+
+    const updated: GymCoachPlan = {
+      id: existing?.id ?? `gymcp-${crypto.randomUUID()}`,
+      businessId: business.id,
+      memberId: member.id,
+      trainerId: existing?.trainerId ?? member.ptTrainerId ?? null,
+      trainerName: existing?.trainerName ?? member.ptTrainerName ?? null,
+      planTitle:
+        (input.planTitle || existing?.planTitle || 'My Custom Training Split')
+          .trim()
+          .slice(0, 120),
+      scheduleMode:
+        input.scheduleMode === 'rotation'
+          ? 'rotation'
+          : (input.scheduleMode === 'fixed_week'
+              ? 'fixed_week'
+              : (existing?.scheduleMode ?? 'fixed_week')),
+      weeklySchedule: Array.isArray(input.weeklySchedule)
+        ? input.weeklySchedule
+        : (existing?.weeklySchedule ?? []),
+      dailyCaloriesKcal: existing?.dailyCaloriesKcal ?? 2200,
+      proteinGrams: existing?.proteinGrams ?? 140,
+      carbsGrams: existing?.carbsGrams ?? 230,
+      fatsGrams: existing?.fatsGrams ?? 65,
+      waterLiters: existing?.waterLiters ?? 3.5,
+      nutritionMeals: existing?.nutritionMeals ?? [],
+      supplementNotes: existing?.supplementNotes ?? null,
+      coachNotes: existing?.coachNotes ?? null,
+      approvalStatus: existing?.approvalStatus ?? 'approved',
+      approvedBy:
+        existing?.approvalStatus === 'approved'
+          ? (existing?.approvedBy ?? null)
+          : `${member.fullName} (Self)`,
+      approvedAt: existing?.approvedAt ?? now,
+      updatedAt: now,
+    };
+
+    if (existingIdx >= 0) {
+      allPlans[existingIdx] = updated;
+    } else {
+      allPlans.push(updated);
+    }
+    this.write(STORAGE_KEYS.GYM_MEMBER_COACH_PLANS, allPlans);
+    return updated;
+  }
+
+  async updateGymMemberPreferredShift(params: {
+    businessSlug: string;
+    memberId: string;
+    preferredShift: GymPreferredShift;
+  }): Promise<GymMember> {
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (!business || business.status !== 'active') {
+      throw new Error('Gym portal is not active.');
+    }
+
+    const store = this.read<Record<string, GymConfig>>(
+      STORAGE_KEYS.GYM_CONFIGS,
+      {},
+    );
+    const config = normalizeGymConfig(business.id, store[business.id]);
+    const members = this.getOrSeedMockGymMembers();
+    const idx = members.findIndex(
+      (m) => m.businessId === business.id && m.id === params.memberId,
+    );
+    if (idx === -1) {
+      throw new Error('Member not found for this gym.');
+    }
+
+    const updatedRecord: GymMember = {
+      ...members[idx],
+      preferredShift: normalizeGymPreferredShift(params.preferredShift),
+      updatedAt: new Date().toISOString(),
+    };
+    const hydrated = this.hydrateGymMember(
+      updatedRecord,
+      config.renewalAlertDays,
+      getTodayIsoDateKey(),
+    );
+    members[idx] = hydrated;
+    this.write(STORAGE_KEYS.GYM_MEMBERS, members);
+    return hydrated;
   }
 
   async getGymMembersCommunityHub(params: {

@@ -81,6 +81,10 @@ export default function App() {
             path="/r/:businessSlug/kitchen"
             element={<RestaurantKitchenDisplayPage />}
           />
+          <Route
+            path="/r/:businessSlug/gym"
+            element={<CustomerGymPage />}
+          />
           <Route element={<CustomerLayout />}>
             <Route path="/r/:businessSlug" element={<CustomerReviewPage />} />
             <Route
@@ -102,10 +106,6 @@ export default function App() {
             <Route
               path="/r/:businessSlug/barber-staff"
               element={<BarberStaffQueuePage />}
-            />
-            <Route
-              path="/r/:businessSlug/gym"
-              element={<CustomerGymPage />}
             />
             <Route
               path="/r/:businessSlug/cafe"

@@ -103,6 +103,7 @@ import type {
   GymOwnerDashboardPayload,
   GymOwnerMemberAction,
   GymPaymentMethod,
+  GymPreferredShift,
   GymRetailProduct,
   GymRetailProductInput,
   GymRetailSale,
@@ -115,8 +116,11 @@ import type {
   GymWorkoutSession,
   LogGymWorkoutSessionInput,
   MemberCreateCustomExerciseInput,
+  OwnerUpdateGymBrandingInput,
+  OwnerUpsertExerciseMediaInput,
   PublicGymPortalPayload,
   SubmitGymRegistrationInput,
+  UpdateMemberSelfPlanInput,
   UpsertGymCoachPlanInput,
 } from '../../types/gym';
 import type {
@@ -1087,6 +1091,28 @@ export interface IBusinessRepository {
     senderName?: string;
     options?: AIConfigAccessOptions;
   }): Promise<GymCommunityMessage | { deletedId: string }>;
+
+  /** Active member customizes their own 7-day weekly workout split & schedule mode from the phone app. */
+  updateGymMemberSelfPlan(input: UpdateMemberSelfPlanInput): Promise<GymCoachPlan>;
+
+  /** Member updates their preferred daily gym batch (Morning / Evening / Flexible). */
+  updateGymMemberPreferredShift(params: {
+    businessSlug: string;
+    memberId: string;
+    preferredShift: GymPreferredShift;
+  }): Promise<GymMember>;
+
+  /** Owner attaches a real-person Google Flow video (.mp4/.webm) or GIF URL override to any catalog exercise. */
+  ownerUpsertGymExerciseMedia(
+    input: OwnerUpsertExerciseMediaInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<{ exerciseKey: string; mediaUrl: string; mediaType?: string }>;
+
+  /** Owner customizes the gym's Logo URL, Accent Color hex, and Vibe Theme Preset. */
+  ownerUpdateGymBranding(
+    input: OwnerUpdateGymBrandingInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymConfig>;
 
   // ---------------------------------------------------------------------------
   // Module 7: Dedicated CafeOS (Stamp Pass, Birthday Coffee, Inventory & Counter)

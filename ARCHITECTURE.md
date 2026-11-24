@@ -270,6 +270,7 @@ npm run test:hospitality     # 41 checks — Complete Hospitality OS (Migrations
 npm run test:cafe            # 33 checks — Module 7 (CafeOS, Migration 022): Clean CafeOS detachment, 30s anti-fraud rotating counter QR + 3h cooldown, Digital Coffee Stamp Card free-drink rollover, automatic Birthday Free Coffee annual voucher, Cafe Raw Ingredient Inventory + low-stock radar + audit logs, #C-01 counter quick orders, multi-tenant isolation & Migration 022 SQL guardrails
 npm run test:gym-flagship    # 23 checks — GymOS Flagship Upgrade (Migration 023): Part-payment installments & balance due collection, PT packages & commission payouts, membership freeze/resume auto-extension, streak math, 30-day body journal, Top-10 leaderboard, Supplement Bar POS, Week 1-4 comparison, tenant isolation & Migration 023 SQL guardrails
 npm run test:gym-workout     # 11 checks — GymOS Workout Engine (Migration 023, openGym-inspired): 24-exercise catalog + custom gym exercise, trainer workout routine builder & member assignment, live Set/Rep logger with Epley 1RM & automatic 🏆 PR detection, weekly/daily volume kg, plate math calculator, CSV export & multi-tenant isolation
+npm run test:gym-shifts-branding # Suite #21 (Migration 028): Member self-plan weekday split customization, Morning vs Evening vs Flexible shift batches & floor stats, per-gym MP4/GIF exercise video overrides, dynamic Gym Branding Studio (theme presets/hex/logo) & SQL RLS guardrails
 
 # 3. Git push (both remotes) & Production Vercel Deploy
 git push origin main
