@@ -259,12 +259,17 @@ export default function BusinessDashboard() {
     );
   }
   if (workspaceType === 'barber') {
+    const barberOnlyBusinesses = businesses.filter(
+      (b) => getIndustryWorkspaceType(b.category) === 'barber',
+    );
     return (
       <div className="px-4 py-5 sm:px-6">
         <BarberOwnerWorkspace
           key={currentBusiness.id}
           business={currentBusiness}
-          barberBusinesses={businesses}
+          barberBusinesses={
+            barberOnlyBusinesses.length > 0 ? barberOnlyBusinesses : [currentBusiness]
+          }
           hasRestaurantBusinesses={businesses.some(
             (b) => getIndustryWorkspaceType(b.category) === 'restaurant',
           )}

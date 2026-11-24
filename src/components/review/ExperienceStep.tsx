@@ -285,9 +285,9 @@ export function ExperienceStep({
             aria-pressed={speech.listening}
             aria-label={speech.listening ? 'Stop voice-to-text' : 'Start voice-to-text'}
             className={cn(
-              'flex h-14 w-14 items-center justify-center rounded-full text-[#FFFFFF] shadow-sm transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 cursor-pointer',
+              'flex h-14 w-14 items-center justify-center rounded-2xl text-[#FFFFFF] shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 cursor-pointer',
               speech.listening
-                ? 'bg-red-700 hover:bg-red-800 focus-visible:ring-red-600 ring-4 ring-red-100 motion-safe:animate-pulse'
+                ? 'bg-red-700 hover:bg-red-800 border-2 border-red-300 focus-visible:ring-red-600'
                 : 'bg-[#244B40] hover:bg-[#1C3B32] focus-visible:ring-[#244B40]',
             )}
           >

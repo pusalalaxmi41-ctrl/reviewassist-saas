@@ -32,6 +32,21 @@
   --ra-text-secondary: #6B7280;
   --ra-disabled-bg: #F3F4F6;
   --ra-disabled-text: #9CA3AF;
+
+  /* ClipAura Barbershop & Salon Design Tokens */
+  --clipaura-dark-bg: #101114;
+  --clipaura-dark-surface: #17181C;
+  --clipaura-dark-elevated: #202127;
+  --clipaura-dark-border: #303239;
+  --clipaura-gold: #D5A63C;
+  --clipaura-gold-bright: #F2C45B;
+  --clipaura-light-bg: #F5F6F8;
+  --clipaura-white: #FFFFFF;
+  --clipaura-light-border: #E4E5E8;
+  --clipaura-text-dark: #F5F5F6;
+  --clipaura-muted-dark: #B5B5BC;
+  --clipaura-text-light: #18191C;
+  --clipaura-muted-light: #5D626A;
 }
 
 @theme {
@@ -246,15 +261,6 @@ h1, h2, h3, h4 {
 .gym-pulse-dot {
   position: relative;
   display: inline-flex;
-}
-
-.gym-pulse-dot::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 9999px;
-  background: currentColor;
-  animation: pulseRing 1.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 }
 
 .gym-spin-once {

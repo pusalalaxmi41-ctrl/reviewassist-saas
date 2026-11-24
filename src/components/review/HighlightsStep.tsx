@@ -242,7 +242,7 @@ export function HighlightsStep({
                 className={cn(
                   'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-semibold transition-colors cursor-pointer',
                   speech.listening
-                    ? 'bg-red-600 text-white motion-safe:animate-pulse'
+                    ? 'bg-red-600 text-white'
                     : 'bg-[#FFFFFF] border border-[#DDE4DC] text-[#244B40] hover:border-[#244B40]',
                 )}
               >

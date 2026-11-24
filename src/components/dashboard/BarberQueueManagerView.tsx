@@ -18,14 +18,16 @@ import {
   ChevronUp,
   Copy,
   Check,
-  Sparkles,
   Plus,
   Trash2,
   ScanLine,
   CalendarClock,
   IndianRupee,
   TrendingUp,
+  Camera,
+  X,
 } from 'lucide-react';
+import { BARBER_UI_MEDIA, resolveBarberPortrait } from '../../config/barberMedia';
 import type { Business } from '../../types/business';
 import type {
   BarberBookingType,
@@ -121,6 +123,118 @@ export function BarberQueueManagerView({
 
   // Customer Personal Token QR Check-In lookup (scans or accepts vitaran-queue://... or #token)
   const [tokenLookupInput, setTokenLookupInput] = useState('');
+  const [qrScanOpen, setQrScanOpen] = useState(false);
+  const qrVideoRef = useRef<HTMLVideoElement>(null);
+  const qrStreamRef = useRef<MediaStream | null>(null);
+
+  const isStaffDark = mode === 'barber_staff';
+
+  useEffect(() => {
+    return () => {
+      if (qrStreamRef.current) {
+        for (const track of qrStreamRef.current.getTracks()) {
+          track.stop();
+        }
+        qrStreamRef.current = null;
+      }
+    };
+  }, []);
+
+  function stopTokenQrScanner() {
+    if (qrStreamRef.current) {
+      for (const track of qrStreamRef.current.getTracks()) {
+        track.stop();
+      }
+      qrStreamRef.current = null;
+    }
+    setQrScanOpen(false);
+  }
+
+  async function startTokenQrScanner() {
+    setErrorMessage(null);
+    const DetectorCtor = (
+      window as unknown as {
+        BarcodeDetector?: new (opts?: { formats?: string[] }) => {
+          detect(src: HTMLVideoElement): Promise<Array<{ rawValue?: string }>>;
+        };
+      }
+    ).BarcodeDetector;
+
+    if (!navigator.mediaDevices?.getUserMedia || !DetectorCtor) {
+      setErrorMessage(
+        'Live camera QR scanning is unsupported on this browser — type #Token (e.g. #2) above.',
+      );
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+        audio: false,
+      });
+      qrStreamRef.current = stream;
+      setQrScanOpen(true);
+
+      const detector = new DetectorCtor({ formats: ['qr_code'] });
+      let active = true;
+
+      const scanFrame = async () => {
+        if (!active || !qrStreamRef.current || !qrVideoRef.current) return;
+        try {
+          const codes = await detector.detect(qrVideoRef.current);
+          const raw = codes[0]?.rawValue?.trim();
+          if (raw) {
+            setTokenLookupInput(raw);
+            stopTokenQrScanner();
+            active = false;
+            return;
+          }
+        } catch {
+          // frame read skipped
+        }
+        if (active && qrStreamRef.current) {
+          window.setTimeout(() => void scanFrame(), 320);
+        }
+      };
+
+      window.setTimeout(() => {
+        if (qrVideoRef.current) {
+          qrVideoRef.current.srcObject = stream;
+          void qrVideoRef.current.play().then(() => void scanFrame());
+        }
+      }, 60);
+    } catch {
+      setErrorMessage('Camera permission declined. Enter the guest #Token manually.');
+    }
+  }
+
+  function handleExportLedgerCsv() {
+    if (!revenueSummary) return;
+    const isToday = revenueRange === 'today';
+    const rows = [
+      ['Service', 'Cuts Done', 'Revenue (INR)'],
+      ...revenueSummary.serviceBreakdown
+        .filter((r) => (isToday ? r.countToday > 0 : r.countMonth > 0))
+        .map((r) => [
+          r.serviceName,
+          String(isToday ? r.countToday : r.countMonth),
+          ((isToday ? r.revenueTodayPaise : r.revenueMonthPaise) / 100).toFixed(2),
+        ]),
+    ];
+    const csv = rows
+      .map((line) => line.map((v) => `"${v.replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${business.slug}-ledger-${isToday ? getTodayQueueDateKey() : selectedMonthKey}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+    notifyStatus('Exported ledger CSV.');
+  }
 
   const queueUrl = getBarberQueueUrl(business.slug);
   const barberStaffUrl = getBarberStaffUrl(business.slug);
@@ -556,26 +670,50 @@ export function BarberQueueManagerView({
       )}
 
       {/* ==================== ZONE 1: COMPACT TOP DELAY & STATUS STRIP ==================== */}
-      <div className="rounded-3xl border border-[#111318]/12 bg-[#FAF8F5] p-4 sm:p-5 shadow-xs space-y-3">
+      <div
+        className={`rounded-3xl border p-4 sm:p-5 shadow-xs space-y-3 ${
+          isStaffDark
+            ? 'border-[#303239] bg-[#17181C] text-[#F5F5F6]'
+            : 'border-[#E4E5E8] bg-[#FFFFFF] text-[#18191C]'
+        }`}
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Clock className="h-4 w-4 text-[#C89B3C]" aria-hidden />
-            <p className="text-[12px] font-extrabold uppercase tracking-[0.14em] text-[#111318]">
+            <Clock className="h-4 w-4 text-[#D5A63C]" aria-hidden />
+            <p
+              className={`text-[12px] font-extrabold uppercase tracking-[0.14em] ${
+                isStaffDark ? 'text-[#F5F5F6]' : 'text-[#18191C]'
+              }`}
+            >
               1-Tap Timer Broadcast
             </p>
-            <span className="text-[12px] text-[#5C6068] hidden sm:inline">
+            <span
+              className={`text-[12px] hidden sm:inline ${
+                isStaffDark ? 'text-[#B5B5BC]' : 'text-[#5D626A]'
+              }`}
+            >
               — Updates all waiting customer phones live
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="rounded-full border border-[#C89B3C]/40 bg-[#F3E3B8]/70 px-3 py-1 text-[12px] font-extrabold text-[#111318] tabular-nums">
+            <span
+              className={`rounded-full border px-3 py-1 text-[12px] font-extrabold tabular-nums ${
+                isStaffDark
+                  ? 'border-[#D5A63C]/40 bg-[#202127] text-[#F2C45B]'
+                  : 'border-[#D5A63C]/40 bg-[#F5F6F8] text-[#18191C]'
+              }`}
+            >
               {completedTodayCount} Cuts Done Today
             </span>
             <button
               type="button"
               onClick={() => void refreshQueue(false)}
               aria-label="Sync queue"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[#111318]/15 bg-[#FFFFFF] text-[#111318] hover:bg-[#111318]/5 cursor-pointer"
+              className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border cursor-pointer ${
+                isStaffDark
+                  ? 'border-[#303239] bg-[#202127] text-[#F5F5F6] hover:border-[#D5A63C]'
+                  : 'border-[#E4E5E8] bg-[#F5F6F8] text-[#18191C] hover:border-[#D5A63C]'
+              }`}
             >
               <RefreshCw className="h-4 w-4" aria-hidden />
             </button>
@@ -589,12 +727,12 @@ export function BarberQueueManagerView({
               type="button"
               disabled={extendingMins !== null}
               onClick={() => void handleBroadcastDelay(mins)}
-              className="flex h-12 items-center justify-center gap-1.5 rounded-2xl border border-[#C89B3C]/35 bg-[#111318] px-3 text-[#FFFFFF] shadow-2xs hover:bg-[#1F232C] active:scale-[0.97] transition-all disabled:opacity-50 cursor-pointer"
+              className="flex h-12 items-center justify-center gap-1.5 rounded-2xl border border-[#D5A63C]/35 bg-[#101114] px-3 text-[#F5F5F6] shadow-2xs hover:bg-[#202127] active:scale-[0.97] transition-all disabled:opacity-50 cursor-pointer"
             >
-              <span className="text-[15px] font-black text-[#F3E3B8] tabular-nums">
+              <span className="text-[15px] font-black text-[#F2C45B] tabular-nums">
                 +{mins}m
               </span>
-              <span className="text-[10px] font-semibold text-[#A3A8B3] hidden sm:inline">
+              <span className="text-[10px] font-semibold text-[#B5B5BC] hidden sm:inline">
                 {extendingMins === mins ? '…' : 'Send'}
               </span>
             </button>
@@ -699,6 +837,14 @@ export function BarberQueueManagerView({
                       : ''}
                   </p>
                 </div>
+                {nowServing.assignedBarberLabel && (
+                  <img
+                    src={resolveBarberPortrait(nowServing.assignedBarberLabel)}
+                    alt={nowServing.assignedBarberLabel}
+                    className="hidden sm:block h-10 w-10 shrink-0 rounded-full object-cover border border-[#D5A63C]/45"
+                    loading="lazy"
+                  />
+                )}
               </div>
 
               <button
@@ -750,15 +896,23 @@ export function BarberQueueManagerView({
       {/* ==================== ZONE 3: FULL-WIDTH UNIFIED HYBRID QUEUE ==================== */}
       <section
         aria-label="Unified Walk-In and Appointment Queue"
-        className="rounded-3xl border border-[#111318]/12 bg-[#FAF8F5] p-5 sm:p-6 shadow-xs space-y-4"
+        className={`rounded-3xl border p-5 sm:p-6 shadow-xs space-y-4 ${
+          isStaffDark
+            ? 'border-[#303239] bg-[#17181C] text-[#F5F5F6]'
+            : 'border-[#E4E5E8] bg-[#FFFFFF] text-[#18191C]'
+        }`}
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2.5">
-            <h2 className="text-[19px] font-black text-[#111318] flex items-center gap-2">
-              <Users className="h-5 w-5 text-[#C89B3C]" aria-hidden />
+            <h2
+              className={`text-[18px] font-black flex items-center gap-2 ${
+                isStaffDark ? 'text-[#F5F5F6]' : 'text-[#18191C]'
+              }`}
+            >
+              <Users className="h-5 w-5 text-[#D5A63C]" aria-hidden />
               Unified Queue (Walk-Ins + Booked Slots)
             </h2>
-            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[#111318] px-2 text-[12px] font-bold text-[#F3E3B8] tabular-nums">
+            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[#101114] border border-[#D5A63C]/40 px-2 text-[12px] font-bold text-[#F2C45B] tabular-nums">
               {waitingTickets.length}
             </span>
           </div>
@@ -772,13 +926,9 @@ export function BarberQueueManagerView({
                   prev === 'walk_in' ? null : 'walk_in',
                 )
               }
-              className={`inline-flex h-10 items-center gap-1.5 rounded-xl px-4 text-[13px] font-extrabold transition-all cursor-pointer ${
-                entryFormMode === 'walk_in'
-                  ? 'bg-[#111318] text-[#F3E3B8]'
-                  : 'bg-[#111318] text-[#FAF8F5] hover:bg-[#1F232C]'
-              }`}
+              className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#101114] border border-[#303239] px-4 text-[13px] font-extrabold text-[#F5F5F6] hover:bg-[#202127] cursor-pointer"
             >
-              <UserPlus className="h-4 w-4 text-[#F3E3B8]" aria-hidden />
+              <UserPlus className="h-4 w-4 text-[#F2C45B]" aria-hidden />
               + Add Walk-In
             </button>
 
@@ -789,11 +939,7 @@ export function BarberQueueManagerView({
                   prev === 'appointment' ? null : 'appointment',
                 )
               }
-              className={`inline-flex h-10 items-center gap-1.5 rounded-xl border-2 px-4 text-[13px] font-extrabold transition-all cursor-pointer ${
-                entryFormMode === 'appointment'
-                  ? 'border-[#111318] bg-[#C89B3C] text-[#111318]'
-                  : 'border-[#C89B3C] bg-[#F3E3B8]/60 text-[#111318] hover:bg-[#C89B3C]'
-              }`}
+              className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#D5A63C] px-4 text-[13px] font-extrabold text-[#101114] hover:bg-[#F2C45B] cursor-pointer"
             >
               <CalendarClock className="h-4 w-4" aria-hidden />
               + Phone / Online Slot
@@ -914,10 +1060,16 @@ export function BarberQueueManagerView({
               ) ?? null
             : null;
           return (
-            <div className="rounded-2xl border border-[#111318]/12 bg-[#FFFFFF] p-3 space-y-2.5">
+            <div
+              className={`rounded-2xl border p-3 space-y-2.5 ${
+                isStaffDark
+                  ? 'border-[#303239] bg-[#101114] text-[#F5F5F6]'
+                  : 'border-[#E4E5E8] bg-[#F5F6F8] text-[#18191C]'
+              }`}
+            >
               <div className="flex items-center gap-2">
                 <ScanLine
-                  className="h-4 w-4 shrink-0 text-[#C89B3C]"
+                  className="h-4 w-4 shrink-0 text-[#D5A63C]"
                   aria-hidden
                 />
                 <input
@@ -926,18 +1078,42 @@ export function BarberQueueManagerView({
                   onChange={(e) => setTokenLookupInput(e.target.value)}
                   placeholder="Check in Personal Token QR or enter #Token (e.g. #2)…"
                   aria-label="Scan or enter customer Token QR"
-                  className="w-full bg-transparent text-[13px] font-semibold text-[#111318] placeholder:text-[#8E939D] focus:outline-none"
+                  className={`w-full bg-transparent text-[13px] font-semibold placeholder:text-[#8E939D] focus:outline-none ${
+                    isStaffDark ? 'text-[#F5F5F6]' : 'text-[#18191C]'
+                  }`}
                 />
+                <button
+                  type="button"
+                  onClick={() =>
+                    qrScanOpen ? stopTokenQrScanner() : void startTokenQrScanner()
+                  }
+                  className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border border-[#D5A63C]/40 bg-[#101114] px-2.5 text-[11px] font-bold text-[#F2C45B] cursor-pointer"
+                >
+                  {qrScanOpen ? (
+                    <>
+                      <X className="h-3.5 w-3.5" aria-hidden /> Close
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="h-3.5 w-3.5" aria-hidden /> Scan QR
+                    </>
+                  )}
+                </button>
                 {tokenLookupInput && (
                   <button
                     type="button"
                     onClick={() => setTokenLookupInput('')}
-                    className="text-[11px] font-bold text-[#5C6068] hover:text-[#111318] cursor-pointer"
+                    className="text-[11px] font-bold text-[#B5B5BC] hover:text-[#D5A63C] cursor-pointer"
                   >
                     Clear
                   </button>
                 )}
               </div>
+              {qrScanOpen && (
+                <div className="mx-auto max-w-xs overflow-hidden rounded-xl border border-[#D5A63C]/50 bg-black">
+                  <video ref={qrVideoRef} playsInline muted className="h-44 w-full object-cover" />
+                </div>
+              )}
               {tokenLookupInput.trim() && (
                 matched ? (
                   <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#C89B3C]/50 bg-[#F3E3B8]/40 px-3 py-2">
@@ -972,16 +1148,28 @@ export function BarberQueueManagerView({
         })()}
 
         {waitingTickets.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-[#111318]/15 bg-[#FFFFFF] p-8 text-center space-y-1.5">
-            <Sparkles
-              className="mx-auto h-7 w-7 text-[#C89B3C]"
-              aria-hidden
+          <div
+            className={`rounded-2xl border border-dashed p-7 text-center space-y-2.5 ${
+              isStaffDark
+                ? 'border-[#303239] bg-[#101114] text-[#F5F5F6]'
+                : 'border-[#E4E5E8] bg-[#F5F6F8] text-[#18191C]'
+            }`}
+          >
+            <img
+              src={BARBER_UI_MEDIA.icons.chair}
+              alt="Empty barber chair queue illustration"
+              className="mx-auto h-16 w-16 rounded-2xl object-cover border border-[#D5A63C]/30"
+              loading="lazy"
             />
-            <p className="text-[15px] font-extrabold text-[#111318]">
+            <p className="text-[15px] font-extrabold">
               No one waiting in line right now
             </p>
-            <p className="text-[12.5px] text-[#5C6068]">
-              Offline walk-ins (W-01) and booked phone/online time slots (B-01) weave together here in fair chronological order.
+            <p
+              className={`mx-auto max-w-md text-[12.5px] ${
+                isStaffDark ? 'text-[#B5B5BC]' : 'text-[#5D626A]'
+              }`}
+            >
+              Walk-ins (W-01) and booked slots (B-01) weave together automatically in chronological order.
             </p>
           </div>
         ) : (
@@ -1138,6 +1326,15 @@ export function BarberQueueManagerView({
                   className="h-10 rounded-xl border border-[#111318]/15 bg-[#FAF8F5] px-3 text-[12.5px] font-bold text-[#111318]"
                 />
               )}
+              <button
+                type="button"
+                disabled={!revenueSummary}
+                onClick={handleExportLedgerCsv}
+                className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-[#E4E5E8] bg-[#FFFFFF] px-3 text-[12px] font-bold text-[#18191C] hover:border-[#D5A63C] disabled:opacity-50 cursor-pointer"
+              >
+                <Download className="h-3.5 w-3.5 text-[#D5A63C]" aria-hidden />
+                Export CSV
+              </button>
             </div>
           </div>
 

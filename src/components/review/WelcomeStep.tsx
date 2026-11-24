@@ -33,13 +33,13 @@ export function WelcomeStep({
 
       {/* Storefront + 5 Stars + Category Floating Emojis */}
       <div className="relative mx-auto flex max-w-[260px] flex-col items-center py-2">
-        <div className="pointer-events-none absolute -left-2 top-3 text-2xl motion-safe:animate-float-slow">
+        <div className="pointer-events-none absolute -left-2 top-3 text-2xl opacity-85">
           {cat.sceneEmojis[0]}
         </div>
-        <div className="pointer-events-none absolute -right-2 top-5 text-2xl motion-safe:animate-float-slow">
+        <div className="pointer-events-none absolute -right-2 top-5 text-2xl opacity-85">
           {cat.sceneEmojis[1]}
         </div>
-        <div className="pointer-events-none absolute right-4 bottom-2 text-xl motion-safe:animate-float-slow">
+        <div className="pointer-events-none absolute right-4 bottom-2 text-xl opacity-85">
           {cat.sceneEmojis[2]}
         </div>
 

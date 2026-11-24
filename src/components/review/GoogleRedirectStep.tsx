@@ -33,13 +33,13 @@ export function GoogleRedirectStep({ business, review, onBack, onRedirect }: Pro
     <div className="space-y-6 text-center py-2">
       {/* Big Animated Checkmark + Sparkles */}
       <div className="relative mx-auto flex h-20 w-20 items-center justify-center">
-        <span className="absolute -left-3 -top-1 text-[#E4BD63] motion-safe:animate-float-slow">
+        <span className="absolute -left-3 -top-1 text-[#E4BD63]">
           <Sparkles className="h-5 w-5" aria-hidden />
         </span>
-        <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[#244B40] text-white shadow-sm motion-safe:animate-pop-in">
+        <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#244B40] text-white shadow-sm">
           <Check className="h-8 w-8 stroke-[2.75]" aria-hidden />
         </span>
-        <span className="absolute -right-3 bottom-1 text-[#A8BFA5] motion-safe:animate-float-slow">
+        <span className="absolute -right-3 bottom-1 text-[#A8BFA5]">
           <Sparkles className="h-4 w-4" aria-hidden />
         </span>
       </div>

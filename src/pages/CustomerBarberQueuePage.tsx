@@ -6,7 +6,6 @@ import {
   Clock,
   Users,
   BellRing,
-  Star,
   CheckCircle2,
   Loader2,
   SearchX,
@@ -19,7 +18,11 @@ import {
   User,
   QrCode,
   CalendarClock,
+  ScanFace,
+  Award,
 } from 'lucide-react';
+import { BARBER_UI_MEDIA, resolveBarberServiceImage } from '../config/barberMedia';
+import { FaceShapeAnalyzer } from '../components/barber/FaceShapeAnalyzer';
 import type {
   BarberBookingType,
   BarberQueueTicket,
@@ -99,6 +102,9 @@ export default function CustomerBarberQueuePage() {
   const [loyaltyStars, setLoyaltyStars] = useState<number>(
     () => storedTicket?.loyaltyStarsBalance ?? 0,
   );
+  const [showStyleAi, setShowStyleAi] = useState(false);
+  const [appliedStyleNote, setAppliedStyleNote] = useState<string | null>(null);
+  const bookingSectionRef = useRef<HTMLElement>(null);
 
   // Join Queue Form state (Hybrid Walk-In vs Booked Time Slot)
   const [bookingMode, setBookingMode] = useState<BarberBookingType>('walk_in');
@@ -421,20 +427,15 @@ export default function CustomerBarberQueuePage() {
             <span
               className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider ${
                 config.isQueueOpen
-                  ? 'border-emerald-500/35 bg-emerald-500/15 text-emerald-300'
-                  : 'border-amber-400/40 bg-amber-500/15 text-amber-300'
+                  ? 'border-[#22C55E]/35 bg-[#22C55E]/15 text-[#22C55E]'
+                  : 'border-[#F59E0B]/40 bg-[#F59E0B]/15 text-[#F59E0B]'
               }`}
             >
-              <span className="relative flex h-2 w-2">
-                {config.isQueueOpen && (
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                )}
-                <span
-                  className={`relative inline-flex h-2 w-2 rounded-full ${
-                    config.isQueueOpen ? 'bg-emerald-400' : 'bg-amber-400'
-                  }`}
-                />
-              </span>
+              <span
+                className={`inline-flex h-2 w-2 rounded-full ${
+                  config.isQueueOpen ? 'bg-[#22C55E]' : 'bg-[#F59E0B]'
+                }`}
+              />
               {config.isQueueOpen ? 'OPEN • Walk-Ins & Slots Live' : 'PAUSED'}
             </span>
 
@@ -506,7 +507,7 @@ export default function CustomerBarberQueuePage() {
               className="flex items-center gap-2.5 rounded-2xl bg-[#111318] px-4 py-3 text-[#FAF8F5] shadow-sm"
             >
               <BellRing
-                className="h-5 w-5 shrink-0 text-[#F3E3B8] animate-bounce"
+                className="h-5 w-5 shrink-0 text-[#F2C45B]"
                 aria-hidden
               />
               <p className="text-[13.5px] font-extrabold">
@@ -592,7 +593,12 @@ export default function CustomerBarberQueuePage() {
 
           {/* CUSTOMER'S NEW PERSONAL SCANNABLE TOKEN QR CODE (QR #2) */}
           <div className="rounded-2xl border border-[#111318]/12 bg-[#FFFFFF] p-4 text-center space-y-2.5 shadow-2xs">
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-[#111318] px-3 py-1 text-[10.5px] font-extrabold uppercase tracking-wider text-[#F3E3B8]">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-[#101114] border border-[#D5A63C]/40 px-3 py-1 text-[10.5px] font-extrabold uppercase tracking-wider text-[#F2C45B]">
+              <img
+                src={BARBER_UI_MEDIA.icons.crown}
+                alt="ClipAura Pass Crown"
+                className="h-4 w-4 rounded-full object-cover"
+              />
               <QrCode className="h-3.5 w-3.5" aria-hidden />
               <span>Your Personal Chair Check-In QR</span>
             </div>
@@ -603,6 +609,14 @@ export default function CustomerBarberQueuePage() {
                 className="rounded-xl border border-[#111318]/10 bg-[#FFFFFF] p-1"
               />
             </div>
+            {appliedStyleNote && (
+              <div className="rounded-xl border border-[#D5A63C]/40 bg-[#101114] px-3 py-2 text-left text-[#F5F5F6]">
+                <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#D5A63C]">
+                  Style Spec for Your Barber
+                </p>
+                <p className="text-[11.5px] font-semibold">{appliedStyleNote}</p>
+              </div>
+            )}
             <p className="font-mono text-[11px] font-bold text-[#5C6068]">
               {formatTicketDisplayCode(myActiveTicket)} ·{' '}
               {myActiveTicket.guestName.toUpperCase()}
@@ -625,10 +639,7 @@ export default function CustomerBarberQueuePage() {
                   : 'bg-emerald-50 border border-emerald-200 text-[#065F46]'
               }`}
             >
-              <span className="relative flex h-2.5 w-2.5 shrink-0">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#059669] opacity-75" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#059669]" />
-              </span>
+              <span className="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-[#22C55E]" />
               <span>
                 Step out worry-free — your timer updates automatically whenever the barber adjusts time
               </span>
@@ -714,16 +725,145 @@ export default function CustomerBarberQueuePage() {
         </section>
       )}
 
+      {/* 2B. CLIPAURA HERO + QUICK ACTIONS + AI FACE SHAPER STYLE FINDER */}
+      <section className="space-y-3">
+        {!storedTicket && (
+          <div className="relative overflow-hidden rounded-3xl border border-[#303239] bg-[#101114] min-h-[190px] shadow-md">
+            <img
+              src={BARBER_UI_MEDIA.banners.heroDarkSpace}
+              alt="ClipAura precision barbering"
+              className="absolute inset-0 h-full w-full object-cover opacity-90"
+            />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#101114] via-[#101114]/85 to-transparent" />
+            <div className="relative z-10 flex h-full max-w-[68%] flex-col justify-between p-5 text-[#F5F5F6] space-y-3">
+              <div className="space-y-1">
+                <span className="inline-flex items-center gap-1 rounded-md bg-[#D5A63C] px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-[#101114]">
+                  {business.city}
+                </span>
+                <h2 className="text-[21px] font-black leading-tight text-[#FFFFFF]">
+                  Look Sharp. Feel Confident.
+                </h2>
+                <p className="text-[12px] text-[#B5B5BC]">
+                  Claim an instant walk-in pass or reserve today&apos;s exact slot.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setBookingMode('appointment');
+                  bookingSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
+                }}
+                className="inline-flex h-9 w-fit items-center gap-1.5 rounded-xl bg-[#D5A63C] px-4 text-[12px] font-extrabold text-[#101114] hover:bg-[#F2C45B] cursor-pointer"
+              >
+                Book Appointment
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 4 Icon-Only Quick Action Tiles (Zero photos on action icons per Rule 7) */}
+        <div className="grid grid-cols-4 gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setBookingMode('walk_in');
+              bookingSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-[#303239] bg-[#17181C] p-2.5 text-[#F5F5F6] hover:border-[#D5A63C] cursor-pointer"
+          >
+            <Users className="h-4 w-4 text-[#D5A63C]" aria-hidden />
+            <span className="text-[11px] font-bold">Walk-In</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setBookingMode('appointment');
+              bookingSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-[#303239] bg-[#17181C] p-2.5 text-[#F5F5F6] hover:border-[#D5A63C] cursor-pointer"
+          >
+            <CalendarClock className="h-4 w-4 text-[#D5A63C]" aria-hidden />
+            <span className="text-[11px] font-bold">Book Slot</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowStyleAi((v) => !v)}
+            className={`flex flex-col items-center justify-center gap-1 rounded-2xl border p-2.5 cursor-pointer ${
+              showStyleAi
+                ? 'border-[#D5A63C] bg-[#D5A63C] text-[#101114]'
+                : 'border-[#303239] bg-[#17181C] text-[#F5F5F6] hover:border-[#D5A63C]'
+            }`}
+          >
+            <ScanFace className={`h-4 w-4 ${showStyleAi ? 'text-[#101114]' : 'text-[#F2C45B]'}`} aria-hidden />
+            <span className="text-[11px] font-bold">Style AI</span>
+          </button>
+          <a
+            href="#loyalty-rewards"
+            className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-[#303239] bg-[#17181C] p-2.5 text-[#F5F5F6] hover:border-[#D5A63C]"
+          >
+            <Award className="h-4 w-4 text-[#D5A63C]" aria-hidden />
+            <span className="text-[11px] font-bold">Rewards</span>
+          </a>
+        </div>
+
+        {showStyleAi && (
+          <FaceShapeAnalyzer
+            variant="customer"
+            onApplyRecommendation={(summary, analysis) => {
+              setAppliedStyleNote(`${analysis.faceShape} Face: ${summary}`);
+              const matchedService =
+                config.services.find((s) =>
+                  s.name.toLowerCase().includes('haircut') ||
+                  s.name.toLowerCase().includes('fade'),
+                ) ?? config.services[0];
+              if (matchedService) {
+                setSelectedServiceName(matchedService.name);
+              }
+              setShowStyleAi(false);
+              bookingSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }}
+          />
+        )}
+
+        {appliedStyleNote && (
+          <div className="rounded-2xl border border-[#D5A63C]/45 bg-[#101114] px-4 py-2.5 text-[#F5F5F6] flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#D5A63C]">
+                Saved Style Goal for Your Barber
+              </p>
+              <p className="truncate text-[12px] font-semibold text-[#F5F5F6]">
+                {appliedStyleNote}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAppliedStyleNote(null)}
+              className="text-[11px] font-bold text-[#B5B5BC] hover:text-[#FFFFFF] cursor-pointer"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+      </section>
+
       {/* 2C. 1-TAP JOIN QUEUE FORM (No Active Ticket Yet) */}
       {!storedTicket && (
-        <section className="rounded-3xl border border-[#111318]/12 bg-[#FAF8F5] p-6 shadow-sm space-y-5">
+        <section
+          ref={bookingSectionRef}
+          className="rounded-3xl border border-[#E4E5E8] bg-[#FFFFFF] p-5 sm:p-6 shadow-sm space-y-5"
+        >
           {!config.isQueueOpen ? (
-            <div className="py-4 text-center space-y-2">
-              <Clock className="mx-auto h-9 w-9 text-[#C89B3C]" aria-hidden />
-              <h2 className="text-[18px] font-extrabold text-[#111318]">
+            <div className="py-5 text-center space-y-2.5">
+              <img
+                src={BARBER_UI_MEDIA.icons.calendar}
+                alt="Queue paused calendar illustration"
+                className="mx-auto h-16 w-16 rounded-2xl object-cover"
+                loading="lazy"
+              />
+              <h2 className="text-[18px] font-extrabold text-[#18191C]">
                 Walk-In Queue Temporarily Paused
               </h2>
-              <p className="text-[13px] text-[#5C6068]">
+              <p className="text-[13px] text-[#5D626A]">
                 The barber has paused new walk-ins for a moment. Check back shortly or ask inside.
               </p>
             </div>
@@ -902,12 +1042,12 @@ export default function CustomerBarberQueuePage() {
                   </div>
                 </div>
 
-                {/* Pick a Service */}
-                <div className="space-y-1.5">
-                  <span className="block text-[11.5px] font-bold uppercase tracking-wider text-[#5C6068]">
+                {/* Pick a Service (3:4 portrait service cards per ClipAura Rule 7 & 17) */}
+                <div className="space-y-2">
+                  <span className="block text-[11.5px] font-bold uppercase tracking-wider text-[#5D626A]">
                     Select Grooming Service
                   </span>
-                  <div className="grid gap-2">
+                  <div className="grid grid-cols-2 gap-2.5">
                     {config.services.map((svc) => {
                       const active = selectedServiceName === svc.name;
                       return (
@@ -915,33 +1055,41 @@ export default function CustomerBarberQueuePage() {
                           key={svc.id}
                           type="button"
                           onClick={() => setSelectedServiceName(svc.name)}
-                          className={`flex items-center justify-between gap-3 rounded-2xl border p-3.5 text-left transition-all active:scale-[0.98] cursor-pointer ${
+                          className={`group overflow-hidden rounded-2xl border text-left transition-all active:scale-[0.98] cursor-pointer flex flex-col ${
                             active
-                              ? 'border-2 border-[#111318] bg-[#111318] text-[#FFFFFF] shadow-sm'
-                              : 'border-[#111318]/15 bg-[#FFFFFF] text-[#111318] hover:border-[#C89B3C]'
+                              ? 'border-2 border-[#D5A63C] bg-[#101114] text-[#F5F5F6] shadow-md'
+                              : 'border-[#E4E5E8] bg-[#F5F6F8] text-[#18191C] hover:border-[#D5A63C]'
                           }`}
                         >
-                          <div className="min-w-0">
-                            <p className="text-[14px] font-extrabold truncate">
+                          <div className="relative aspect-[3/4] w-full overflow-hidden bg-[#17181C]">
+                            <img
+                              src={resolveBarberServiceImage(svc.name)}
+                              alt={svc.name}
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                            />
+                            <span
+                              className={`absolute right-2 top-2 rounded-full px-2.5 py-0.5 text-[11px] font-black tabular-nums shadow-sm ${
+                                active
+                                  ? 'bg-[#D5A63C] text-[#101114]'
+                                  : 'bg-[#101114]/85 text-[#F2C45B]'
+                              }`}
+                            >
+                              {formatPriceFromPaise(svc.pricePaise, 'INR')}
+                            </span>
+                          </div>
+                          <div className="p-2.5 space-y-0.5">
+                            <p className="text-[13px] font-extrabold leading-snug line-clamp-1">
                               {svc.name}
                             </p>
                             <p
-                              className={`text-[11.5px] font-semibold ${
-                                active ? 'text-[#F3E3B8]' : 'text-[#5C6068]'
+                              className={`text-[11px] font-semibold ${
+                                active ? 'text-[#F2C45B]' : 'text-[#5D626A]'
                               }`}
                             >
                               ~{svc.durationMinutes} mins
                             </p>
                           </div>
-                          <span
-                            className={`shrink-0 rounded-full px-3 py-1 text-[12.5px] font-extrabold tabular-nums ${
-                              active
-                                ? 'bg-[#C89B3C] text-[#111318]'
-                                : 'bg-[#FAF8F5] border border-[#111318]/12 text-[#111318]'
-                            }`}
-                          >
-                            {formatPriceFromPaise(svc.pricePaise, 'INR')}
-                          </span>
                         </button>
                       );
                     })}
@@ -980,44 +1128,85 @@ export default function CustomerBarberQueuePage() {
       )}
 
       {/* 3. GROOMING LOYALTY STARS + GOOGLE REVIEW FOOTER */}
-      <div className="rounded-3xl border border-[#111318]/12 bg-[#FAF8F5] p-4 shadow-2xs space-y-3">
+      <div
+        id="loyalty-rewards"
+        className="rounded-3xl border border-[#303239]/15 bg-[#FFFFFF] p-4 shadow-2xs space-y-3"
+      >
         {config.awardStarOnCompletion && (
-          <div className="flex items-center justify-between gap-3 rounded-2xl bg-[#111318] px-4 py-3 text-[#FAF8F5]">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#C89B3C] text-[#111318]">
-                <Star className="h-4.5 w-4.5 fill-current" aria-hidden />
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3 rounded-2xl bg-[#101114] px-4 py-3 text-[#F5F5F6]">
+              <div className="flex items-center gap-3 min-w-0">
+                <img
+                  src={BARBER_UI_MEDIA.icons.trophy}
+                  alt="ClipAura Loyalty Trophy"
+                  className="h-11 w-11 shrink-0 rounded-xl object-cover border border-[#D5A63C]/40"
+                  loading="lazy"
+                />
+                <div className="min-w-0">
+                  <p className="text-[13px] font-extrabold">
+                    Loyalty Progress: ★ {loyaltyStars} / {nextRewardTarget} Stars
+                  </p>
+                  <p className="text-[11px] text-[#F2C45B] truncate">
+                    Earn +1 Star automatically when your cut completes
+                  </p>
+                </div>
+              </div>
+              <span className="shrink-0 rounded-full bg-[#D5A63C] px-2.5 py-0.5 text-[11px] font-black text-[#101114] tabular-nums">
+                {loyaltyStars} ★
               </span>
-              <div className="min-w-0">
-                <p className="text-[13px] font-extrabold">
-                  Loyalty Progress: ★ {loyaltyStars} / {nextRewardTarget} Stars
-                </p>
-                <p className="text-[11px] text-[#F3E3B8] truncate">
-                  Earn +1 Star automatically when your cut completes!
+            </div>
+
+            {rewards.length === 0 ? (
+              <div className="flex items-center gap-3 rounded-2xl border border-dashed border-[#E4E5E8] bg-[#F5F6F8] p-3">
+                <img
+                  src={BARBER_UI_MEDIA.icons.gift}
+                  alt="Upcoming loyalty rewards"
+                  className="h-11 w-11 shrink-0 rounded-xl object-cover"
+                  loading="lazy"
+                />
+                <p className="text-[12px] text-[#5D626A]">
+                  Ask inside about grooming member perks unlocked with your loyalty stars.
                 </p>
               </div>
-            </div>
+            ) : (
+              <div className="grid gap-1.5">
+                {rewards.slice(0, 3).map((r) => (
+                  <div
+                    key={r.id}
+                    className="flex items-center justify-between gap-2 rounded-xl border border-[#E4E5E8] bg-[#F5F6F8] px-3 py-2 text-[12px]"
+                  >
+                    <span className="font-bold text-[#18191C] truncate">
+                      {r.title}
+                    </span>
+                    <span className="shrink-0 font-extrabold text-[#9A7420] tabular-nums">
+                      ★ {r.starsRequired}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
         <Link
           to={`/r/${business.slug}`}
-          className="flex items-center justify-between gap-3 rounded-2xl border border-[#111318]/12 bg-[#FFFFFF] px-4 py-3 text-[#111318] hover:border-[#C89B3C] transition-colors"
+          className="flex items-center justify-between gap-3 rounded-2xl border border-[#E4E5E8] bg-[#F5F6F8] px-4 py-3 text-[#18191C] hover:border-[#D5A63C] transition-colors"
         >
           <div className="flex items-center gap-2.5">
             <MessageSquareHeart
-              className="h-4.5 w-4.5 text-[#C89B3C]"
+              className="h-4.5 w-4.5 text-[#D5A63C]"
               aria-hidden
             />
             <div>
               <p className="text-[13.5px] font-extrabold">
                 Love your fresh cut? Leave a Google Review
               </p>
-              <p className="text-[11.5px] text-[#5C6068]">
+              <p className="text-[11.5px] text-[#5D626A]">
                 Takes 30 seconds — helps our barbers grow
               </p>
             </div>
           </div>
-          <span className="text-[12px] font-extrabold text-[#111318]">→</span>
+          <span className="text-[12px] font-extrabold text-[#18191C]">→</span>
         </Link>
       </div>
     </div>
