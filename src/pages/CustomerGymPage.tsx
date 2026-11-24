@@ -6,14 +6,12 @@ import {
   useState,
   type FormEvent,
 } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import {
-  AlertCircle,
   AlertTriangle,
   ArrowRight,
   Award,
-  BarChart3,
   Bell,
   Calendar,
   Check,
@@ -21,12 +19,10 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Clock,
   Download,
   Droplets,
   Dumbbell,
   Flame,
-  Home,
   Loader2,
   MessageCircle,
   Minus,
@@ -38,11 +34,8 @@ import {
   Search,
   SearchX,
   Send,
-  Shield,
-  Smartphone,
   Snowflake,
   Sparkles,
-  Star,
   Trash2,
   Trophy,
   Upload,
@@ -79,7 +72,6 @@ import {
   GYM_FITNESS_GOAL_OPTIONS,
   GYM_SHIFT_OPTIONS,
   GYM_WORKOUT_FOCUS_OPTIONS,
-  normalizeGymAccentColor,
   normalizeGymPreferredShift,
   readExerciseMediaFileAsDataUrl,
 } from '../utils/gymValidation';
@@ -94,9 +86,27 @@ import { formatPriceFromPaise } from '../utils/restaurantValidation';
 import { playNotificationChime } from '../utils/hospitalityHelpers';
 import { GymMuscleMapSvg } from '../components/gym/GymMuscleMapSvg';
 import { ExerciseAnimationPreview } from '../components/gym/ExerciseAnimationPreview';
+import {
+  GymMemberShell,
+  type MemberNavTab,
+} from '../components/gym/member/GymMemberShell';
+import { GymBrandMark } from '../components/gym/member/GymBrandMark';
+import { GymProfileTab } from '../components/gym/member/GymProfileTab';
+import { resolveGymBrandTheme } from '../components/gym/member/gymThemeTokens';
+import {
+  GYM_BADGE_ASSETS,
+  GYM_COMMUNITY_ASSETS,
+  GYM_EMPTY_ASSETS,
+  GYM_HERO_ASSETS,
+  resolveAnatomyAssetForMuscles,
+  resolveMealImageForText,
+} from '../components/gym/member/gymAssets';
+import {
+  EmptyStateCard,
+  ImageWithFallback,
+} from '../components/gym/member/primitives';
 
-type MemberTab = 'home' | 'plan' | 'members' | 'stats';
-type PlanSubTab = 'schedule' | 'nutrition' | 'pass';
+type PlanSubTab = 'schedule' | 'nutrition';
 type MembersSubTab = 'chat' | 'directory';
 type StatsSubTab = 'overview' | 'body' | 'lifts' | 'effort';
 type AuthScreenMode = 'splash' | 'join' | 'signin';
@@ -197,138 +207,6 @@ function classifyStrengthLevel(multiplier: number): string {
   return 'Beginner lifter';
 }
 
-function getContrastInkForHex(hex: string): '#0B0D10' | '#FFFFFF' {
-  const clean = hex.replace('#', '');
-  if (clean.length !== 6) return '#0B0D10';
-  const r = Number.parseInt(clean.slice(0, 2), 16);
-  const g = Number.parseInt(clean.slice(2, 4), 16);
-  const b = Number.parseInt(clean.slice(4, 6), 16);
-  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
-  return yiq >= 145 ? '#0B0D10' : '#FFFFFF';
-}
-
-function GymBrandMark({
-  logoUrl,
-  name,
-  accentColor,
-  inkColor,
-  size = 'md',
-}: {
-  logoUrl?: string | null;
-  name: string;
-  accentColor: string;
-  inkColor: string;
-  size?: 'sm' | 'md' | 'lg';
-}) {
-  const [imgErr, setImgErr] = useState(false);
-  const boxCls =
-    size === 'lg'
-      ? 'h-16 w-16 rounded-2xl'
-      : size === 'sm'
-        ? 'h-9 w-9 rounded-xl'
-        : 'h-10 w-10 rounded-xl';
-  if (logoUrl && !imgErr) {
-    return (
-      <img
-        src={logoUrl}
-        alt={`${name} logo`}
-        onError={() => setImgErr(true)}
-        className={`${boxCls} shrink-0 object-cover border border-white/15 bg-[#14171D] shadow-sm`}
-      />
-    );
-  }
-  return (
-    <span
-      className={`flex ${boxCls} shrink-0 items-center justify-center shadow-sm`}
-      style={{
-        backgroundColor: accentColor,
-        color: inkColor,
-        boxShadow: `0 0 18px ${accentColor}55`,
-      }}
-    >
-      <Dumbbell
-        className={size === 'lg' ? 'h-8 w-8' : 'h-5 w-5'}
-        aria-hidden
-      />
-    </span>
-  );
-}
-
-function AthleteSplashIllustration({
-  accentColor = '#C8F135',
-  logoUrl,
-  gymName = 'Gym',
-}: {
-  accentColor?: string;
-  logoUrl?: string | null;
-  gymName?: string;
-}) {
-  const [logoErr, setLogoErr] = useState(false);
-  return (
-    <div className="relative mx-auto flex h-44 w-44 items-center justify-center">
-      <div
-        className="gym-glow-drift absolute inset-0 rounded-full blur-2xl opacity-25"
-        style={{ backgroundColor: accentColor }}
-      />
-      <svg
-        viewBox="0 0 200 200"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        className="absolute inset-0 h-full w-full"
-        aria-hidden="true"
-      >
-        <circle
-          cx="100"
-          cy="100"
-          r="90"
-          stroke={accentColor}
-          strokeOpacity="0.28"
-          strokeWidth="1.5"
-          strokeDasharray="6 6"
-        />
-        <circle
-          cx="100"
-          cy="100"
-          r="72"
-          stroke="white"
-          strokeOpacity="0.1"
-          strokeWidth="1"
-        />
-        <circle
-          cx="100"
-          cy="100"
-          r="54"
-          stroke={accentColor}
-          strokeOpacity="0.38"
-          strokeWidth="1.5"
-        />
-      </svg>
-      <div
-        className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-3xl bg-gradient-to-br from-[#1E293B] to-[#0F172A]"
-        style={{
-          border: `1.5px solid ${accentColor}66`,
-          boxShadow: `0 0 28px ${accentColor}55`,
-        }}
-      >
-        {logoUrl && !logoErr ? (
-          <img
-            src={logoUrl}
-            alt={gymName}
-            onError={() => setLogoErr(true)}
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <Dumbbell
-            className="h-10 w-10"
-            style={{ color: accentColor }}
-            aria-hidden="true"
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
 export default function CustomerGymPage() {
   const { businessSlug = '' } = useParams<{ businessSlug: string }>();
 
@@ -342,7 +220,7 @@ export default function CustomerGymPage() {
   );
   const [loading, setLoading] = useState(true);
   const [authMode, setAuthMode] = useState<AuthScreenMode>('splash');
-  const [activeTab, setActiveTab] = useState<MemberTab>('home');
+  const [activeTab, setActiveTab] = useState<MemberNavTab>('home');
   const [planSubTab, setPlanSubTab] = useState<PlanSubTab>('schedule');
   const [membersSubTab, setMembersSubTab] = useState<MembersSubTab>('chat');
   const [statsSubTab, setStatsSubTab] = useState<StatsSubTab>('overview');
@@ -625,7 +503,7 @@ export default function CustomerGymPage() {
   // Live Notification Polling across Members Community Chat (chimes + bell badge)
   useEffect(() => {
     if (!businessSlug || !memberPass) return;
-    const intervalMs = activeTab === 'members' ? 8000 : 15000;
+    const intervalMs = activeTab === 'community' ? 8000 : 15000;
     const id = window.setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return;
       void businessRepository
@@ -648,7 +526,7 @@ export default function CustomerGymPage() {
               if (soundEnabled) {
                 playNotificationChime('order');
               }
-              if (!(activeTab === 'members' && membersSubTab === 'chat')) {
+              if (!(activeTab === 'community' && membersSubTab === 'chat')) {
                 setUnreadChatCount((c) => Math.min(99, c + 1));
                 setNotifBanner({
                   sender: newest.senderName,
@@ -663,11 +541,10 @@ export default function CustomerGymPage() {
     return () => window.clearInterval(id);
   }, [activeTab, membersSubTab, businessSlug, memberPass, soundEnabled]);
 
-  // Render scannable Digital Membership Pass QR on Plan -> Pass tab
+  // Render scannable Digital Membership Pass QR on Profile tab
   useEffect(() => {
     if (
-      activeTab !== 'plan' ||
-      planSubTab !== 'pass' ||
+      activeTab !== 'profile' ||
       !businessSlug ||
       !memberPass ||
       !passQrCanvasRef.current
@@ -685,7 +562,7 @@ export default function CustomerGymPage() {
       errorCorrectionLevel: 'M',
       color: { dark: '#0B0D10', light: '#FFFFFF' },
     });
-  }, [activeTab, planSubTab, businessSlug, memberPass]);
+  }, [activeTab, businessSlug, memberPass]);
 
   // Weekly Schedule (Coach Approved OR Smart Goal Default)
   const effectiveWeeklySchedule = useMemo<GymWeeklyScheduleDay[]>(() => {
@@ -1239,10 +1116,9 @@ export default function CustomerGymPage() {
       saveStoredPhone(businessSlug, created.phone);
       setLookupPhone(created.phone);
       setMemberPass(created);
-      setActiveTab('plan');
-      setPlanSubTab('pass');
+      setActiveTab('profile');
       setSuccessMsg(
-        `Registration received (${created.memberCode})! Pay at reception to activate your pass.`,
+        `Registration received (${created.memberCode})! Show your Digital Pass QR at reception to activate.`,
       );
       await hydrateMemberExtras(businessSlug, created);
     } catch (err) {
@@ -1405,8 +1281,8 @@ export default function CustomerGymPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-[#0B0D10] flex flex-col items-center justify-center py-20 text-center space-y-3">
-        <Loader2 className="h-8 w-8 animate-spin text-[#C8F135]" aria-hidden />
-        <p className="text-[13.5px] font-medium text-slate-400">
+        <Loader2 className="h-8 w-8 animate-spin text-[#D6FF3F]" aria-hidden />
+        <p className="text-[13.5px] font-medium text-[#A4ADBB]">
           Loading GymOS Athlete Portal…
         </p>
       </div>
@@ -1416,10 +1292,10 @@ export default function CustomerGymPage() {
   if (!portal) {
     return (
       <div className="min-h-screen bg-[#0B0D10] flex items-center justify-center p-4">
-        <div className="mx-auto w-full max-w-md rounded-2xl border border-white/10 bg-[#14171D] p-8 text-center text-white space-y-3">
-          <SearchX className="mx-auto h-10 w-10 text-slate-400" aria-hidden />
+        <div className="mx-auto w-full max-w-md rounded-2xl border border-white/10 bg-[#171B22] p-8 text-center text-[#F5F7FA] space-y-3">
+          <SearchX className="mx-auto h-10 w-10 text-[#A4ADBB]" aria-hidden />
           <h1 className="text-[18px] font-bold">Gym Portal Not Found</h1>
-          <p className="text-[13.5px] text-slate-400">
+          <p className="text-[13.5px] text-[#A4ADBB]">
             This gym pass link is either inactive or awaiting platform approval.
           </p>
         </div>
@@ -1427,8 +1303,13 @@ export default function CustomerGymPage() {
     );
   }
 
-  const brandAccent = normalizeGymAccentColor(portal.config.accentColor);
-  const brandInk = getContrastInkForHex(brandAccent);
+  const brandTheme = resolveGymBrandTheme({
+    accentColor: portal.config.accentColor,
+    themePreset: portal.config.themePreset,
+  });
+  const brandAccent = brandTheme.accent;
+  const brandAccentText = brandTheme.accentText;
+  const brandInk = brandTheme.accentInk;
   const brandLogoUrl = portal.config.logoUrl ?? null;
 
   // =========================================================================
@@ -1436,83 +1317,85 @@ export default function CustomerGymPage() {
   // =========================================================================
   if (!memberPass) {
     return (
-      <div className="min-h-screen w-full overflow-x-hidden bg-[#0B0D10] px-4 py-6">
-        <div className="mx-auto w-full max-w-md space-y-4">
+      <div
+        className="min-h-screen w-full overflow-x-hidden bg-[#0B0D10] px-4 py-6 sm:px-6 lg:flex lg:items-center lg:justify-center"
+        style={brandTheme.cssVars}
+      >
+        <div className="mx-auto w-full max-w-md lg:max-w-4xl space-y-4">
           {authMode === 'splash' && (
-            <div className="gym-obsidian-mesh gym-fade-up overflow-hidden rounded-3xl text-white shadow-2xl border border-white/10">
-              <div className="relative px-6 pt-7 pb-8 space-y-6">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <GymBrandMark
-                      logoUrl={brandLogoUrl}
-                      name={portal.business.name}
-                      accentColor={brandAccent}
-                      inkColor={brandInk}
-                    />
-                    <div className="min-w-0">
-                      <p className="text-[16px] font-black tracking-tight text-white truncate">
-                        {portal.business.name}
-                      </p>
-                      <p className="text-[11.5px] font-medium text-slate-400 truncate">
-                        {portal.business.city} ·{' '}
-                        <span className="tabular-nums font-semibold">
-                          {portal.activeMembersCount}
-                        </span>{' '}
-                        Active Members
-                      </p>
-                    </div>
-                  </div>
-                  <span
-                    className="shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-extrabold whitespace-nowrap"
-                    style={{
-                      backgroundColor: `${brandAccent}24`,
-                      border: `1px solid ${brandAccent}66`,
-                      color: brandAccent,
-                    }}
-                  >
-                    Live Pass
-                  </span>
-                </div>
-
-                <AthleteSplashIllustration
-                  accentColor={brandAccent}
-                  logoUrl={brandLogoUrl}
-                  gymName={portal.business.name}
+            <div className="gym-fade-up overflow-hidden rounded-3xl border border-white/10 bg-[#171B22] text-[#F5F7FA] shadow-2xl lg:grid lg:grid-cols-12">
+              <div className="relative h-56 overflow-hidden bg-[#111419] lg:col-span-6 lg:h-auto lg:min-h-[460px]">
+                <ImageWithFallback
+                  src={GYM_HERO_ASSETS.splash}
+                  alt={`${portal.business.name} athlete training`}
+                  eager
+                  className="h-full w-full object-cover object-top"
                 />
-
-                <div className="text-center space-y-2.5">
-                  <span
-                    className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider"
-                    style={{ color: brandAccent }}
-                  >
+                <div className="absolute inset-0 bg-gradient-to-t from-[#171B22] via-[#171B22]/35 to-transparent lg:bg-gradient-to-r lg:from-transparent lg:via-[#171B22]/40 lg:to-[#171B22]" />
+                <div className="absolute top-4 left-4 right-4 flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-[#0B0D10]/80 px-3 py-1 text-[11px] font-bold text-[#F5F7FA] backdrop-blur-xs">
                     <Flame className="h-3.5 w-3.5 text-orange-400" aria-hidden />
                     <span className="tabular-nums font-extrabold">
                       {portal.checkedInTodayCount}
                     </span>{' '}
                     Trained Today
                   </span>
-                  <h1 className="text-[34px] font-black leading-[1.08] tracking-tight text-white">
-                    Stronger <br />
-                    <span style={{ color: brandAccent }}>Than Yesterday</span>
+                  <span
+                    className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-extrabold whitespace-nowrap backdrop-blur-xs"
+                    style={{
+                      backgroundColor: `${brandAccent}24`,
+                      border: `1px solid ${brandAccent}66`,
+                      color: brandAccentText,
+                    }}
+                  >
+                    Live Pass
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-col justify-between px-6 py-7 space-y-6 lg:col-span-6 lg:p-8">
+                <div className="flex items-center gap-3 min-w-0">
+                  <GymBrandMark
+                    logoUrl={brandLogoUrl}
+                    name={portal.business.name}
+                    accentColor={brandAccent}
+                    inkColor={brandInk}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-[16px] font-black tracking-tight text-[#F5F7FA] truncate">
+                      {portal.business.name}
+                    </p>
+                    <p className="text-[11.5px] font-medium text-[#A4ADBB] truncate">
+                      {portal.business.city} ·{' '}
+                      <span className="tabular-nums font-semibold">
+                        {portal.activeMembersCount}
+                      </span>{' '}
+                      Active Members
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2.5">
+                  <h1 className="text-[32px] sm:text-[36px] font-black leading-[1.06] tracking-tight text-[#F5F7FA]">
+                    Train Smart. <br />
+                    <span style={{ color: brandAccentText }}>Stay Strong.</span>
                   </h1>
-                  <p className="text-[13.5px] text-slate-300 font-medium max-w-xs mx-auto leading-relaxed">
-                    Join. Train. Transform. Coach-approved workouts, Indian diet
-                    plans &amp; 1-tap check-in — zero app install required.
+                  <p className="text-[13.5px] text-[#A4ADBB] font-medium leading-relaxed">
+                    Coach-approved workout splits, Indian macro nutrition, real exercise form loops &amp; 1-tap reception check-in.
                   </p>
                 </div>
 
-                <div className="space-y-3 pt-2">
+                <div className="space-y-3 pt-1">
                   <button
                     type="button"
                     onClick={() => {
                       setErrorMsg(null);
                       setAuthMode('join');
                     }}
-                    className="gym-tactile flex h-12 w-full items-center justify-center gap-2 rounded-2xl px-5 text-[15px] font-black cursor-pointer"
+                    className="gym-tactile flex min-h-[48px] w-full items-center justify-center gap-2 rounded-2xl px-5 text-[15px] font-black cursor-pointer"
                     style={{
                       backgroundColor: brandAccent,
                       color: brandInk,
-                      boxShadow: `0 4px 20px ${brandAccent}55`,
                     }}
                   >
                     <span>Get Started</span>
@@ -1524,12 +1407,12 @@ export default function CustomerGymPage() {
                       setErrorMsg(null);
                       setAuthMode('signin');
                     }}
-                    className="gym-tactile flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl border border-white/15 bg-white/5 text-[13.5px] font-semibold text-slate-200 hover:bg-white/10 cursor-pointer"
+                    className="gym-tactile flex min-h-[46px] w-full items-center justify-center gap-1.5 rounded-2xl border border-white/15 bg-[#1D222B] text-[13.5px] font-semibold text-[#F5F7FA] hover:bg-white/10 cursor-pointer"
                   >
                     Already a Member?{' '}
                     <span
                       className="font-extrabold"
-                      style={{ color: brandAccent }}
+                      style={{ color: brandAccentText }}
                     >
                       Sign In
                     </span>
@@ -1542,13 +1425,17 @@ export default function CustomerGymPage() {
           {authMode === 'signin' && (
             <form
               onSubmit={(e) => void handleLookupPass(e)}
-              className="gym-obsidian-mesh gym-fade-up rounded-3xl p-6 text-white shadow-2xl border border-white/10 space-y-5"
+              className="mx-auto max-w-md gym-fade-up rounded-3xl p-6 bg-[#171B22] text-[#F5F7FA] shadow-2xl border border-white/10 space-y-5"
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#C8F135] text-[#0B0D10]">
-                    <Dumbbell className="h-4.5 w-4.5" aria-hidden />
-                  </span>
+                  <GymBrandMark
+                    logoUrl={brandLogoUrl}
+                    name={portal.business.name}
+                    accentColor={brandAccent}
+                    inkColor={brandInk}
+                    size="sm"
+                  />
                   <div>
                     <h1 className="text-[18px] font-extrabold">
                       Member Sign In
@@ -2394,41 +2281,97 @@ export default function CustomerGymPage() {
   const ptSessionsTotal =
     athleteHub?.ptTotalSessions ?? memberPass.ptTotalSessions ?? 0;
 
+  const totalSetsInSessionCount = Object.values(sessionSetsByEx).reduce(
+    (sum, arr) => sum + arr.length,
+    0,
+  );
+  const completedSetsInSessionCount = Object.values(sessionSetsByEx).reduce(
+    (sum, arr) => sum + arr.filter((r) => r.completed).length,
+    0,
+  );
+  const memberStatusBadgeText = isFrozen
+    ? 'Frozen'
+    : memberPass.effectiveStatus === 'expiring_soon'
+      ? 'Renew Soon'
+      : toTitleCase(memberPass.effectiveStatus.replace('_', ' '));
+
   return (
-    <div
-      className="min-h-screen w-full overflow-x-hidden bg-[#0B0D10] text-white px-4 pt-3 pb-[calc(6.5rem+env(safe-area-inset-bottom))]"
-      style={
-        {
-          ['--gym-accent' as string]: brandAccent,
-          ['--gym-ink' as string]: brandInk,
+    <GymMemberShell
+      cssVars={brandTheme.cssVars}
+      brandAccent={brandAccent}
+      brandAccentText={brandAccentText}
+      brandInk={brandInk}
+      brandLogoUrl={brandLogoUrl}
+      gymName={portal.business.name}
+      gymCity={portal.business.city}
+      memberName={toTitleCase(memberPass.fullName)}
+      memberCode={memberPass.memberCode}
+      memberStatusLabel={memberStatusBadgeText}
+      todayFormatted={todayFormatted}
+      activeTab={activeTab}
+      onSelectTab={(nextTab) => {
+        setActiveTab(nextTab);
+        if (nextTab === 'community') {
+          setUnreadChatCount(0);
+          setNotifBanner(null);
         }
+      }}
+      unreadChatCount={unreadChatCount}
+      soundEnabled={soundEnabled}
+      onToggleSound={handleToggleSound}
+      showNotifPopover={showNotifPopover}
+      onToggleNotifPopover={() => {
+        setShowNotifPopover((p) => !p);
+        setUnreadChatCount(0);
+      }}
+      onOpenChatFromNotif={() => {
+        setShowNotifPopover(false);
+        setActiveTab('community');
+        setMembersSubTab('chat');
+      }}
+      onOpenLibrary={() => setShowExerciseLibraryDrawer(true)}
+      onLaunchTodayWorkout={() =>
+        launchWorkoutSession(
+          todayScheduleDay?.focusTitle ?? 'Workout Session',
+          todayScheduleDay?.exercises ?? [],
+        )
       }
+      minimizedWorkout={{
+        active: Boolean(sessionActive && sessionMinimized),
+        dayTitle: sessionDayTitle,
+        elapsedClock: formatTimerClock(sessionElapsedSec),
+        completedSets: completedSetsInSessionCount,
+        totalSets: totalSetsInSessionCount,
+      }}
     >
-      <div className="mx-auto w-full max-w-md space-y-4">
+      <div className="space-y-4">
         {/* Live Community / Coach Notification Banner */}
         {notifBanner && (
-          <div className="flex items-center justify-between gap-2.5 rounded-2xl border border-white/15 bg-[#14171D] px-3.5 py-2.5 shadow-xl">
+          <div className="flex items-center justify-between gap-2.5 rounded-2xl border border-white/15 bg-[#171B22] px-3.5 py-2.5 shadow-xl">
             <button
               type="button"
               onClick={() => {
                 setNotifBanner(null);
                 setUnreadChatCount(0);
-                setActiveTab('members');
+                setActiveTab('community');
                 setMembersSubTab('chat');
               }}
               className="flex min-w-0 flex-1 items-center gap-2.5 text-left cursor-pointer"
             >
               <span
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl"
-                style={{ backgroundColor: `${brandAccent}24`, color: brandAccent }}
+                style={{
+                  backgroundColor: `${brandAccent}24`,
+                  color: brandAccentText,
+                }}
               >
                 <Bell className="h-4 w-4" aria-hidden />
               </span>
               <div className="min-w-0">
-                <p className="text-[11.5px] font-extrabold text-white truncate">
+                <p className="text-[11.5px] font-extrabold text-[#F5F7FA] truncate">
                   💬 {notifBanner.sender}
                 </p>
-                <p className="text-[11px] text-slate-300 truncate">
+                <p className="text-[11px] text-[#A4ADBB] truncate">
                   {notifBanner.text}
                 </p>
               </div>
@@ -2436,7 +2379,7 @@ export default function CustomerGymPage() {
             <button
               type="button"
               onClick={() => setNotifBanner(null)}
-              className="shrink-0 p-1 text-slate-400 hover:text-white cursor-pointer"
+              className="shrink-0 p-1 text-[#778191] hover:text-[#F5F7FA] cursor-pointer"
               aria-label="Dismiss notification"
             >
               <X className="h-3.5 w-3.5" aria-hidden />
@@ -2446,12 +2389,21 @@ export default function CustomerGymPage() {
 
         {/* Global Alerts */}
         {successMsg && (
-          <div className="rounded-2xl border border-[#C8F135]/40 bg-[#C8F135]/10 px-4 py-3 text-[13px] font-semibold text-[#C8F135] flex items-center justify-between gap-2">
+          <div
+            className="rounded-2xl px-4 py-3 text-[13px] font-semibold flex items-center justify-between gap-2 border"
+            style={{
+              borderColor: `${brandAccent}55`,
+              backgroundColor: `${brandAccent}18`,
+              color: brandAccentText,
+            }}
+          >
             <span>{successMsg}</span>
             <button
               type="button"
               onClick={() => setSuccessMsg(null)}
-              className="text-[#C8F135] cursor-pointer"
+              className="cursor-pointer"
+              style={{ color: brandAccentText }}
+              aria-label="Dismiss alert"
             >
               <X className="h-3.5 w-3.5" aria-hidden />
             </button>
@@ -2468,637 +2420,621 @@ export default function CustomerGymPage() {
               type="button"
               onClick={() => setErrorMsg(null)}
               className="text-rose-300 cursor-pointer"
+              aria-label="Dismiss error"
             >
               <X className="h-3.5 w-3.5" aria-hidden />
             </button>
           </div>
         )}
 
-        {/* ==================== TAB 1: HOME (DAILY GYM-COMER PRIORITY FLOW) ==================== */}
+        {/* ==================== TAB 1: HOME (FITPRO x GYMOS DASHBOARD) ==================== */}
         {activeTab === 'home' && (
-          <div className="space-y-4 gym-fade-up">
-            {/* Header with Custom Brand Logo, Bell Notifications & Batch Pill */}
-            <div className="space-y-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <GymBrandMark
-                    logoUrl={brandLogoUrl}
-                    name={portal.business.name}
-                    accentColor={brandAccent}
-                    inkColor={brandInk}
-                    size="sm"
-                  />
-                  <div className="min-w-0">
-                    <h1 className="text-[19px] font-black tracking-tight text-white truncate">
-                      {portal.business.name}
-                    </h1>
-                    <p className="text-[11.5px] font-medium text-slate-400 truncate">
-                      {todayFormatted} · Hi, {toTitleCase(firstName)}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0 relative">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowNotifPopover((p) => !p);
-                      setUnreadChatCount(0);
-                    }}
-                    className="relative flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-[#14171D] text-slate-200 hover:text-white cursor-pointer"
-                    aria-label="Gym Notifications & Sound Settings"
-                    title="Notifications & Sound"
-                  >
-                    <Bell className="h-4 w-4" aria-hidden />
-                    {unreadChatCount > 0 && (
-                      <span
-                        className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[9.5px] font-black"
-                        style={{ backgroundColor: brandAccent, color: brandInk }}
-                      >
-                        {unreadChatCount}
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSwitchMember}
-                    className="whitespace-nowrap rounded-full border border-white/10 bg-[#14171D] px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 hover:text-white tabular-nums cursor-pointer"
-                    title="Switch Phone Number"
-                  >
-                    •••• {memberPass.phone.slice(-4)} · Switch
-                  </button>
-
-                  {showNotifPopover && (
-                    <div className="absolute right-0 top-11 z-40 w-64 rounded-2xl border border-white/15 bg-[#14171D] p-3 shadow-2xl space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[12px] font-extrabold text-white">
-                          Alerts &amp; Chat Chime
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setShowNotifPopover(false)}
-                          className="text-slate-400 hover:text-white cursor-pointer"
-                        >
-                          <X className="h-3.5 w-3.5" aria-hidden />
-                        </button>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleToggleSound}
-                        className="flex w-full items-center justify-between rounded-xl bg-[#1E222B] px-3 py-2 text-[12px] font-bold text-slate-200 hover:bg-white/10 cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2">
-                          {soundEnabled ? (
-                            <Volume2
-                              className="h-4 w-4"
-                              style={{ color: brandAccent }}
-                              aria-hidden
-                            />
-                          ) : (
-                            <VolumeX
-                              className="h-4 w-4 text-slate-500"
-                              aria-hidden
-                            />
-                          )}
-                          Chat &amp; Timer Ringtone
-                        </span>
-                        <span
-                          className="rounded-md px-2 py-0.5 text-[10.5px] font-black"
-                          style={
-                            soundEnabled
-                              ? { backgroundColor: brandAccent, color: brandInk }
-                              : { backgroundColor: '#2A303C', color: '#94A3B8' }
-                          }
-                        >
-                          {soundEnabled ? 'ON' : 'MUTED'}
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowNotifPopover(false);
-                          setActiveTab('members');
-                          setMembersSubTab('chat');
-                        }}
-                        className="w-full rounded-xl border border-white/10 px-3 py-1.5 text-[11.5px] font-bold text-slate-300 hover:text-white cursor-pointer"
-                      >
-                        Open Live Gym Chat →
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Morning vs Evening Batch Selector Bar */}
-              <div className="flex items-center justify-between gap-2 rounded-2xl border border-white/[0.07] bg-[#14171D] px-3 py-2">
-                <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 whitespace-nowrap">
-                  <Clock className="h-3.5 w-3.5 text-slate-400" aria-hidden />
-                  Batch:
-                </span>
-                <div className="flex items-center gap-1">
-                  {GYM_SHIFT_OPTIONS.map((opt) => {
-                    const active = activeShift === opt.value;
-                    return (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        disabled={updatingShift}
-                        onClick={() => void handleChangeMemberShift(opt.value)}
-                        className={`whitespace-nowrap rounded-lg px-2 py-1 text-[11px] font-extrabold transition-colors cursor-pointer ${
-                          active
-                            ? ''
-                            : 'bg-[#1E222B] text-slate-400 hover:text-white'
-                        }`}
-                        style={
-                          active
-                            ? { backgroundColor: brandAccent, color: brandInk }
-                            : undefined
-                        }
-                      >
-                        {opt.emoji} {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* STEP 1 — HIGHLIGHTED RECEPTION QR ATTENDANCE CHECK-IN HERO */}
-            {isFrozen ? (
-              <div className="rounded-2xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 flex items-center gap-3 text-[12.5px] text-sky-200">
-                <Snowflake
-                  className="h-4.5 w-4.5 text-sky-400 shrink-0"
-                  aria-hidden
-                />
-                <span>
-                  Membership Frozen since{' '}
-                  {formatIsoDatePretty(memberPass.frozenStartedAt)}. Ask reception
-                  to resume.
-                </span>
-              </div>
-            ) : !isCanTrain ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('plan');
-                  setPlanSubTab('pass');
-                }}
-                className="w-full rounded-2xl border border-amber-500/40 bg-amber-500/15 px-4 py-3.5 flex items-center justify-between gap-3 text-left cursor-pointer"
-              >
-                <div className="flex items-center gap-3">
-                  <AlertTriangle
-                    className="h-5 w-5 text-amber-400 shrink-0"
+          <div className="gym-fade-up grid grid-cols-1 gap-5 lg:grid-cols-12">
+            {/* Primary Left Column (Desktop 8 cols) */}
+            <div className="space-y-4 lg:col-span-8">
+              {/* Attendance & Motivation Hero */}
+              {isFrozen ? (
+                <div className="rounded-2xl border border-sky-500/30 bg-sky-500/10 px-4 py-3.5 flex items-center gap-3 text-[13px] text-sky-200">
+                  <Snowflake
+                    className="h-5 w-5 text-sky-400 shrink-0"
                     aria-hidden
                   />
-                  <div>
-                    <p className="text-[13.5px] font-extrabold text-amber-200">
-                      {memberPass.effectiveStatus === 'pending_approval'
-                        ? 'Awaiting Reception Approval'
-                        : 'Plan Expired — Tap to Renew'}
-                    </p>
-                    <p className="text-[11px] text-amber-300/80">
-                      Pass {memberPass.memberCode} · Open Pass &amp; Renew
-                    </p>
-                  </div>
-                </div>
-                <ArrowRight className="h-4 w-4 text-amber-300" aria-hidden />
-              </button>
-            ) : memberPass.checkedInToday ? (
-              <div className="rounded-2xl border border-emerald-500/40 bg-emerald-950/50 px-4 py-3.5 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-3">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-400 text-[#0B0D10]">
-                    <Check className="h-4.5 w-4.5 stroke-[3]" aria-hidden />
+                  <span>
+                    Membership Frozen since{' '}
+                    {formatIsoDatePretty(memberPass.frozenStartedAt)}. Ask
+                    reception to resume.
                   </span>
-                  <div>
-                    <p className="text-[13.5px] font-black text-white">
-                      ✓ Checked In Today at{' '}
-                      <span className="tabular-nums">
-                        {formatCheckInTime12h(
-                          memberPass.todayCheckIn?.checkedInAt ??
-                            memberPass.lastCheckInAt,
-                        )}
-                      </span>
-                    </p>
-                    <p className="text-[11.5px] font-semibold text-emerald-300">
-                      {
-                        getWorkoutFocusMeta(
-                          memberPass.todayCheckIn?.workoutFocus ??
-                            selectedWorkoutFocus,
-                        ).dayLabel
-                      }{' '}
-                      · 🔥 {Math.max(1, currentStreak)}d daily streak
-                    </p>
-                  </div>
                 </div>
-                <span className="shrink-0 whitespace-nowrap rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-[11px] font-extrabold text-emerald-300 tabular-nums">
-                  {memberPass.daysRemaining}d left
-                </span>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowCheckInModal(true)}
-                className="gym-tactile w-full rounded-3xl p-4 flex items-center justify-between gap-3 text-left cursor-pointer"
-                style={{
-                  background: `linear-gradient(135deg, ${brandAccent}, ${brandAccent}DD)`,
-                  color: brandInk,
-                  boxShadow: `0 0 26px ${brandAccent}44`,
-                }}
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <span
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#0B0D10]"
-                    style={{ color: brandAccent }}
-                  >
-                    <QrCode className="h-5.5 w-5.5" aria-hidden />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-[15px] font-black leading-tight truncate">
-                      Mark Today&apos;s Attendance
-                    </p>
-                    <p className="text-[11px] font-bold opacity-80 mt-0.5 truncate">
-                      Tap to log reception check-in ({activeShift} batch)
-                    </p>
-                  </div>
-                </div>
-                <span
-                  className="shrink-0 whitespace-nowrap rounded-full bg-[#0B0D10] px-3 py-2 text-[11.5px] font-black"
-                  style={{ color: brandAccent }}
+              ) : !isCanTrain ? (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('profile')}
+                  className="w-full rounded-2xl border border-amber-500/40 bg-amber-500/15 px-4 py-4 flex items-center justify-between gap-3 text-left cursor-pointer"
                 >
-                  Check In →
-                </span>
-              </button>
-            )}
-
-            {/* Personal Training Coach Card (When PT Assigned or Coach Approved) */}
-            {(ptTrainerDisplayName || ptSessionsLeft > 0) && (
-              <div
-                className="rounded-3xl bg-[#14171D] p-3.5 flex items-center justify-between gap-3"
-                style={{ border: `1px solid ${brandAccent}3A` }}
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <span
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-black"
-                    style={{
-                      backgroundColor: `${brandAccent}22`,
-                      color: brandAccent,
-                    }}
-                  >
-                    <Award className="h-5 w-5" aria-hidden />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-[10.5px] font-extrabold uppercase tracking-wider text-slate-400">
-                      Personal Coach {ptTrainerSpecialtyDisplay ? `· ${ptTrainerSpecialtyDisplay}` : ''}
-                    </p>
-                    <p className="text-[14px] font-black text-white truncate">
-                      {ptTrainerDisplayName ?? 'Head Trainer'}
-                    </p>
-                    {effectiveNutrition.coachNotes && (
-                      <p className="text-[11px] text-slate-400 truncate">
-                        “{effectiveNutrition.coachNotes}”
+                  <div className="flex items-center gap-3">
+                    <AlertTriangle
+                      className="h-5 w-5 text-amber-400 shrink-0"
+                      aria-hidden
+                    />
+                    <div>
+                      <p className="text-[14px] font-extrabold text-amber-200">
+                        {memberPass.effectiveStatus === 'pending_approval'
+                          ? 'Awaiting Reception Approval'
+                          : 'Plan Expired — Tap to Renew'}
                       </p>
-                    )}
+                      <p className="text-[11.5px] text-amber-300/80">
+                        Pass {memberPass.memberCode} · Open Membership &amp; QR
+                        Pass
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className="shrink-0 text-right space-y-1">
-                  {ptSessionsTotal > 0 || ptSessionsLeft > 0 ? (
-                    <span
-                      className="inline-block whitespace-nowrap rounded-xl px-2.5 py-1 text-[11px] font-black tabular-nums"
-                      style={{
-                        backgroundColor: `${brandAccent}22`,
-                        color: brandAccent,
-                      }}
-                    >
-                      {ptSessionsLeft}
-                      {ptSessionsTotal > 0 ? `/${ptSessionsTotal}` : ''} PT Left
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('plan')}
-                      className="whitespace-nowrap rounded-xl bg-[#1E222B] px-2.5 py-1 text-[11px] font-bold text-white cursor-pointer"
-                    >
-                      View Plan →
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* STEP 2 — PROMINENT WEEK STREAK 🔥 & THIS WEEK CONSISTENCY CARD */}
-            <div className="rounded-3xl bg-[#14171D] border border-white/[0.07] p-4 space-y-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-3">
-                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-orange-500/15 text-[22px]">
-                    🔥
-                  </span>
-                  <div>
-                    <p className="text-[17px] font-black tabular-nums text-white leading-tight">
-                      {weekStreakCount} Week Streak
-                    </p>
-                    <p className="text-[11.5px] font-semibold text-slate-400 tabular-nums">
-                      {workoutsThisWeekCount} / {weeklyTargetDays} this week ·{' '}
-                      {memberPass.totalCheckIns} workouts total
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="rounded-lg bg-[#1E222B] px-2.5 py-1 text-[11px] font-extrabold text-slate-300 tabular-nums">
-                    Best: {Math.max(1, Math.floor((memberPass.bestStreakDays ?? currentStreak) / 7))}w
-                  </span>
-                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-500/15 text-sky-400" title="Streak Freeze Active">
-                    <Snowflake className="h-3.5 w-3.5" aria-hidden />
-                  </span>
-                </div>
-              </div>
-
-              <div className="border-t border-white/[0.06] pt-3 space-y-2.5">
-                <div className="flex items-center justify-between text-[11.5px]">
-                  <span className="font-bold text-slate-400">This week</span>
-                  <span className="font-semibold text-slate-400 tabular-nums">
-                    {remainingThisWeek} of {weeklyTargetDays} left this week
-                  </span>
-                </div>
-                <div className="grid grid-cols-7 gap-1.5 text-center">
-                  {weeklyActivity.map((day) => {
-                    const dtNum = Number.parseInt(day.isoDate.slice(8, 10), 10);
-                    return (
-                      <div
-                        key={day.isoDate}
-                        className="flex flex-col items-center gap-1"
-                      >
-                        <span className="text-[10.5px] font-bold text-slate-500">
-                          {day.dayLabel.slice(0, 2)}
-                        </span>
-                        <span
-                          className={`flex h-8.5 w-8.5 items-center justify-center rounded-full text-[12.5px] font-black tabular-nums ${
-                            day.isToday
-                              ? 'bg-[#C8F135] text-[#0B0D10] shadow-[0_0_16px_rgba(200,241,53,0.45)]'
-                              : day.trained
-                                ? 'bg-[#1E222B] text-white border border-emerald-500/40'
-                                : 'text-slate-400'
-                          }`}
-                        >
-                          {dtNum}
-                        </span>
-                        <span
-                          className={`h-1.5 w-1.5 rounded-full ${
-                            day.trained ? 'bg-emerald-400' : 'bg-transparent'
-                          }`}
-                        />
+                  <ArrowRight className="h-4 w-4 text-amber-300" aria-hidden />
+                </button>
+              ) : memberPass.checkedInToday ? (
+                <div className="relative overflow-hidden rounded-3xl border border-[#35D07F]/35 bg-[#171B22] p-5">
+                  <ImageWithFallback
+                    src={GYM_HERO_ASSETS.dashboard}
+                    alt="Gym training motivation"
+                    eager
+                    className="pointer-events-none absolute inset-y-0 right-0 h-full w-2/3 object-cover opacity-20"
+                  />
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#171B22] via-[#171B22]/90 to-transparent" />
+                  <div className="relative z-10 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#35D07F]/20 text-[#35D07F]">
+                        <Check className="h-5 w-5 stroke-[2.75]" aria-hidden />
+                      </span>
+                      <div>
+                        <p className="text-[15px] font-black text-[#F5F7FA]">
+                          Checked In at{' '}
+                          <span className="tabular-nums">
+                            {formatCheckInTime12h(
+                              memberPass.todayCheckIn?.checkedInAt ??
+                                memberPass.lastCheckInAt,
+                            )}
+                          </span>
+                        </p>
+                        <p className="text-[12px] font-semibold text-[#35D07F]">
+                          {
+                            getWorkoutFocusMeta(
+                              memberPass.todayCheckIn?.workoutFocus ??
+                                selectedWorkoutFocus,
+                            ).dayLabel
+                          }{' '}
+                          · 🔥 {Math.max(1, currentStreak)}d streak
+                        </p>
                       </div>
-                    );
-                  })}
+                    </div>
+                    <span className="shrink-0 rounded-full border border-[#35D07F]/35 bg-[#35D07F]/15 px-3 py-1 text-[11.5px] font-extrabold text-[#35D07F] tabular-nums">
+                      {memberPass.daysRemaining}d pass left
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#171B22] p-5 shadow-xl">
+                  <ImageWithFallback
+                    src={GYM_HERO_ASSETS.dashboard}
+                    alt="Member training motivation"
+                    eager
+                    className="pointer-events-none absolute inset-y-0 right-0 h-full w-3/4 object-cover opacity-35"
+                  />
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#171B22] via-[#171B22]/85 to-transparent" />
+                  <div className="relative z-10 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p
+                          className="text-[11px] font-extrabold uppercase tracking-[0.06em]"
+                          style={{ color: brandAccentText }}
+                        >
+                          Hey, {toTitleCase(firstName)} · {memberPass.daysRemaining}d left
+                        </p>
+                        <h1 className="mt-0.5 text-[22px] sm:text-[24px] font-black text-[#F5F7FA] leading-tight">
+                          Ready for today&apos;s session?
+                        </h1>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowCheckInModal(true)}
+                        className="gym-tactile inline-flex min-h-[46px] items-center justify-center gap-2 rounded-2xl px-5 text-[13.5px] font-black shadow-md cursor-pointer"
+                        style={{
+                          backgroundColor: brandAccent,
+                          color: brandInk,
+                        }}
+                      >
+                        <QrCode className="h-4.5 w-4.5" aria-hidden />
+                        <span>Mark Today&apos;s Attendance</span>
+                      </button>
+
+                      <div className="inline-flex items-center gap-1 rounded-2xl border border-white/10 bg-[#111419]/90 p-1">
+                        {GYM_SHIFT_OPTIONS.map((opt) => {
+                          const active = activeShift === opt.value;
+                          return (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              disabled={updatingShift}
+                              onClick={() =>
+                                void handleChangeMemberShift(opt.value)
+                              }
+                              className={`min-h-[34px] rounded-xl px-2.5 text-[11px] font-extrabold transition-colors cursor-pointer ${
+                                active
+                                  ? 'bg-[#232933] text-[#F5F7FA]'
+                                  : 'text-[#778191] hover:text-[#F5F7FA]'
+                              }`}
+                              style={
+                                active
+                                  ? { color: brandAccentText }
+                                  : undefined
+                              }
+                            >
+                              {opt.emoji} {opt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 3-Tile KPI Summary Strip */}
+              <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
+                <div className="rounded-2xl border border-white/[0.08] bg-[#171B22] p-3.5 text-center space-y-1">
+                  <p className="text-[11px] font-semibold text-[#A4ADBB]">
+                    Check-Ins
+                  </p>
+                  <p className="text-[20px] font-black text-[#F5F7FA] tabular-nums">
+                    {memberPass.totalCheckIns}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/[0.08] bg-[#171B22] p-3.5 text-center space-y-1">
+                  <p className="text-[11px] font-semibold text-[#A4ADBB]">
+                    This Month
+                  </p>
+                  <p
+                    className="text-[20px] font-black tabular-nums"
+                    style={{ color: brandAccentText }}
+                  >
+                    {workoutsThisMonth}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/[0.08] bg-[#171B22] p-3.5 text-center space-y-1">
+                  <p className="text-[11px] font-semibold text-[#A4ADBB]">
+                    Streak
+                  </p>
+                  <p className="text-[20px] font-black text-[#FFB84D] tabular-nums">
+                    {Math.max(0, currentStreak)}d
+                  </p>
                 </div>
               </div>
-            </div>
 
-            {/* STEP 3 — TODAY'S WORKOUT CARD (ZERO OVERLAP MOBILE LAYOUT) + SWAPPER + LIBRARY */}
-            {todayScheduleDay && (
-              <div className="rounded-3xl bg-[#14171D] border border-white/[0.07] p-4 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
+              {/* 4-Button FitPro Quick Actions */}
+              <div className="grid grid-cols-4 gap-2 sm:gap-3">
+                {[
+                  {
+                    label: 'View Plan',
+                    Icon: Calendar,
+                    onClick: () => {
+                      setActiveTab('plan');
+                      setPlanSubTab('schedule');
+                    },
+                  },
+                  {
+                    label: 'Nutrition',
+                    Icon: Utensils,
+                    onClick: () => {
+                      setActiveTab('plan');
+                      setPlanSubTab('nutrition');
+                    },
+                  },
+                  {
+                    label: 'Library',
+                    Icon: Dumbbell,
+                    onClick: () => setShowExerciseLibraryDrawer(true),
+                  },
+                  {
+                    label: 'Gym Chat',
+                    Icon: MessageCircle,
+                    onClick: () => {
+                      setActiveTab('community');
+                      setMembersSubTab('chat');
+                      setUnreadChatCount(0);
+                    },
+                  },
+                ].map(({ label, Icon, onClick }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={onClick}
+                    className="gym-tactile flex min-h-[68px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-white/[0.08] bg-[#171B22] px-2 py-2.5 text-center hover:border-white/20 cursor-pointer"
+                  >
                     <span
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
-                      style={{
-                        backgroundColor: `${brandAccent}22`,
-                        color: brandAccent,
-                      }}
+                      className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#232933]"
+                      style={{ color: brandAccentText }}
                     >
-                      <Dumbbell className="h-5 w-5" aria-hidden />
+                      <Icon className="h-4 w-4" aria-hidden />
                     </span>
-                    <div className="min-w-0">
+                    <span className="text-[11px] font-bold text-[#F5F7FA] truncate max-w-full">
+                      {label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Overlap-Free Today's Workout Featured Card with Dark Studio Anatomy */}
+              {todayScheduleDay && (
+                <div className="rounded-3xl bg-[#171B22] border border-white/[0.08] p-4 sm:p-5 space-y-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0 flex-1 space-y-1.5">
                       <span
-                        className="inline-block rounded-md px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider"
+                        className="inline-block rounded-md px-2 py-0.5 text-[10.5px] font-extrabold uppercase tracking-wider"
                         style={{
                           backgroundColor: `${brandAccent}22`,
-                          color: brandAccent,
+                          color: brandAccentText,
                         }}
                       >
                         Today · {todayScheduleDay.dayLabel}
                       </span>
-                      <p className="mt-0.5 text-[16px] font-black text-white truncate">
+                      <h2 className="text-[20px] font-black text-[#F5F7FA] leading-tight truncate">
                         {todayScheduleDay.focusTitle}
-                      </p>
-                      <p className="text-[11px] text-slate-400 tabular-nums">
-                        {todayScheduleDay.exercises.length} exercises
+                      </h2>
+                      <p className="text-[12px] font-medium text-[#A4ADBB] tabular-nums">
+                        {todayScheduleDay.exercises.length} exercises · Tap start
+                        to log live sets
                       </p>
                     </div>
-                  </div>
-                  <div className="shrink-0">
-                    <GymMuscleMapSvg
-                      activeMuscles={Array.from(
-                        new Set(
+
+                    <div className="h-22 w-28 shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-[#111419] sm:h-24 sm:w-36">
+                      <ImageWithFallback
+                        src={resolveAnatomyAssetForMuscles(
                           todayScheduleDay.exercises.map((e) => e.muscleGroup),
-                        ),
-                      )}
-                      accentColor={brandAccent}
-                      compact
-                    />
+                          selectedWorkoutFocus,
+                        )}
+                        alt="Target muscles illustration"
+                        eager
+                        className="h-full w-full object-cover"
+                        fallback={
+                          <div className="flex h-full w-full items-center justify-center">
+                            <GymMuscleMapSvg
+                              activeMuscles={Array.from(
+                                new Set(
+                                  todayScheduleDay.exercises.map(
+                                    (e) => e.muscleGroup,
+                                  ),
+                                ),
+                              )}
+                              accentColor={brandAccent}
+                              compact
+                            />
+                          </div>
+                        }
+                      />
+                    </div>
                   </div>
-                </div>
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    launchWorkoutSession(
-                      todayScheduleDay.focusTitle,
-                      todayScheduleDay.exercises,
-                    )
-                  }
-                  className="gym-tactile flex h-11 w-full items-center justify-center gap-2 rounded-2xl text-[13.5px] font-black cursor-pointer"
-                  style={{
-                    backgroundColor: brandAccent,
-                    color: brandInk,
-                    boxShadow: `0 4px 16px ${brandAccent}40`,
-                  }}
-                >
-                  <Play className="h-4 w-4 fill-current" aria-hidden />
-                  Start {todayScheduleDay.focusTitle} →
-                </button>
-
-                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] pt-2.5 text-[11.5px]">
                   <button
                     type="button"
-                    onClick={() => setShowSwapDayModal(true)}
-                    className="whitespace-nowrap font-bold text-slate-400 hover:text-white cursor-pointer"
-                  >
-                    ⇄ Swap Split Day
-                  </button>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('plan');
-                        setPlanSubTab('schedule');
-                        openDaySplitEditor(todayScheduleDay);
-                      }}
-                      className="whitespace-nowrap inline-flex items-center gap-1 rounded-lg bg-[#1E222B] px-2.5 py-1 font-bold text-slate-200 hover:bg-white/10 cursor-pointer"
-                    >
-                      <Pencil className="h-3 w-3" aria-hidden />
-                      Edit Split
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowExerciseLibraryDrawer(true)}
-                      className="whitespace-nowrap inline-flex items-center gap-1 rounded-lg bg-[#1E222B] px-2.5 py-1 font-bold hover:bg-white/10 cursor-pointer"
-                      style={{ color: brandAccent }}
-                    >
-                      <Dumbbell className="h-3.5 w-3.5" aria-hidden />
-                      Library
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* STEP 4 — REDESIGNED HIGH-CRAFT THIS MONTH'S CHALLENGES */}
-            <div className="rounded-3xl bg-[#14171D] border border-white/[0.07] p-4 space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2.5">
-                  <span
-                    className="flex h-8 w-8 items-center justify-center rounded-xl"
+                    onClick={() =>
+                      launchWorkoutSession(
+                        todayScheduleDay.focusTitle,
+                        todayScheduleDay.exercises,
+                      )
+                    }
+                    className="gym-tactile flex min-h-[48px] w-full items-center justify-center gap-2 rounded-2xl text-[14px] font-black cursor-pointer"
                     style={{
-                      backgroundColor: `${brandAccent}22`,
-                      color: brandAccent,
+                      backgroundColor: brandAccent,
+                      color: brandInk,
                     }}
                   >
-                    <Trophy className="h-4 w-4" aria-hidden />
+                    <Play className="h-4 w-4 fill-current" aria-hidden />
+                    Start {todayScheduleDay.focusTitle} →
+                  </button>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.07] pt-3 text-[12px]">
+                    <button
+                      type="button"
+                      onClick={() => setShowSwapDayModal(true)}
+                      className="whitespace-nowrap font-bold text-[#A4ADBB] hover:text-[#F5F7FA] cursor-pointer"
+                    >
+                      ⇄ Swap Split Day
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('plan');
+                          setPlanSubTab('schedule');
+                          openDaySplitEditor(todayScheduleDay);
+                        }}
+                        className="whitespace-nowrap inline-flex items-center gap-1 rounded-xl bg-[#232933] px-3 py-1.5 font-bold text-[#F5F7FA] hover:bg-white/10 cursor-pointer"
+                      >
+                        <Pencil className="h-3 w-3" aria-hidden />
+                        Edit Split
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowExerciseLibraryDrawer(true)}
+                        className="whitespace-nowrap inline-flex items-center gap-1 rounded-xl bg-[#232933] px-3 py-1.5 font-bold hover:bg-white/10 cursor-pointer"
+                        style={{ color: brandAccentText }}
+                      >
+                        <Dumbbell className="h-3.5 w-3.5" aria-hidden />
+                        Library
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Recovery Insight Callout (Surfaced from Athlete Hub) */}
+              {athleteHub?.recoveryInsight && (
+                <div className="rounded-2xl border border-white/[0.08] bg-[#171B22] p-3.5 flex items-center gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/15 text-[#58B8FF]">
+                    <Sparkles className="h-4 w-4" aria-hidden />
                   </span>
-                  <div>
-                    <h2 className="text-[14.5px] font-black text-white leading-tight">
-                      This month&apos;s challenges
-                    </h2>
-                    <p className="text-[10.5px] text-slate-400 font-medium">
-                      Hit all 3 badges to boost your gym rank
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#58B8FF]">
+                      Recovery Focus · {athleteHub.recoveryInsight.muscleGroup}
+                    </p>
+                    <p className="text-[12.5px] font-medium text-[#F5F7FA]">
+                      {athleteHub.recoveryInsight.message}
                     </p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('stats')}
-                  className="whitespace-nowrap text-[11.5px] font-extrabold cursor-pointer"
-                  style={{ color: brandAccent }}
-                >
-                  Stats →
-                </button>
+              )}
+            </div>
+
+            {/* Secondary Right Column (Desktop 4 cols) */}
+            <div className="space-y-4 lg:col-span-4">
+              {/* Weekly Consistency & Streak Calendar */}
+              <div className="rounded-3xl bg-[#171B22] border border-white/[0.08] p-4 space-y-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500/15 text-[20px]">
+                      🔥
+                    </span>
+                    <div>
+                      <p className="text-[16px] font-black tabular-nums text-[#F5F7FA] leading-tight">
+                        {weekStreakCount} Week Streak
+                      </p>
+                      <p className="text-[11.5px] font-semibold text-[#A4ADBB] tabular-nums">
+                        {workoutsThisWeekCount}/{weeklyTargetDays} this week ·{' '}
+                        {memberPass.totalCheckIns} total
+                      </p>
+                    </div>
+                  </div>
+                  <span className="rounded-lg bg-[#232933] px-2.5 py-1 text-[11px] font-extrabold text-[#A4ADBB] tabular-nums">
+                    Best: {Math.max(1, Math.floor((memberPass.bestStreakDays ?? currentStreak) / 7))}w
+                  </span>
+                </div>
+
+                <div className="border-t border-white/[0.07] pt-3 space-y-2.5">
+                  <div className="flex items-center justify-between text-[11.5px]">
+                    <span className="font-bold text-[#A4ADBB]">This week</span>
+                    <span className="font-semibold text-[#778191] tabular-nums">
+                      {remainingThisWeek} of {weeklyTargetDays} left
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-7 gap-1 text-center">
+                    {weeklyActivity.map((day) => {
+                      const dtNum = Number.parseInt(day.isoDate.slice(8, 10), 10);
+                      return (
+                        <div
+                          key={day.isoDate}
+                          className="flex flex-col items-center gap-1"
+                        >
+                          <span className="text-[10.5px] font-bold text-[#778191]">
+                            {day.dayLabel.slice(0, 2)}
+                          </span>
+                          <span
+                            className={`flex h-8 w-8 items-center justify-center rounded-full text-[12px] font-black tabular-nums ${
+                              day.isToday
+                                ? ''
+                                : day.trained
+                                  ? 'bg-[#232933] text-[#F5F7FA] border border-[#35D07F]/45'
+                                  : 'text-[#A4ADBB]'
+                            }`}
+                            style={
+                              day.isToday
+                                ? {
+                                    backgroundColor: brandAccent,
+                                    color: brandInk,
+                                  }
+                                : undefined
+                            }
+                          >
+                            {dtNum}
+                          </span>
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${
+                              day.trained ? 'bg-[#35D07F]' : 'bg-transparent'
+                            }`}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-2.5">
-                {[
-                  {
-                    label: `${monthlyWorkoutTarget} workouts this month`,
-                    current: workoutsThisMonth,
-                    target: monthlyWorkoutTarget,
-                    suffix: '',
-                    icon: Flame,
-                    iconBg: 'bg-orange-500/15 text-orange-400',
-                  },
-                  {
-                    label: `Lift ${(monthlyVolumeTargetKg / 1000).toFixed(0)} t this month`,
-                    current: volumeThisMonthKg,
-                    target: monthlyVolumeTargetKg,
-                    suffix: ' kg',
-                    icon: Dumbbell,
-                    iconBg: 'bg-sky-500/15 text-sky-400',
-                  },
-                  {
-                    label: 'Log your weight 8 times',
-                    current: weightCheckInsThisMonth,
-                    target: 8,
-                    suffix: '',
-                    icon: Scale,
-                    iconBg: 'bg-emerald-500/15 text-emerald-400',
-                  },
-                ].map((ch) => {
-                  const pct = Math.min(
-                    100,
-                    Math.round((ch.current / Math.max(1, ch.target)) * 100),
-                  );
-                  const completed = pct >= 100;
-                  const ChIcon = ch.icon;
-                  return (
-                    <div
-                      key={ch.label}
-                      className="rounded-2xl border border-white/[0.06] bg-[#1A1E26] p-3 space-y-2"
+              {/* Personal Training Coach Card */}
+              {(ptTrainerDisplayName || ptSessionsLeft > 0) && (
+                <div
+                  className="overflow-hidden rounded-3xl bg-[#171B22] border"
+                  style={{ borderColor: `${brandAccent}3D` }}
+                >
+                  <div className="relative h-20 bg-[#111419]">
+                    <ImageWithFallback
+                      src={GYM_COMMUNITY_ASSETS.coachPt}
+                      alt="Personal trainer coaching"
+                      className="h-full w-full object-cover opacity-45"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#171B22] via-[#171B22]/50 to-transparent" />
+                    <span
+                      className="absolute bottom-2 left-4 inline-flex items-center gap-1 text-[10.5px] font-extrabold uppercase tracking-wider"
+                      style={{ color: brandAccentText }}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <span
-                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${ch.iconBg}`}
-                          >
-                            <ChIcon className="h-3.5 w-3.5" aria-hidden />
-                          </span>
-                          <div className="min-w-0">
-                            <p className="text-[12px] font-bold text-slate-100 truncate">
-                              {ch.label}
-                            </p>
-                            <p className="text-[10.5px] font-semibold text-slate-400 tabular-nums">
-                              {ch.current.toLocaleString('en-IN')} /{' '}
-                              {ch.target.toLocaleString('en-IN')}
-                              {ch.suffix}
-                            </p>
-                          </div>
-                        </div>
-                        <span
-                          className="shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10.5px] font-black tabular-nums"
-                          style={
-                            completed
-                              ? { backgroundColor: '#10B98126', color: '#34D399' }
-                              : {
-                                  backgroundColor: `${brandAccent}1F`,
-                                  color: brandAccent,
-                                }
-                          }
-                        >
-                          {completed ? '✓ Done' : `${pct}%`}
-                        </span>
-                      </div>
-                      <div className="h-2 w-full overflow-hidden rounded-full bg-[#0B0D10]">
-                        <div
-                          className="h-full rounded-full transition-all duration-500"
-                          style={{
-                            width: `${Math.max(4, pct)}%`,
-                            backgroundColor: completed ? '#10B981' : brandAccent,
-                            boxShadow: completed
-                              ? '0 0 8px rgba(16,185,129,0.5)'
-                              : `0 0 8px ${brandAccent}66`,
-                          }}
-                        />
-                      </div>
+                      <Award className="h-3.5 w-3.5" aria-hidden />
+                      Personal Coach
+                    </span>
+                  </div>
+                  <div className="px-4 pb-4 pt-1 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[14.5px] font-black text-[#F5F7FA] truncate">
+                        {ptTrainerDisplayName ?? 'Head Trainer'}
+                      </p>
+                      {ptTrainerSpecialtyDisplay && (
+                        <p className="text-[11px] text-[#A4ADBB] truncate">
+                          {ptTrainerSpecialtyDisplay}
+                        </p>
+                      )}
                     </div>
-                  );
-                })}
+                    {ptSessionsTotal > 0 || ptSessionsLeft > 0 ? (
+                      <span
+                        className="shrink-0 whitespace-nowrap rounded-xl px-2.5 py-1 text-[11px] font-black tabular-nums"
+                        style={{
+                          backgroundColor: `${brandAccent}22`,
+                          color: brandAccentText,
+                        }}
+                      >
+                        {ptSessionsLeft}
+                        {ptSessionsTotal > 0 ? `/${ptSessionsTotal}` : ''} PT
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('plan')}
+                        className="whitespace-nowrap rounded-xl bg-[#232933] px-3 py-1.5 text-[11.5px] font-bold text-[#F5F7FA] cursor-pointer"
+                      >
+                        Plan →
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Compact Monthly Challenges Overview */}
+              <div className="rounded-3xl bg-[#171B22] border border-white/[0.08] p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Trophy
+                      className="h-4.5 w-4.5"
+                      style={{ color: brandAccentText }}
+                      aria-hidden
+                    />
+                    <h2 className="text-[14.5px] font-extrabold text-[#F5F7FA]">
+                      Monthly Challenges
+                    </h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('track')}
+                    className="whitespace-nowrap text-[11.5px] font-extrabold cursor-pointer"
+                    style={{ color: brandAccentText }}
+                  >
+                    See All →
+                  </button>
+                </div>
+
+                <div className="space-y-2.5">
+                  {[
+                    {
+                      label: `${monthlyWorkoutTarget} workouts`,
+                      current: workoutsThisMonth,
+                      target: monthlyWorkoutTarget,
+                      suffix: '',
+                    },
+                    {
+                      label: `Lift ${(monthlyVolumeTargetKg / 1000).toFixed(0)}t`,
+                      current: volumeThisMonthKg,
+                      target: monthlyVolumeTargetKg,
+                      suffix: ' kg',
+                    },
+                    {
+                      label: 'Log weight 8 days',
+                      current: weightCheckInsThisMonth,
+                      target: 8,
+                      suffix: '',
+                    },
+                  ].map((ch) => {
+                    const pct = Math.min(
+                      100,
+                      Math.round((ch.current / Math.max(1, ch.target)) * 100),
+                    );
+                    const completed = pct >= 100;
+                    return (
+                      <div
+                        key={ch.label}
+                        className="rounded-2xl bg-[#111419] p-3 space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between gap-2 text-[12px]">
+                          <span className="font-bold text-[#F5F7FA] truncate">
+                            {ch.label}
+                          </span>
+                          <span className="text-[11px] font-bold text-[#A4ADBB] tabular-nums">
+                            {ch.current.toLocaleString('en-IN')}/
+                            {ch.target.toLocaleString('en-IN')}
+                            {ch.suffix}
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#232933]">
+                          <div
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{
+                              width: `${Math.max(4, pct)}%`,
+                              backgroundColor: completed
+                                ? '#35D07F'
+                                : brandAccent,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* ==================== TAB 2: PLAN (SCHEDULE + NUTRITION & DIET + PASS) ==================== */}
+        {/* ==================== TAB 2: PLAN (SCHEDULE & NUTRITION) ==================== */}
         {activeTab === 'plan' && (
           <div className="space-y-4 gym-fade-up">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h1 className="text-[22px] font-black tracking-tight text-white">
-                  Plan
+                <h1 className="text-[22px] font-black tracking-tight text-[#F5F7FA]">
+                  Workout &amp; Diet Plan
                 </h1>
-                <p className="text-[12px] text-slate-400">
-                  Your weekly routine &amp; nutrition
+                <p className="text-[12px] text-[#A4ADBB]">
+                  Weekly split rotation, exercises &amp; meal targets
                 </p>
               </div>
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => setShowExerciseLibraryDrawer(true)}
-                  className="rounded-full bg-[#14171D] border border-white/10 px-2.5 py-1 text-[11px] font-bold text-slate-200 hover:text-[#C8F135] cursor-pointer"
+                  className="inline-flex min-h-[38px] items-center gap-1.5 rounded-full bg-[#171B22] border border-white/10 px-3 py-1 text-[11.5px] font-bold text-[#F5F7FA] hover:border-white/25 cursor-pointer"
                 >
-                  🏋️ Library
+                  <Dumbbell className="h-3.5 w-3.5" style={{ color: brandAccentText }} aria-hidden />
+                  Library
                 </button>
                 <span
-                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-extrabold ${
+                  className="inline-flex min-h-[38px] items-center gap-1 rounded-full px-3 py-1 text-[11px] font-extrabold border"
+                  style={
                     effectiveNutrition.isCoachApproved
-                      ? 'bg-[#C8F135]/15 border border-[#C8F135]/40 text-[#C8F135]'
-                      : 'bg-[#14171D] border border-white/10 text-slate-300'
-                  }`}
+                      ? {
+                          backgroundColor: `${brandAccent}1F`,
+                          borderColor: `${brandAccent}66`,
+                          color: brandAccentText,
+                        }
+                      : {
+                          backgroundColor: '#171B22',
+                          borderColor: 'rgba(255,255,255,0.1)',
+                          color: '#A4ADBB',
+                        }
+                  }
                 >
                   <Sparkles className="h-3 w-3" aria-hidden />
                   {effectiveNutrition.isCoachApproved
@@ -3108,23 +3044,25 @@ export default function CustomerGymPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-1.5 rounded-2xl bg-[#14171D] p-1 border border-white/[0.07]">
+            <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-[#171B22] p-1 border border-white/[0.08] max-w-md">
               {(
                 [
-                  { id: 'schedule', label: 'Schedule' },
-                  { id: 'nutrition', label: 'Nutrition' },
-                  { id: 'pass', label: 'Pass & Renew' },
+                  { id: 'schedule', label: 'My Workout Split' },
+                  { id: 'nutrition', label: 'Nutrition & Meals' },
                 ] as const
               ).map((t) => (
                 <button
                   key={t.id}
                   type="button"
                   onClick={() => setPlanSubTab(t.id)}
-                  className={`rounded-xl py-2 text-[12px] font-extrabold transition-colors cursor-pointer ${
+                  className={`min-h-[40px] rounded-xl py-2 text-[12.5px] font-extrabold transition-colors cursor-pointer ${
                     planSubTab === t.id
-                      ? 'bg-[#1E222B] text-[#C8F135]'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-[#232933]'
+                      : 'text-[#A4ADBB] hover:text-[#F5F7FA]'
                   }`}
+                  style={
+                    planSubTab === t.id ? { color: brandAccentText } : undefined
+                  }
                 >
                   {t.label}
                 </button>
@@ -3132,24 +3070,26 @@ export default function CustomerGymPage() {
             </div>
 
             {planSubTab === 'schedule' && (
-              <div className="space-y-3">
-                <div className="rounded-2xl bg-[#14171D] border border-white/[0.07] p-3.5 space-y-2.5">
-                  <div className="flex items-center justify-between text-[12px] font-bold text-slate-300">
-                    <span>How you train</span>
-                    <span className="text-[11px] text-slate-500">
+              <div className="space-y-4">
+                <div className="rounded-3xl bg-[#171B22] border border-white/[0.08] p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#778191]">
+                      Schedule Structure
+                    </p>
+                    <p className="text-[15px] font-black text-[#F5F7FA]">
                       {effectiveNutrition.planTitle}
-                    </span>
+                    </p>
                   </div>
-                  <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-[#0B0D10] p-1">
+                  <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-[#0B0D10] p-1 sm:w-60">
                     {(['fixed_week', 'rotation'] as const).map((m) => (
                       <button
                         key={m}
                         type="button"
                         onClick={() => void handlePersistScheduleMode(m)}
-                        className={`rounded-lg py-1.5 text-[12px] font-bold cursor-pointer ${
+                        className={`min-h-[36px] rounded-lg px-3 py-1.5 text-[12px] font-bold cursor-pointer ${
                           scheduleModeView === m
-                            ? 'bg-[#1E222B] text-white'
-                            : 'text-slate-500'
+                            ? 'bg-[#232933] text-[#F5F7FA]'
+                            : 'text-[#778191]'
                         }`}
                       >
                         {m === 'fixed_week' ? 'Fixed Week' : 'Rotation'}
@@ -3158,18 +3098,18 @@ export default function CustomerGymPage() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                   {effectiveWeeklySchedule.map((day) => {
                     const isExpanded = expandedDayKey === day.dayKey;
                     const isToday = day.dayKey === todayWeekKey;
                     return (
                       <div
                         key={day.dayKey}
-                        className="rounded-2xl bg-[#14171D] border transition-colors"
+                        className="rounded-2xl bg-[#171B22] border transition-colors h-fit"
                         style={{
                           borderColor: isToday
-                            ? `${brandAccent}66`
-                            : 'rgba(255,255,255,0.07)',
+                            ? `${brandAccent}73`
+                            : 'rgba(255,255,255,0.08)',
                         }}
                       >
                         <div className="w-full p-3.5 flex items-center justify-between gap-2">
@@ -3181,9 +3121,9 @@ export default function CustomerGymPage() {
                             className="flex flex-1 items-center gap-3 min-w-0 text-left cursor-pointer"
                           >
                             <span
-                              className="w-7 text-[13px] font-black shrink-0"
+                              className="w-8 text-[13px] font-black shrink-0"
                               style={{
-                                color: isToday ? brandAccent : '#94A3B8',
+                                color: isToday ? brandAccentText : '#778191',
                               }}
                             >
                               {day.dayLabel}
@@ -3193,12 +3133,12 @@ export default function CustomerGymPage() {
                               style={
                                 day.isRestDay
                                   ? {
-                                      backgroundColor: '#1E222B',
-                                      color: '#64748B',
+                                      backgroundColor: '#232933',
+                                      color: '#778191',
                                     }
                                   : {
                                       backgroundColor: `${brandAccent}22`,
-                                      color: brandAccent,
+                                      color: brandAccentText,
                                     }
                               }
                             >
@@ -3209,10 +3149,10 @@ export default function CustomerGymPage() {
                               )}
                             </span>
                             <div className="min-w-0">
-                              <p className="text-[14px] font-extrabold text-white truncate">
+                              <p className="text-[14px] font-extrabold text-[#F5F7FA] truncate">
                                 {day.focusTitle}
                               </p>
-                              <p className="text-[11px] text-slate-400">
+                              <p className="text-[11px] text-[#A4ADBB]">
                                 {day.isRestDay
                                   ? 'Recovery & mobility day'
                                   : `${day.exercises.length} exercises`}
@@ -3221,21 +3161,10 @@ export default function CustomerGymPage() {
                           </button>
 
                           <div className="flex items-center gap-2 shrink-0">
-                            {!day.isRestDay && (
-                              <GymMuscleMapSvg
-                                activeMuscles={Array.from(
-                                  new Set(
-                                    day.exercises.map((e) => e.muscleGroup),
-                                  ),
-                                )}
-                                accentColor={brandAccent}
-                                compact
-                              />
-                            )}
                             <button
                               type="button"
                               onClick={() => openDaySplitEditor(day)}
-                              className="flex h-8 items-center gap-1 rounded-xl border border-white/10 bg-[#1E222B] px-2.5 text-[11px] font-bold text-slate-200 hover:border-white/25 cursor-pointer"
+                              className="flex h-9 items-center gap-1 rounded-xl border border-white/10 bg-[#232933] px-2.5 text-[11px] font-bold text-[#F5F7FA] hover:border-white/25 cursor-pointer"
                               aria-label={`Edit ${day.dayLabel} split`}
                             >
                               <Pencil className="h-3 w-3" aria-hidden />
@@ -3245,11 +3174,11 @@ export default function CustomerGymPage() {
                         </div>
 
                         {isExpanded && !day.isRestDay && (
-                          <div className="border-t border-white/[0.06] px-3.5 pb-3.5 pt-2.5 space-y-2">
+                          <div className="border-t border-white/[0.07] px-3.5 pb-3.5 pt-2.5 space-y-2">
                             {day.exercises.map((ex, i) => (
                               <div
                                 key={`${ex.name}-${i}`}
-                                className="flex items-center justify-between gap-2 rounded-xl bg-[#1E222B] p-2 text-[12px]"
+                                className="flex items-center justify-between gap-2 rounded-xl bg-[#111419] p-2 text-[12px]"
                               >
                                 <div className="flex items-center gap-2.5 min-w-0">
                                   <ExerciseAnimationPreview
@@ -3259,11 +3188,11 @@ export default function CustomerGymPage() {
                                     muscleGroup={ex.muscleGroup}
                                     variant="compact"
                                   />
-                                  <span className="font-bold text-white truncate">
+                                  <span className="font-bold text-[#F5F7FA] truncate">
                                     {ex.name}
                                   </span>
                                 </div>
-                                <span className="text-slate-400 tabular-nums shrink-0 pr-1">
+                                <span className="text-[#A4ADBB] tabular-nums shrink-0 pr-1">
                                   {ex.sets} × {ex.reps}
                                 </span>
                               </div>
@@ -3276,7 +3205,7 @@ export default function CustomerGymPage() {
                                   day.exercises,
                                 )
                               }
-                              className="gym-tactile mt-1 flex h-10 w-full items-center justify-center gap-1.5 rounded-xl text-[13px] font-black cursor-pointer"
+                              className="gym-tactile mt-1 flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl text-[13px] font-black cursor-pointer"
                               style={{
                                 backgroundColor: brandAccent,
                                 color: brandInk,
@@ -3298,92 +3227,168 @@ export default function CustomerGymPage() {
             )}
 
             {planSubTab === 'nutrition' && (
-              <div className="space-y-3.5">
-                <div className="rounded-3xl bg-[#14171D] border border-white/[0.07] p-4 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-wider text-[#C8F135]">
-                        Daily Macro Targets
-                      </p>
-                      <h2 className="text-[22px] font-black tabular-nums text-white">
-                        {effectiveNutrition.dailyCaloriesKcal.toLocaleString(
-                          'en-IN',
-                        )}{' '}
-                        kcal
-                      </h2>
-                    </div>
-                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-sky-500/15 border border-sky-500/30 px-3 py-1.5 text-[12px] font-extrabold text-sky-300 tabular-nums">
-                      <Droplets className="h-3.5 w-3.5" aria-hidden />
-                      {effectiveNutrition.waterLiters}L Water
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      {
-                        label: 'Protein',
-                        grams: effectiveNutrition.proteinGrams,
-                        color: 'bg-[#C8F135]',
-                        text: 'text-[#C8F135]',
-                      },
-                      {
-                        label: 'Carbs',
-                        grams: effectiveNutrition.carbsGrams,
-                        color: 'bg-sky-400',
-                        text: 'text-sky-300',
-                      },
-                      {
-                        label: 'Fats',
-                        grams: effectiveNutrition.fatsGrams,
-                        color: 'bg-amber-400',
-                        text: 'text-amber-300',
-                      },
-                    ].map((macro) => (
-                      <div
-                        key={macro.label}
-                        className="rounded-2xl bg-[#1E222B] p-3 space-y-1.5"
-                      >
-                        <p className="text-[11px] font-semibold text-slate-400">
-                          {macro.label}
-                        </p>
-                        <p
-                          className={`text-[17px] font-black tabular-nums ${macro.text}`}
+              <div className="space-y-4">
+                {(() => {
+                  const proteinKcal = effectiveNutrition.proteinGrams * 4;
+                  const carbsKcal = effectiveNutrition.carbsGrams * 4;
+                  const fatsKcal = effectiveNutrition.fatsGrams * 9;
+                  const totalMacroKcal = Math.max(
+                    1,
+                    proteinKcal + carbsKcal + fatsKcal,
+                  );
+                  const proteinShare = Math.round(
+                    (proteinKcal / totalMacroKcal) * 100,
+                  );
+                  const carbsShare = Math.round(
+                    (carbsKcal / totalMacroKcal) * 100,
+                  );
+                  const fatsShare = Math.max(
+                    0,
+                    100 - proteinShare - carbsShare,
+                  );
+                  return (
+                    <div className="rounded-3xl bg-[#171B22] border border-white/[0.08] p-5 grid grid-cols-1 gap-4 md:grid-cols-12 md:items-center">
+                      <div className="flex items-center gap-4 md:col-span-5">
+                        <div
+                          className="relative flex h-24 w-24 shrink-0 items-center justify-center rounded-full"
+                          style={{
+                            background: `conic-gradient(${brandAccent} 0% ${proteinShare}%, #58B8FF ${proteinShare}% ${proteinShare + carbsShare}%, #FFB84D ${proteinShare + carbsShare}% 100%)`,
+                          }}
                         >
-                          {macro.grams}g
-                        </p>
-                        <div className="h-1.5 w-full rounded-full bg-[#0B0D10]">
-                          <div
-                            className={`h-full rounded-full ${macro.color}`}
-                            style={{ width: '75%' }}
-                          />
+                          <div className="flex h-19 w-19 flex-col items-center justify-center rounded-full bg-[#171B22] text-center">
+                            <span className="text-[16px] font-black text-[#F5F7FA] tabular-nums leading-none">
+                              {effectiveNutrition.dailyCaloriesKcal}
+                            </span>
+                            <span className="mt-0.5 text-[9.5px] font-bold text-[#778191]">
+                              kcal target
+                            </span>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <p
+                            className="text-[10.5px] font-extrabold uppercase tracking-wider"
+                            style={{ color: brandAccentText }}
+                          >
+                            {effectiveNutrition.isCoachApproved
+                              ? `Coach · ${effectiveNutrition.trainerName}`
+                              : 'Recommended Daily Target'}
+                          </p>
+                          <p className="text-[14px] font-bold text-[#F5F7FA]">
+                            {effectiveNutrition.planTitle}
+                          </p>
+                          <div className="inline-flex items-center gap-1.5 rounded-xl bg-sky-500/15 border border-sky-500/30 px-2.5 py-1 text-[11.5px] font-extrabold text-sky-300 tabular-nums">
+                            <Droplets className="h-3.5 w-3.5" aria-hidden />
+                            {effectiveNutrition.waterLiters}L Water Goal
+                          </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
 
-                <div className="rounded-3xl bg-[#14171D] border border-white/[0.07] p-4 space-y-3">
-                  <h3 className="text-[14.5px] font-extrabold text-white flex items-center gap-2">
-                    <Utensils className="h-4 w-4 text-[#C8F135]" aria-hidden />
-                    Meal-by-Meal Indian Diet Plan
-                  </h3>
-                  <div className="space-y-2.5">
+                      <div className="grid grid-cols-3 gap-2 md:col-span-7">
+                        {[
+                          {
+                            label: 'Protein',
+                            grams: effectiveNutrition.proteinGrams,
+                            share: proteinShare,
+                            barColor: brandAccent,
+                            textColor: brandAccentText,
+                          },
+                          {
+                            label: 'Carbs',
+                            grams: effectiveNutrition.carbsGrams,
+                            share: carbsShare,
+                            barColor: '#58B8FF',
+                            textColor: '#58B8FF',
+                          },
+                          {
+                            label: 'Fats',
+                            grams: effectiveNutrition.fatsGrams,
+                            share: fatsShare,
+                            barColor: '#FFB84D',
+                            textColor: '#FFB84D',
+                          },
+                        ].map((macro) => (
+                          <div
+                            key={macro.label}
+                            className="rounded-2xl bg-[#111419] border border-white/[0.06] p-3 space-y-1"
+                          >
+                            <p className="text-[11px] font-semibold text-[#A4ADBB]">
+                              {macro.label}
+                            </p>
+                            <p
+                              className="text-[17px] font-black tabular-nums"
+                              style={{ color: macro.textColor }}
+                            >
+                              {macro.grams}g
+                            </p>
+                            <p className="text-[10.5px] font-bold text-[#778191] tabular-nums">
+                              {macro.share}% of kcal
+                            </p>
+                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#232933]">
+                              <div
+                                className="h-full rounded-full"
+                                style={{
+                                  width: `${Math.max(8, macro.share)}%`,
+                                  backgroundColor: macro.barColor,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="rounded-3xl bg-[#171B22] border border-white/[0.08] p-4 sm:p-5 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-[15px] font-extrabold text-[#F5F7FA] flex items-center gap-2">
+                      <Utensils
+                        className="h-4 w-4"
+                        style={{ color: brandAccentText }}
+                        aria-hidden
+                      />
+                      Meal-by-Meal Indian Diet Plan
+                    </h3>
+                    <span className="text-[11px] font-semibold text-[#778191]">
+                      {effectiveNutrition.meals.length} daily meals
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
                     {effectiveNutrition.meals.map((meal, idx) => (
                       <div
                         key={`${meal.mealTime}-${idx}`}
-                        className="rounded-2xl bg-[#1E222B] border border-white/[0.05] p-3 space-y-1"
+                        className="flex items-center gap-3 rounded-2xl bg-[#111419] border border-white/[0.06] p-3"
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[12px] font-extrabold text-[#C8F135]">
-                            {meal.mealTime}
-                          </span>
-                          <span className="text-[11px] font-bold text-slate-400 tabular-nums">
-                            {meal.calories} kcal · {meal.protein}g P
-                          </span>
+                        <ImageWithFallback
+                          src={resolveMealImageForText(
+                            meal.mealTime,
+                            meal.items,
+                            idx,
+                          )}
+                          alt={meal.mealTime}
+                          className="h-14 w-14 shrink-0 rounded-xl object-cover border border-white/10"
+                          fallback={
+                            <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-[#232933] text-[#A4ADBB]">
+                              <Utensils className="h-5 w-5" aria-hidden />
+                            </span>
+                          }
+                        />
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              className="text-[12px] font-extrabold truncate"
+                              style={{ color: brandAccentText }}
+                            >
+                              {meal.mealTime}
+                            </span>
+                            <span className="shrink-0 text-[11px] font-bold text-[#A4ADBB] tabular-nums">
+                              {meal.calories} kcal · {meal.protein}g P
+                            </span>
+                          </div>
+                          <p className="text-[12.5px] font-medium text-[#F5F7FA] leading-snug">
+                            {meal.items}
+                          </p>
                         </div>
-                        <p className="text-[13px] font-medium text-slate-200 leading-snug">
-                          {meal.items}
-                        </p>
                       </div>
                     ))}
                   </div>
@@ -3391,252 +3396,106 @@ export default function CustomerGymPage() {
 
                 {(effectiveNutrition.supplementNotes ||
                   effectiveNutrition.coachNotes) && (
-                  <div className="rounded-2xl bg-[#14171D] border border-white/[0.07] p-4 space-y-2">
-                    {effectiveNutrition.supplementNotes && (
-                      <div>
-                        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                          Supplements &amp; Hydration
-                        </p>
-                        <p className="text-[12.5px] text-slate-200 mt-0.5">
-                          {effectiveNutrition.supplementNotes}
-                        </p>
-                      </div>
-                    )}
-                    {effectiveNutrition.coachNotes && (
-                      <div className="pt-1 border-t border-white/[0.06]">
-                        <p className="text-[11px] font-bold uppercase tracking-wider text-[#C8F135]">
-                          Coach Notes
-                        </p>
-                        <p className="text-[12.5px] text-slate-200 mt-0.5">
-                          {effectiveNutrition.coachNotes}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {planSubTab === 'pass' && (
-              <div className="space-y-4">
-                <div className="overflow-hidden rounded-3xl bg-[#14171D] text-white border border-white/10 shadow-lg">
-                  <div className="p-5 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#C8F135] text-[#0B0D10]">
-                          <Dumbbell className="h-4 w-4" aria-hidden />
-                        </span>
-                        <span className="text-[14px] font-extrabold">
-                          {portal.business.name}
-                        </span>
-                      </div>
-                      <span
-                        className={`rounded-full px-2.5 py-0.5 text-[11px] font-extrabold ${
-                          isFrozen
-                            ? 'bg-sky-400/20 text-sky-300'
-                            : memberPass.effectiveStatus === 'active'
-                              ? 'bg-[#C8F135] text-[#0B0D10]'
-                              : memberPass.effectiveStatus === 'expiring_soon'
-                                ? 'bg-amber-400 text-[#0B0D10]'
-                                : 'bg-rose-500/25 text-rose-200'
-                        }`}
-                      >
-                        {isFrozen
-                          ? 'Frozen'
-                          : memberPass.effectiveStatus === 'expiring_soon'
-                            ? 'Renew Soon'
-                            : memberPass.effectiveStatus.replace('_', ' ')}
-                      </span>
-                    </div>
-
-                    <div>
-                      <p className="text-[20px] font-black">
-                        {toTitleCase(memberPass.fullName)}
-                      </p>
-                      <p className="text-[12px] text-slate-400">
-                        {memberPass.planName} · {memberPass.memberCode}
-                        {ptLeft > 0 ? ` · ${ptLeft} PT Left` : ''}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center justify-between border-t border-white/10 pt-3">
-                      <span className="flex items-center gap-1.5 text-[12px] text-slate-300">
-                        <Calendar
-                          className="h-3.5 w-3.5 text-[#C8F135]"
-                          aria-hidden
-                        />
-                        {memberPass.endDate
-                          ? formatIsoDatePretty(memberPass.endDate)
-                          : 'Pending Approval'}
-                      </span>
-                      <span className="rounded-lg border border-[#C8F135]/40 bg-[#C8F135]/15 px-2.5 py-1 text-[12px] font-extrabold text-[#C8F135] tabular-nums">
-                        {memberPass.daysRemaining} Days Left
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="bg-white p-5 text-center space-y-2">
-                    <div className="inline-flex rounded-2xl border border-slate-200 p-2 bg-white">
-                      <canvas ref={passQrCanvasRef} />
-                    </div>
-                    <p className="text-[12px] font-semibold text-slate-600">
-                      Show this QR code at the front desk
-                    </p>
-                  </div>
-                </div>
-
-                {balanceDue > 0 && (
-                  <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 flex items-start gap-3">
-                    <AlertCircle
-                      className="h-5 w-5 text-amber-400 shrink-0 mt-0.5"
-                      aria-hidden
+                  <div className="rounded-2xl bg-[#171B22] border border-white/[0.08] p-4 flex items-start gap-3.5">
+                    <ImageWithFallback
+                      src={GYM_EMPTY_ASSETS.shaker}
+                      alt="Supplements and hydration"
+                      className="h-14 w-14 shrink-0 rounded-xl object-cover border border-white/10"
                     />
-                    <div>
-                      <p className="text-[14px] font-extrabold text-amber-200 tabular-nums">
-                        Installment Balance Due:{' '}
-                        {formatPriceFromPaise(balanceDue, 'INR')}
-                      </p>
-                      <p className="text-[12px] text-amber-300/80 mt-0.5">
-                        {memberPass.balanceDueDate
-                          ? `Settle by ${formatIsoDatePretty(memberPass.balanceDueDate)} via UPI or Cash at reception.`
-                          : 'Settle via UPI or Cash at reception on your next visit.'}
-                      </p>
+                    <div className="space-y-2 min-w-0">
+                      {effectiveNutrition.supplementNotes && (
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-[#A4ADBB]">
+                            Supplements &amp; Hydration
+                          </p>
+                          <p className="text-[12.5px] text-[#F5F7FA] mt-0.5">
+                            {effectiveNutrition.supplementNotes}
+                          </p>
+                        </div>
+                      )}
+                      {effectiveNutrition.coachNotes && (
+                        <div className="pt-1 border-t border-white/[0.06]">
+                          <p
+                            className="text-[11px] font-bold uppercase tracking-wider"
+                            style={{ color: brandAccentText }}
+                          >
+                            Coach Notes
+                          </p>
+                          <p className="text-[12.5px] text-[#F5F7FA] mt-0.5">
+                            {effectiveNutrition.coachNotes}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
-
-                <div className="rounded-3xl border border-white/[0.07] bg-[#14171D] p-4 space-y-3">
-                  <div>
-                    <h3 className="text-[15px] font-extrabold text-white">
-                      Renew or Upgrade Plan
-                    </h3>
-                    <p className="text-[12px] text-slate-400">
-                      Choose a plan and confirm payment at reception
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    {portal.config.plans.map((plan) => {
-                      const selected = renewPlanId === plan.id;
-                      const isPopular =
-                        plan.durationDays === 90 ||
-                        (plan.badge ?? '').toLowerCase().includes('popular');
-                      return (
-                        <button
-                          key={plan.id}
-                          type="button"
-                          onClick={() => {
-                            setRenewPlanId(plan.id);
-                            setRenewNotice(null);
-                          }}
-                          className={`flex w-full items-center justify-between rounded-2xl border p-3.5 text-left transition-all cursor-pointer ${
-                            selected
-                              ? 'border-2 border-[#C8F135] bg-[#C8F135]/10'
-                              : 'border-white/10 bg-[#1E222B] hover:border-white/25'
-                          }`}
-                        >
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[14px] font-extrabold text-white">
-                                {plan.name}
-                              </span>
-                              {isPopular && (
-                                <span className="rounded-full bg-[#C8F135] px-2 py-0.5 text-[10px] font-black text-[#0B0D10]">
-                                  Most Popular
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-[11.5px] text-slate-400">
-                              {plan.durationDays} days · Full Gym &amp; Coach
-                              Access
-                            </p>
-                          </div>
-                          <span className="text-[15px] font-black text-[#C8F135] tabular-nums">
-                            {formatPriceFromPaise(plan.pricePaise, 'INR')}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const chosen = portal.config.plans.find(
-                        (p) => p.id === renewPlanId,
-                      );
-                      setRenewNotice(
-                        `Selected ${chosen?.name ?? 'Plan'} (${formatPriceFromPaise(chosen?.pricePaise ?? 0, 'INR')}). Show pass ${memberPass.memberCode} at the front desk to pay via UPI/Cash & extend instantly!`,
-                      );
-                    }}
-                    className="gym-tactile flex h-11.5 w-full items-center justify-center gap-2 rounded-2xl bg-[#C8F135] text-[14px] font-black text-[#0B0D10] cursor-pointer"
-                  >
-                    Proceed to Pay <ArrowRight className="h-4 w-4" aria-hidden />
-                  </button>
-                  {renewNotice && (
-                    <p className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-[12px] font-semibold text-emerald-200">
-                      {renewNotice}
-                    </p>
-                  )}
-                </div>
-
-                <div className="rounded-2xl border border-white/[0.07] bg-[#14171D] p-4 space-y-2.5">
-                  <button
-                    type="button"
-                    onClick={() => void handleSaveToHomeScreen()}
-                    className="gym-tactile flex h-10.5 w-full items-center justify-center gap-2 rounded-xl bg-[#1E222B] text-[13px] font-extrabold text-[#C8F135] cursor-pointer"
-                  >
-                    <Smartphone className="h-4 w-4" aria-hidden />
-                    Save Gym Pass to Home Screen
-                  </button>
-                  {showHomeGuide && (
-                    <div className="rounded-xl bg-[#0B0D10] p-3 text-[12px] text-slate-400 space-y-1">
-                      <p>
-                        <strong className="text-white">iPhone Safari:</strong>{' '}
-                        Tap Share → Add to Home Screen.
-                      </p>
-                      <p>
-                        <strong className="text-white">Android Chrome:</strong>{' '}
-                        Tap ⋮ Menu → Add to Home screen.
-                      </p>
-                    </div>
-                  )}
-                  <Link
-                    to={`/r/${businessSlug}`}
-                    className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-white/10 text-[12.5px] font-bold text-slate-300 hover:text-white"
-                  >
-                    <Star className="h-3.5 w-3.5 text-[#C8F135]" aria-hidden />{' '}
-                    Leave a 10-second Google Review
-                  </Link>
-                </div>
               </div>
             )}
           </div>
         )}
 
-        {/* ==================== TAB 4: MEMBERS (LIVE FLOOR DIRECTORY + COMMUNITY CHAT) ==================== */}
-        {activeTab === 'members' && (
+        {/* ==================== TAB 5: PROFILE, DIGITAL PASS QR & SETTINGS ==================== */}
+        {activeTab === 'profile' && (
+          <GymProfileTab
+            portal={portal}
+            businessSlug={businessSlug}
+            memberPass={memberPass}
+            brandTheme={brandTheme}
+            activeShift={activeShift}
+            updatingShift={updatingShift}
+            onChangeShift={(shift) => void handleChangeMemberShift(shift)}
+            ptTrainerDisplayName={ptTrainerDisplayName}
+            ptTrainerSpecialtyDisplay={ptTrainerSpecialtyDisplay}
+            ptLeft={ptLeft}
+            ptSessionsTotal={ptSessionsTotal}
+            balanceDue={balanceDue}
+            isFrozen={isFrozen}
+            passQrCanvasRef={passQrCanvasRef}
+            renewPlanId={renewPlanId}
+            onSelectRenewPlan={(planId) => {
+              setRenewPlanId(planId);
+              setRenewNotice(null);
+            }}
+            renewNotice={renewNotice}
+            onConfirmRenewNotice={(notice) => setRenewNotice(notice)}
+            soundEnabled={soundEnabled}
+            onToggleSound={handleToggleSound}
+            onExportCsv={handleExportCsv}
+            onSaveToHomeScreen={() => void handleSaveToHomeScreen()}
+            showHomeGuide={showHomeGuide}
+            onSwitchMember={handleSwitchMember}
+            onJumpToTab={(tab) => setActiveTab(tab)}
+          />
+        )}
+
+        {/* ==================== TAB 4: COMMUNITY (GYM CHAT + LIVE FLOOR DIRECTORY) ==================== */}
+        {activeTab === 'community' && (
           <div className="space-y-4 gym-fade-up">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h1 className="text-[22px] font-black tracking-tight text-white">
-                  Members
-                </h1>
-                <p className="text-[12px] text-slate-400">
-                  {
-                    (communityHub?.membersDirectory ?? []).filter(
-                      (m) => m.isCheckedInToday,
-                    ).length
-                  }{' '}
-                  on the floor today · {portal.activeMembersCount} active
-                </p>
+            <div className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-[#171B22] p-5">
+              <ImageWithFallback
+                src={GYM_COMMUNITY_ASSETS.floorCrew}
+                alt="Gym members training together"
+                className="pointer-events-none absolute inset-y-0 right-0 h-full w-2/3 object-cover opacity-30"
+              />
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#171B22] via-[#171B22]/90 to-transparent" />
+              <div className="relative z-10 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h1 className="text-[22px] font-black tracking-tight text-[#F5F7FA]">
+                    Community
+                  </h1>
+                  <p className="text-[12.5px] font-medium text-[#A4ADBB]">
+                    {(communityHub?.membersDirectory ?? []).filter((m) => m.isCheckedInToday).length} on the floor today · {portal.activeMembersCount} active members
+                  </p>
+                </div>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#35D07F]/15 border border-[#35D07F]/35 px-3 py-1 text-[11px] font-extrabold text-[#35D07F]">
+                  <span className="gym-pulse-dot h-2 w-2 rounded-full bg-[#35D07F]" />
+                  Live Floor
+                </span>
               </div>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-3 py-1 text-[11px] font-extrabold text-emerald-300">
-                <span className="gym-pulse-dot h-2 w-2 rounded-full bg-emerald-400" />
-                Live Gym
-              </span>
             </div>
 
-            {/* Sub-Tabs: Gym Chat vs Members Live Floor Directory */}
-            <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-[#14171D] p-1 border border-white/[0.07]">
+            {/* Mobile Sub-Tab Switcher (Desktop shows Chat + Directory side-by-side) */}
+            <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-[#171B22] p-1 border border-white/[0.08] lg:hidden">
               <button
                 type="button"
                 onClick={() => {
@@ -3644,44 +3503,57 @@ export default function CustomerGymPage() {
                   setUnreadChatCount(0);
                   setNotifBanner(null);
                 }}
-                className={`rounded-xl py-2 text-[12px] font-extrabold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                className={`min-h-[40px] rounded-xl py-2 text-[12px] font-extrabold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
                   membersSubTab === 'chat'
-                    ? 'bg-[#1E222B] text-[#C8F135]'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-[#232933]'
+                    : 'text-[#A4ADBB] hover:text-[#F5F7FA]'
                 }`}
+                style={
+                  membersSubTab === 'chat'
+                    ? { color: brandAccentText }
+                    : undefined
+                }
               >
                 <MessageCircle className="h-3.5 w-3.5" aria-hidden /> Gym Chat
               </button>
               <button
                 type="button"
                 onClick={() => setMembersSubTab('directory')}
-                className={`rounded-xl py-2 text-[12px] font-extrabold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                className={`min-h-[40px] rounded-xl py-2 text-[12px] font-extrabold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
                   membersSubTab === 'directory'
-                    ? 'bg-[#1E222B] text-[#C8F135]'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-[#232933]'
+                    : 'text-[#A4ADBB] hover:text-[#F5F7FA]'
                 }`}
+                style={
+                  membersSubTab === 'directory'
+                    ? { color: brandAccentText }
+                    : undefined
+                }
               >
-                <Users className="h-3.5 w-3.5" aria-hidden /> Members (Live
-                Floor)
+                <Users className="h-3.5 w-3.5" aria-hidden /> Live Floor Crew
               </button>
             </div>
 
-            {membersSubTab === 'chat' && (
-              <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+              <div
+                className={`${
+                  membersSubTab === 'chat' ? 'block' : 'hidden lg:block'
+                } space-y-3 lg:col-span-7`}
+              >
                 <div className="flex items-center justify-between px-1">
-                  <span className="text-[11px] font-bold text-slate-400">
+                  <span className="text-[11.5px] font-bold text-[#A4ADBB]">
                     Real-time gym lounge &amp; spotter finder
                   </span>
                   <button
                     type="button"
                     onClick={handleToggleSound}
-                    className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-[#14171D] px-2.5 py-1 text-[11px] font-bold text-slate-300 hover:text-white cursor-pointer"
+                    className="inline-flex min-h-[34px] items-center gap-1.5 rounded-xl border border-white/10 bg-[#171B22] px-3 py-1 text-[11px] font-bold text-[#F5F7FA] cursor-pointer"
                   >
                     {soundEnabled ? (
                       <>
                         <Volume2
                           className="h-3.5 w-3.5"
-                          style={{ color: brandAccent }}
+                          style={{ color: brandAccentText }}
                           aria-hidden
                         />
                         Chime On
@@ -3689,7 +3561,7 @@ export default function CustomerGymPage() {
                     ) : (
                       <>
                         <VolumeX
-                          className="h-3.5 w-3.5 text-slate-500"
+                          className="h-3.5 w-3.5 text-[#778191]"
                           aria-hidden
                         />
                         Muted
@@ -3697,18 +3569,19 @@ export default function CustomerGymPage() {
                     )}
                   </button>
                 </div>
+
                 {/* Chat Feed */}
-                <div className="rounded-3xl bg-[#14171D] border border-white/[0.07] p-3.5 space-y-2.5 max-h-[380px] overflow-y-auto">
+                <div className="rounded-3xl bg-[#171B22] border border-white/[0.08] p-4 space-y-2.5 max-h-[420px] overflow-y-auto">
                   {(communityHub?.chatMessages ?? []).length === 0 ? (
                     <div className="py-10 text-center space-y-2">
                       <MessageCircle
-                        className="mx-auto h-8 w-8 text-slate-600"
+                        className="mx-auto h-8 w-8 text-[#778191]"
                         aria-hidden
                       />
-                      <p className="text-[13px] font-bold text-slate-300">
+                      <p className="text-[13.5px] font-bold text-[#F5F7FA]">
                         Start the conversation!
                       </p>
-                      <p className="text-[11.5px] text-slate-500">
+                      <p className="text-[12px] text-[#778191]">
                         Find a spotter, celebrate PRs &amp; hype your gym crew.
                       </p>
                     </div>
@@ -3720,35 +3593,45 @@ export default function CustomerGymPage() {
                       return (
                         <div
                           key={msg.id}
-                          className={`rounded-2xl p-3 space-y-1 ${
+                          className={`rounded-2xl p-3 space-y-1 border ${
                             isPr
-                              ? 'bg-[#C8F135]/15 border border-[#C8F135]/40'
+                              ? ''
                               : isCoach
-                                ? 'bg-indigo-500/15 border border-indigo-400/40'
+                                ? 'bg-[#58B8FF]/15 border-[#58B8FF]/40'
                                 : isMe
-                                  ? 'bg-[#1E222B] border border-white/15 ml-6'
-                                  : 'bg-[#1E222B]/80 border border-white/[0.06] mr-6'
+                                  ? 'bg-[#232933] border-white/15 ml-6'
+                                  : 'bg-[#111419] border-white/[0.06] mr-6'
                           }`}
+                          style={
+                            isPr
+                              ? {
+                                  backgroundColor: `${brandAccent}1F`,
+                                  borderColor: `${brandAccent}59`,
+                                }
+                              : undefined
+                          }
                         >
                           <div className="flex items-center justify-between gap-2 text-[11px]">
                             <span
-                              className={`font-extrabold ${
-                                isPr || isCoach
-                                  ? 'text-[#C8F135]'
-                                  : isMe
-                                    ? 'text-[#C8F135]'
-                                    : 'text-slate-200'
-                              }`}
+                              className="font-extrabold"
+                              style={{
+                                color:
+                                  isPr || isMe
+                                    ? brandAccentText
+                                    : isCoach
+                                      ? '#58B8FF'
+                                      : '#F5F7FA',
+                              }}
                             >
                               {isCoach ? '📢 ' : ''}
                               {msg.senderName}
                               {msg.senderCode ? ` · ${msg.senderCode}` : ''}
                             </span>
-                            <span className="text-slate-500 tabular-nums">
+                            <span className="text-[#778191] tabular-nums">
                               {formatShortMessageTime(msg.createdAt)}
                             </span>
                           </div>
-                          <p className="text-[13px] text-white leading-snug">
+                          <p className="text-[13px] text-[#F5F7FA] leading-snug">
                             {msg.messageText}
                           </p>
                         </div>
@@ -3766,7 +3649,7 @@ export default function CustomerGymPage() {
                         type="button"
                         disabled={sendingChat}
                         onClick={() => void handleSendChatMessage(chip)}
-                        className="shrink-0 rounded-full border border-white/10 bg-[#14171D] px-3 py-1.5 text-[11.5px] font-bold text-slate-300 hover:border-[#C8F135] hover:text-[#C8F135] cursor-pointer"
+                        className="shrink-0 rounded-full border border-white/10 bg-[#171B22] px-3 py-1.5 text-[11.5px] font-bold text-[#A4ADBB] hover:text-[#F5F7FA] hover:border-white/25 cursor-pointer"
                       >
                         {chip}
                       </button>
@@ -3787,25 +3670,28 @@ export default function CustomerGymPage() {
                     placeholder="Message gym members..."
                     value={chatDraft}
                     onChange={(e) => setChatDraft(e.target.value)}
-                    className="h-11 flex-1 rounded-2xl border border-white/10 bg-[#14171D] px-4 text-[13.5px] text-white placeholder:text-slate-500 focus:border-[#C8F135] focus:outline-none"
+                    className="h-11 flex-1 rounded-2xl border border-white/10 bg-[#171B22] px-4 text-[13.5px] text-[#F5F7FA] placeholder:text-[#778191] focus:border-white/30 focus:outline-none"
                   />
                   <button
                     type="submit"
                     disabled={sendingChat || !chatDraft.trim()}
-                    className="gym-tactile flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#C8F135] text-[#0B0D10] disabled:opacity-40 cursor-pointer"
+                    className="gym-tactile flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl disabled:opacity-40 cursor-pointer"
+                    style={{ backgroundColor: brandAccent, color: brandInk }}
                     aria-label="Send message"
                   >
                     <Send className="h-4.5 w-4.5" aria-hidden />
                   </button>
                 </form>
               </div>
-            )}
 
-            {membersSubTab === 'directory' && (
-              <div className="space-y-3">
+              <div
+                className={`${
+                  membersSubTab === 'directory' ? 'block' : 'hidden lg:block'
+                } space-y-3 lg:col-span-5`}
+              >
                 <div className="relative">
                   <Search
-                    className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                    className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#778191]"
                     aria-hidden
                   />
                   <input
@@ -3813,30 +3699,33 @@ export default function CustomerGymPage() {
                     value={memberDirSearch}
                     onChange={(e) => setMemberDirSearch(e.target.value)}
                     placeholder="Search active gym members..."
-                    className="h-10.5 w-full rounded-2xl border border-white/10 bg-[#14171D] pl-10 pr-4 text-[13px] text-white placeholder:text-slate-500 focus:border-[#C8F135] focus:outline-none"
+                    className="h-11 w-full rounded-2xl border border-white/10 bg-[#171B22] pl-10 pr-4 text-[13px] text-[#F5F7FA] placeholder:text-[#778191] focus:border-white/30 focus:outline-none"
                   />
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-[500px] overflow-y-auto pr-0.5">
                   {filteredDirectoryMembers.map((m, idx) => (
                     <div
                       key={m.id}
-                      className="rounded-2xl bg-[#14171D] border border-white/[0.07] p-3.5 flex items-center justify-between gap-3"
+                      className="rounded-2xl bg-[#171B22] border border-white/[0.08] p-3.5 flex items-center justify-between gap-3"
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#1E222B] text-[13px] font-black text-[#C8F135]">
+                        <span
+                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#232933] text-[13px] font-black"
+                          style={{ color: brandAccentText }}
+                        >
                           {m.fullName.slice(0, 2).toUpperCase()}
                         </span>
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-[11px] font-black text-slate-500">
+                            <span className="text-[11px] font-black text-[#778191]">
                               #{idx + 1}
                             </span>
-                            <p className="text-[14px] font-extrabold text-white truncate">
+                            <p className="text-[13.5px] font-extrabold text-[#F5F7FA] truncate">
                               {toTitleCase(m.fullName)}
                             </p>
                           </div>
-                          <p className="text-[11px] text-slate-400 tabular-nums">
+                          <p className="text-[11px] text-[#A4ADBB] tabular-nums">
                             {m.workoutsThisMonth} workouts this month
                             {m.todayWorkoutFocus
                               ? ` · ${getWorkoutFocusMeta(m.todayWorkoutFocus).dayLabel}`
@@ -3846,11 +3735,14 @@ export default function CustomerGymPage() {
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {m.isCheckedInToday && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-extrabold text-emerald-300">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-[#35D07F]/15 border border-[#35D07F]/35 px-2 py-0.5 text-[10px] font-extrabold text-[#35D07F]">
                             ● ON FLOOR
                           </span>
                         )}
-                        <span className="rounded-lg bg-[#1E222B] px-2 py-0.5 text-[11px] font-bold text-[#C8F135] tabular-nums">
+                        <span
+                          className="rounded-lg bg-[#232933] px-2 py-0.5 text-[11px] font-bold tabular-nums"
+                          style={{ color: brandAccentText }}
+                        >
                           🔥 {m.currentStreakDays}d
                         </span>
                       </div>
@@ -3858,32 +3750,32 @@ export default function CustomerGymPage() {
                   ))}
                 </div>
               </div>
-            )}
+            </div>
           </div>
         )}
 
-        {/* ==================== TAB 5: STATS (OVERVIEW | BODY TREND | LIFTS MULTIPLIERS | EFFORT) ==================== */}
-        {activeTab === 'stats' && (
+        {/* ==================== TAB 3: TRACK (PROGRESS, BODY LOG, LIFTS & BADGES) ==================== */}
+        {activeTab === 'track' && (
           <div className="space-y-4 gym-fade-up">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <div>
-                <h1 className="text-[22px] font-black tracking-tight text-white">
-                  Stats
+                <h1 className="text-[22px] font-black tracking-tight text-[#F5F7FA]">
+                  Progress &amp; Milestones
                 </h1>
-                <p className="text-[12px] text-slate-400">
-                  Progress &amp; history
+                <p className="text-[12px] text-[#A4ADBB]">
+                  Workout volume, weight trend, PR multipliers &amp; earned badges
                 </p>
               </div>
               <button
                 type="button"
                 onClick={handleExportCsv}
-                className="inline-flex h-8.5 items-center gap-1.5 rounded-xl border border-white/10 bg-[#14171D] px-3 text-[11.5px] font-bold text-slate-200 hover:text-white cursor-pointer"
+                className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl border border-white/10 bg-[#171B22] px-3 text-[11.5px] font-bold text-[#F5F7FA] hover:border-white/25 cursor-pointer"
               >
                 <Download className="h-3.5 w-3.5" aria-hidden /> CSV
               </button>
             </div>
 
-            <div className="grid grid-cols-4 gap-1 rounded-2xl bg-[#14171D] p-1 border border-white/[0.07]">
+            <div className="grid grid-cols-4 gap-1 rounded-2xl bg-[#171B22] p-1 border border-white/[0.08] max-w-md">
               {(
                 [
                   { id: 'overview', label: 'Overview' },
@@ -3896,11 +3788,16 @@ export default function CustomerGymPage() {
                   key={t.id}
                   type="button"
                   onClick={() => setStatsSubTab(t.id)}
-                  className={`rounded-xl py-2 text-[12px] font-extrabold transition-colors cursor-pointer ${
+                  className={`min-h-[38px] rounded-xl py-1.5 text-[12px] font-extrabold transition-colors cursor-pointer ${
                     statsSubTab === t.id
-                      ? 'bg-[#1E222B] text-[#C8F135]'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-[#232933]'
+                      : 'text-[#A4ADBB] hover:text-[#F5F7FA]'
                   }`}
+                  style={
+                    statsSubTab === t.id
+                      ? { color: brandAccentText }
+                      : undefined
+                  }
                 >
                   {t.label}
                 </button>
@@ -3908,103 +3805,138 @@ export default function CustomerGymPage() {
             </div>
 
             {statsSubTab === 'overview' && (
-              <div className="space-y-4">
-                <div className="rounded-3xl bg-[#14171D] border border-white/[0.07] p-4 space-y-4">
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="rounded-2xl bg-[#1E222B] p-3">
-                      <p className="text-[11px] text-slate-400">Workouts</p>
-                      <p className="mt-1 text-[20px] font-black tabular-nums text-white">
-                        {memberPass.totalCheckIns}
-                      </p>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+                <div className="space-y-4 lg:col-span-7">
+                  <div className="rounded-3xl bg-[#171B22] border border-white/[0.08] p-5 space-y-4">
+                    <div className="grid grid-cols-3 gap-2.5">
+                      <div className="rounded-2xl bg-[#111419] p-3">
+                        <p className="text-[11px] text-[#A4ADBB]">Workouts</p>
+                        <p className="mt-1 text-[20px] font-black tabular-nums text-[#F5F7FA]">
+                          {memberPass.totalCheckIns}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-[#111419] p-3">
+                        <p className="text-[11px] text-[#A4ADBB]">This month</p>
+                        <p className="mt-1 text-[20px] font-black tabular-nums text-[#F5F7FA]">
+                          {workoutsThisMonth}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-[#111419] p-3">
+                        <p className="text-[11px] text-[#A4ADBB]">Weight</p>
+                        <p
+                          className="mt-1 text-[18px] font-black tabular-nums"
+                          style={{ color: brandAccentText }}
+                        >
+                          {latestWeightKg ? `${latestWeightKg} kg` : '—'}
+                        </p>
+                      </div>
                     </div>
-                    <div className="rounded-2xl bg-[#1E222B] p-3">
-                      <p className="text-[11px] text-slate-400">This month</p>
-                      <p className="mt-1 text-[20px] font-black tabular-nums text-white">
-                        {workoutsThisMonth}
+
+                    <div className="border-t border-white/[0.07] pt-3">
+                      <p className="text-[11.5px] font-semibold text-[#A4ADBB]">
+                        Lifted in total
                       </p>
-                    </div>
-                    <div className="rounded-2xl bg-[#1E222B] p-3">
-                      <p className="text-[11px] text-slate-400">Weight</p>
-                      <p className="mt-1 text-[18px] font-black tabular-nums text-[#C8F135]">
-                        {latestWeightKg ? `${latestWeightKg} kg` : '—'}
+                      <p className="text-[28px] font-black tracking-tight tabular-nums text-[#F5F7FA]">
+                        {totalVolumeLiftedKg.toLocaleString('en-IN')} kg
                       </p>
                     </div>
                   </div>
 
-                  <div className="border-t border-white/[0.06] pt-3">
-                    <p className="text-[11.5px] font-semibold text-slate-400">
-                      Lifted in total
-                    </p>
-                    <p className="text-[28px] font-black tracking-tight tabular-nums text-white">
-                      {totalVolumeLiftedKg.toLocaleString('en-IN')} kg
-                    </p>
-                  </div>
-                </div>
-
-                {/* Week Streak & Milestone Shields */}
-                <div className="rounded-3xl bg-[#14171D] border border-white/[0.07] p-4 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                        Week streak
-                      </p>
-                      <p className="mt-0.5 text-[26px] font-black tabular-nums text-white">
-                        🔥 {weekStreakCount}
-                      </p>
+                  {/* Achievement Badges Shelf (6 Curated Metallic Badges) */}
+                  <div className="rounded-3xl bg-[#171B22] border border-white/[0.08] p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-[#A4ADBB]">
+                          Milestone Badges · Streak {weekStreakCount}w
+                        </p>
+                        <p className="text-[15px] font-extrabold text-[#F5F7FA]">
+                          Level {levelNumber} Athlete
+                        </p>
+                      </div>
+                      <span className="rounded-xl bg-[#232933] px-3 py-1 text-[11px] font-bold text-[#A4ADBB] tabular-nums">
+                        {10 - ((memberPass.totalCheckIns || 0) % 10)} to Lvl{' '}
+                        {levelNumber + 1}
+                      </span>
                     </div>
-                    <span className="rounded-xl bg-[#1E222B] px-3 py-1.5 text-[11.5px] font-bold text-slate-300 tabular-nums">
-                      Best: {Math.max(1, Math.floor((memberPass.bestStreakDays ?? currentStreak) / 7))}w
-                    </span>
-                  </div>
 
-                  <div className="grid grid-cols-5 gap-2">
-                    {[4, 12, 26, 52, 104].map((milestone) => {
-                      const unlocked = weekStreakCount >= milestone;
-                      return (
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-[#111419]">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${Math.max(8, levelProgressPct)}%`,
+                          backgroundColor: brandAccent,
+                        }}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
+                      {[
+                        {
+                          label: 'First Workout',
+                          src: GYM_BADGE_ASSETS.firstWorkout,
+                          unlocked: memberPass.totalCheckIns >= 1,
+                        },
+                        {
+                          label: '7-Day Streak',
+                          src: GYM_BADGE_ASSETS.streak7d,
+                          unlocked:
+                            (memberPass.bestStreakDays ?? currentStreak) >= 7,
+                        },
+                        {
+                          label: '30-Day Streak',
+                          src: GYM_BADGE_ASSETS.streak30d,
+                          unlocked:
+                            (memberPass.bestStreakDays ?? currentStreak) >= 30,
+                        },
+                        {
+                          label: 'Consistency',
+                          src: GYM_BADGE_ASSETS.consistency,
+                          unlocked: workoutsThisMonth >= 12,
+                        },
+                        {
+                          label: 'Personal Record',
+                          src: GYM_BADGE_ASSETS.personalRecord,
+                          unlocked:
+                            (athleteHub?.personalRecords ??
+                              workoutPlan?.personalRecords ??
+                              []).length >= 1,
+                        },
+                        {
+                          label: '100 Workouts',
+                          src: GYM_BADGE_ASSETS.workouts100,
+                          unlocked: memberPass.totalCheckIns >= 100,
+                        },
+                      ].map((badge) => (
                         <div
-                          key={milestone}
-                          className={`rounded-2xl p-2.5 text-center border ${
-                            unlocked
-                              ? 'bg-[#C8F135]/15 border-[#C8F135]/40 text-[#C8F135]'
-                              : 'bg-[#1E222B] border-white/[0.06] text-slate-500'
+                          key={badge.label}
+                          className={`flex flex-col items-center rounded-2xl border p-2 text-center transition-opacity ${
+                            badge.unlocked
+                              ? 'border-white/15 bg-[#1D222B]'
+                              : 'border-white/[0.05] bg-[#111419] opacity-40 grayscale'
                           }`}
                         >
-                          <Shield className="mx-auto h-4 w-4" aria-hidden />
-                          <p className="mt-1 text-[11.5px] font-black tabular-nums">
-                            {milestone}
+                          <ImageWithFallback
+                            src={badge.src}
+                            alt={badge.label}
+                            className="h-12 w-12 rounded-full object-cover"
+                          />
+                          <p className="mt-1.5 text-[10px] font-bold text-[#F5F7FA] leading-tight">
+                            {badge.label}
                           </p>
                         </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between text-[12px]">
-                      <span className="font-extrabold text-amber-400">
-                        Level {levelNumber}
-                      </span>
-                      <span className="text-slate-400 tabular-nums">
-                        {10 - ((memberPass.totalCheckIns || 0) % 10)} workouts
-                        to Level {levelNumber + 1}
-                      </span>
-                    </div>
-                    <div className="h-2 w-full overflow-hidden rounded-full bg-[#1E222B]">
-                      <div
-                        className="h-full rounded-full bg-amber-400"
-                        style={{ width: `${Math.max(10, levelProgressPct)}%` }}
-                      />
+                      ))}
                     </div>
                   </div>
                 </div>
 
                 {/* Top-10 Leaderboard */}
-                <div className="rounded-3xl bg-[#14171D] border border-white/[0.07] p-4 space-y-3">
+                <div className="rounded-3xl bg-[#171B22] border border-white/[0.08] p-5 space-y-3 lg:col-span-5 h-fit">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-[14.5px] font-extrabold text-white flex items-center gap-1.5">
+                    <h3 className="text-[14.5px] font-extrabold text-[#F5F7FA] flex items-center gap-1.5">
                       <Flame className="h-4 w-4 text-orange-400" aria-hidden />
                       Monthly Consistency Leaderboard
                     </h3>
-                    <span className="text-[11px] font-bold text-slate-400">
+                    <span className="text-[11px] font-bold text-[#778191]">
                       Top 10
                     </span>
                   </div>
@@ -4021,11 +3953,19 @@ export default function CustomerGymPage() {
                     return (
                       <div
                         key={row.memberCode}
-                        className={`flex items-center justify-between rounded-xl px-3 py-2.5 ${
+                        className={`flex items-center justify-between rounded-xl px-3 py-2.5 border ${
                           isMe
-                            ? 'bg-[#C8F135]/15 text-white border border-[#C8F135]/40'
-                            : 'bg-[#1E222B] text-white'
+                            ? 'text-[#F5F7FA]'
+                            : 'bg-[#111419] border-white/[0.05] text-[#F5F7FA]'
                         }`}
+                        style={
+                          isMe
+                            ? {
+                                backgroundColor: `${brandAccent}1F`,
+                                borderColor: `${brandAccent}59`,
+                              }
+                            : undefined
+                        }
                       >
                         <div className="flex items-center gap-2.5">
                           <span className="w-6 text-center text-[13px] font-black">
@@ -4035,17 +3975,23 @@ export default function CustomerGymPage() {
                             <p className="text-[13px] font-bold">
                               {toTitleCase(row.displayName)}{' '}
                               {isMe && (
-                                <span className="text-[10.5px] text-[#C8F135]">
+                                <span
+                                  className="text-[10.5px]"
+                                  style={{ color: brandAccentText }}
+                                >
                                   (You)
                                 </span>
                               )}
                             </p>
-                            <p className="text-[11px] text-slate-400 tabular-nums">
+                            <p className="text-[11px] text-[#A4ADBB] tabular-nums">
                               {row.workoutsThisMonth} workouts this month
                             </p>
                           </div>
                         </div>
-                        <span className="rounded-lg bg-[#0B0D10] px-2 py-0.5 text-[11.5px] font-extrabold text-[#C8F135] tabular-nums">
+                        <span
+                          className="rounded-lg bg-[#232933] px-2 py-0.5 text-[11.5px] font-extrabold tabular-nums"
+                          style={{ color: brandAccentText }}
+                        >
                           🔥 {row.currentStreakDays}d
                         </span>
                       </div>
@@ -4058,18 +4004,21 @@ export default function CustomerGymPage() {
             {/* BODY TAB: Interactive Body Weight SVG Trend Chart + Dashed Goal Line */}
             {statsSubTab === 'body' && (
               <div className="space-y-4">
-                <div className="rounded-3xl bg-[#14171D] border border-white/[0.07] p-4 space-y-3">
+                <div className="rounded-3xl bg-[#171B22] border border-white/[0.08] p-5 space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-[12px] font-bold text-slate-400 flex items-center gap-1.5">
-                        <Scale className="h-3.5 w-3.5 text-sky-400" aria-hidden />
+                      <p className="text-[12px] font-bold text-[#A4ADBB] flex items-center gap-1.5">
+                        <Scale className="h-3.5 w-3.5 text-[#58B8FF]" aria-hidden />
                         Body weight
                       </p>
-                      <p className="text-[26px] font-black tabular-nums text-white">
+                      <p className="text-[26px] font-black tabular-nums text-[#F5F7FA]">
                         {latestWeightKg ? `${latestWeightKg} kg` : '—'}
                       </p>
                       {memberPass.targetWeightKg && latestWeightKg && (
-                        <p className="text-[11.5px] font-bold text-[#C8F135] tabular-nums">
+                        <p
+                          className="text-[11.5px] font-bold tabular-nums"
+                          style={{ color: brandAccentText }}
+                        >
                           Goal {memberPass.targetWeightKg} kg ·{' '}
                           {Math.abs(
                             Math.round(
@@ -4086,7 +4035,8 @@ export default function CustomerGymPage() {
                     <button
                       type="button"
                       onClick={() => setShowMeasureForm((v) => !v)}
-                      className="inline-flex h-8.5 items-center gap-1 rounded-xl bg-[#C8F135] px-3 text-[12px] font-black text-[#0B0D10] cursor-pointer"
+                      className="inline-flex min-h-[38px] items-center gap-1 rounded-xl px-3.5 text-[12px] font-black cursor-pointer"
+                      style={{ backgroundColor: brandAccent, color: brandInk }}
                     >
                       <Plus className="h-3.5 w-3.5" aria-hidden /> Log
                     </button>
@@ -4209,42 +4159,65 @@ export default function CustomerGymPage() {
                     </form>
                   )}
 
-                  {(memberPass.bodyMeasurements ?? []).length > 0 && (
-                    <div className="space-y-2">
-                      {(memberPass.bodyMeasurements ?? [])
-                        .slice(0, 6)
-                        .map((bm) => (
-                          <div
-                            key={bm.id}
-                            className="rounded-xl bg-[#1E222B] px-3 py-2.5 flex items-center justify-between gap-2"
-                          >
-                            <div>
-                              <p className="text-[13px] font-extrabold text-white tabular-nums">
-                                {bm.weightKg} kg
-                                {bm.bmi ? ` · BMI ${bm.bmi}` : ''}
-                              </p>
-                              <p className="text-[11px] text-slate-400">
-                                {[
-                                  bm.waistInches
-                                    ? `Waist ${bm.waistInches}"`
-                                    : null,
-                                  bm.chestInches
-                                    ? `Chest ${bm.chestInches}"`
-                                    : null,
-                                  bm.bicepsInches
-                                    ? `Biceps ${bm.bicepsInches}"`
-                                    : null,
-                                ]
-                                  .filter(Boolean)
-                                  .join(' · ') || 'Weight check-in'}
-                              </p>
+                  {(memberPass.bodyMeasurements ?? []).length === 0 &&
+                  !showMeasureForm ? (
+                    <EmptyStateCard
+                      imageSrc={GYM_EMPTY_ASSETS.notebook}
+                      imageAlt="Body measurement notebook"
+                      title="No measurements logged yet"
+                      description="Record your weight and body measurements to track lean progress over time."
+                      action={
+                        <button
+                          type="button"
+                          onClick={() => setShowMeasureForm(true)}
+                          className="min-h-[40px] rounded-xl px-4 text-[12.5px] font-black cursor-pointer"
+                          style={{
+                            backgroundColor: brandAccent,
+                            color: brandInk,
+                          }}
+                        >
+                          Log First Check-In
+                        </button>
+                      }
+                    />
+                  ) : (
+                    (memberPass.bodyMeasurements ?? []).length > 0 && (
+                      <div className="space-y-2">
+                        {(memberPass.bodyMeasurements ?? [])
+                          .slice(0, 6)
+                          .map((bm) => (
+                            <div
+                              key={bm.id}
+                              className="rounded-xl bg-[#111419] px-3 py-2.5 flex items-center justify-between gap-2"
+                            >
+                              <div>
+                                <p className="text-[13px] font-extrabold text-[#F5F7FA] tabular-nums">
+                                  {bm.weightKg} kg
+                                  {bm.bmi ? ` · BMI ${bm.bmi}` : ''}
+                                </p>
+                                <p className="text-[11px] text-[#A4ADBB]">
+                                  {[
+                                    bm.waistInches
+                                      ? `Waist ${bm.waistInches}"`
+                                      : null,
+                                    bm.chestInches
+                                      ? `Chest ${bm.chestInches}"`
+                                      : null,
+                                    bm.bicepsInches
+                                      ? `Biceps ${bm.bicepsInches}"`
+                                      : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' · ') || 'Weight check-in'}
+                                </p>
+                              </div>
+                              <span className="text-[11px] font-semibold text-[#778191]">
+                                {formatIsoDatePretty(bm.recordedDate)}
+                              </span>
                             </div>
-                            <span className="text-[11px] font-semibold text-slate-400">
-                              {formatIsoDatePretty(bm.recordedDate)}
-                            </span>
-                          </div>
-                        ))}
-                    </div>
+                          ))}
+                      </div>
+                    )
                   )}
                 </div>
               </div>
@@ -4253,8 +4226,8 @@ export default function CustomerGymPage() {
             {/* LIFTS TAB: Strength Level Multipliers (1.21x) + 12-Week Heatmap + PRs */}
             {statsSubTab === 'lifts' && (
               <div className="space-y-4">
-                <div className="rounded-3xl bg-[#14171D] border border-white/[0.07] p-4 space-y-2">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                <div className="rounded-3xl bg-[#171B22] border border-white/[0.08] p-4 space-y-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-[#A4ADBB]">
                     12-Week Workout Heatmap
                   </p>
                   <div className="grid grid-cols-12 gap-1">
@@ -4262,34 +4235,40 @@ export default function CustomerGymPage() {
                       <div
                         key={cell.isoDate}
                         title={cell.isoDate}
-                        className={`aspect-square rounded-[3px] ${
-                          cell.trained
-                            ? 'bg-[#C8F135]'
+                        className="aspect-square rounded-[3px]"
+                        style={{
+                          backgroundColor: cell.trained
+                            ? brandAccent
                             : cell.isToday
-                              ? 'bg-white/30'
-                              : 'bg-white/10'
-                        }`}
+                              ? 'rgba(255,255,255,0.3)'
+                              : 'rgba(255,255,255,0.1)',
+                        }}
                       />
                     ))}
                   </div>
                 </div>
 
-                <div className="rounded-3xl bg-[#14171D] border border-white/[0.07] p-4 space-y-3">
+                <div className="rounded-3xl bg-[#171B22] border border-white/[0.08] p-4 space-y-3">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-[14.5px] font-extrabold text-white flex items-center gap-1.5">
+                    <h3 className="text-[14.5px] font-extrabold text-[#F5F7FA] flex items-center gap-1.5">
                       <Trophy className="h-4 w-4 text-amber-400" aria-hidden />
                       Strength Levels &amp; PRs
                     </h3>
-                    <span className="text-[11px] font-bold text-[#C8F135] tabular-nums">
+                    <span
+                      className="text-[11px] font-bold tabular-nums"
+                      style={{ color: brandAccentText }}
+                    >
                       BW: {latestWeightKg ?? 70} kg
                     </span>
                   </div>
                   {(athleteHub?.personalRecords ?? workoutPlan?.personalRecords ?? [])
                     .length === 0 ? (
-                    <p className="text-[12.5px] text-slate-400">
-                      Tap the center ▶ Start button to log your first set —
-                      GymOS automatically computes Strength Multipliers &amp; PRs!
-                    </p>
+                    <EmptyStateCard
+                      imageSrc={GYM_EMPTY_ASSETS.barbell}
+                      imageAlt="Olympic barbell illustration"
+                      title="No lift records logged yet"
+                      description="Start any workout from Home or Plan and check off sets to unlock strength ratios & personal records."
+                    />
                   ) : (
                     <div className="divide-y divide-white/[0.06]">
                       {(
@@ -4309,14 +4288,21 @@ export default function CustomerGymPage() {
                               className="flex items-center justify-between py-2.5"
                             >
                               <div>
-                                <p className="text-[13px] font-bold text-white">
+                                <p className="text-[13px] font-bold text-[#F5F7FA]">
                                   {pr.exerciseName}
                                 </p>
-                                <p className="text-[11px] text-slate-400 tabular-nums">
+                                <p className="text-[11px] text-[#A4ADBB] tabular-nums">
                                   {classifyStrengthLevel(mult)} · {mult}x BW
                                 </p>
                               </div>
-                              <span className="rounded-lg bg-[#C8F135]/15 border border-[#C8F135]/40 px-2.5 py-1 text-[12.5px] font-black text-[#C8F135] tabular-nums">
+                              <span
+                                className="rounded-lg border px-2.5 py-1 text-[12.5px] font-black tabular-nums"
+                                style={{
+                                  backgroundColor: `${brandAccent}1F`,
+                                  borderColor: `${brandAccent}59`,
+                                  color: brandAccentText,
+                                }}
+                              >
                                 {pr.bestWeightKg} kg
                               </span>
                             </div>
@@ -4329,22 +4315,29 @@ export default function CustomerGymPage() {
             )}
 
             {statsSubTab === 'effort' && (
-              <div className="rounded-3xl bg-[#14171D] border border-white/[0.07] p-4 space-y-3">
-                <h3 className="text-[14.5px] font-extrabold text-white flex items-center gap-2">
-                  <Award className="h-4 w-4 text-[#C8F135]" aria-hidden />
+              <div className="rounded-3xl bg-[#171B22] border border-white/[0.08] p-4 space-y-3">
+                <h3 className="text-[14.5px] font-extrabold text-[#F5F7FA] flex items-center gap-2">
+                  <Award
+                    className="h-4 w-4"
+                    style={{ color: brandAccentText }}
+                    aria-hidden
+                  />
                   RIR Effort &amp; Muscle Volume
                 </h3>
                 <div className="grid grid-cols-2 gap-2.5">
-                  <div className="rounded-2xl bg-[#1E222B] p-3">
-                    <p className="text-[11px] text-slate-400">Fitness Goal</p>
-                    <p className="mt-1 text-[13px] font-extrabold text-white">
+                  <div className="rounded-2xl bg-[#111419] p-3">
+                    <p className="text-[11px] text-[#A4ADBB]">Fitness Goal</p>
+                    <p className="mt-1 text-[13px] font-extrabold text-[#F5F7FA]">
                       {getFitnessGoalMeta(memberPass.fitnessGoal).emoji}{' '}
                       {getFitnessGoalMeta(memberPass.fitnessGoal).label}
                     </p>
                   </div>
-                  <div className="rounded-2xl bg-[#1E222B] p-3">
-                    <p className="text-[11px] text-slate-400">7-Day Volume</p>
-                    <p className="mt-1 text-[13px] font-extrabold text-[#C8F135] tabular-nums">
+                  <div className="rounded-2xl bg-[#111419] p-3">
+                    <p className="text-[11px] text-[#A4ADBB]">7-Day Volume</p>
+                    <p
+                      className="mt-1 text-[13px] font-extrabold tabular-nums"
+                      style={{ color: brandAccentText }}
+                    >
                       {(workoutPlan?.weeklyVolumeKg ?? 0).toLocaleString(
                         'en-IN',
                       )}{' '}
@@ -4352,10 +4345,9 @@ export default function CustomerGymPage() {
                     </p>
                   </div>
                 </div>
-                <p className="text-[12px] text-slate-400">
-                  Tip: Tap the <strong className="text-white">RIR</strong> pill
-                  during sets in ▶ Start mode to track how many reps you kept in
-                  reserve!
+                <p className="text-[12px] text-[#A4ADBB]">
+                  Tip: Tap the <strong className="text-[#F5F7FA]">RIR</strong> pill
+                  during live sets to track how many reps you kept in reserve!
                 </p>
               </div>
             )}
@@ -4405,13 +4397,28 @@ export default function CustomerGymPage() {
                 ))}
               </div>
 
+              <div>
+                <label className="block text-[11px] font-bold text-[#A4ADBB] mb-1">
+                  Optional Workout Note
+                </label>
+                <input
+                  type="text"
+                  maxLength={120}
+                  value={memberWorkoutNote}
+                  onChange={(e) => setMemberWorkoutNote(e.target.value)}
+                  placeholder="e.g. Heavy bench focus / feeling energized"
+                  className="h-10.5 w-full rounded-xl border border-white/10 bg-[#111419] px-3 text-[13px] text-[#F5F7FA] placeholder:text-[#778191] focus:border-white/30 focus:outline-none"
+                />
+              </div>
+
               {ptLeft > 0 && (
                 <label className="flex items-center gap-2.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-[12.5px] font-semibold text-indigo-200 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={countAsPtSession}
                     onChange={(e) => setCountAsPtSession(e.target.checked)}
-                    className="h-4 w-4 accent-[#C8F135]"
+                    className="h-4 w-4"
+                    style={{ accentColor: brandAccent }}
                   />
                   <span>
                     Count as PT Session (-1 PT ·{' '}
@@ -4424,7 +4431,8 @@ export default function CustomerGymPage() {
                 type="button"
                 disabled={checkingIn}
                 onClick={() => void handleDailyCheckIn()}
-                className="gym-tactile flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#C8F135] text-[14.5px] font-black text-[#0B0D10] cursor-pointer"
+                className="gym-tactile flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-[14.5px] font-black cursor-pointer"
+                style={{ backgroundColor: brandAccent, color: brandInk }}
               >
                 {checkingIn ? (
                   <Loader2 className="h-4.5 w-4.5 animate-spin" aria-hidden />
@@ -5084,108 +5092,7 @@ export default function CustomerGymPage() {
             </form>
           </div>
         )}
-
-        {/* ==================== PERSISTENT 5-TAB BOTTOM NAVIGATION BAR ==================== */}
-        <nav
-          aria-label="Gym Member Navigation"
-          className="fixed bottom-3 left-1/2 z-30 grid w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 grid-cols-5 items-center rounded-2xl border border-white/10 bg-[#14171D]/95 px-1.5 py-1.5 shadow-2xl backdrop-blur-md"
-        >
-          <button
-            type="button"
-            onClick={() => setActiveTab('home')}
-            className="gym-tactile flex flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 text-[10.5px] font-bold cursor-pointer"
-            style={{ color: activeTab === 'home' ? brandAccent : '#94A3B8' }}
-          >
-            <Home className="h-4.5 w-4.5" aria-hidden />
-            <span>Home</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('plan')}
-            className="gym-tactile flex flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 text-[10.5px] font-bold cursor-pointer"
-            style={{ color: activeTab === 'plan' ? brandAccent : '#94A3B8' }}
-          >
-            <Calendar className="h-4.5 w-4.5" aria-hidden />
-            <span>Plan</span>
-          </button>
-
-          {/* Center Floating ▶ Start Button (Turns glowing Amber with timer when workout is minimized) */}
-          <button
-            type="button"
-            onClick={() =>
-              launchWorkoutSession(
-                todayScheduleDay?.focusTitle ?? 'Workout Session',
-                todayScheduleDay?.exercises ?? [],
-              )
-            }
-            className="gym-tactile -mt-5 mx-auto flex flex-col items-center justify-center cursor-pointer"
-            aria-label="Start or Resume Workout Session"
-          >
-            <span
-              className="flex h-12 w-12 items-center justify-center rounded-full border-4 border-[#0B0D10] transition-colors"
-              style={
-                sessionActive && sessionMinimized
-                  ? {
-                      backgroundColor: '#F59E0B',
-                      color: '#0B0D10',
-                      boxShadow: '0 6px 22px rgba(245,158,11,0.55)',
-                    }
-                  : {
-                      backgroundColor: brandAccent,
-                      color: brandInk,
-                      boxShadow: `0 6px 22px ${brandAccent}73`,
-                    }
-              }
-            >
-              <Play className="h-5 w-5 fill-current ml-0.5" aria-hidden />
-            </span>
-            <span
-              className="mt-0.5 text-[10px] font-black tabular-nums"
-              style={{
-                color:
-                  sessionActive && sessionMinimized ? '#FBBF24' : brandAccent,
-              }}
-            >
-              {sessionActive && sessionMinimized
-                ? formatTimerClock(sessionElapsedSec)
-                : 'Start'}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('members');
-              setUnreadChatCount(0);
-              setNotifBanner(null);
-            }}
-            className="gym-tactile relative flex flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 text-[10.5px] font-bold cursor-pointer"
-            style={{
-              color: activeTab === 'members' ? brandAccent : '#94A3B8',
-            }}
-          >
-            <Users className="h-4.5 w-4.5" aria-hidden />
-            {unreadChatCount > 0 && (
-              <span
-                className="absolute top-1 right-4 h-2 w-2 rounded-full"
-                style={{ backgroundColor: brandAccent }}
-              />
-            )}
-            <span>Members</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('stats')}
-            className="gym-tactile flex flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 text-[10.5px] font-bold cursor-pointer"
-            style={{ color: activeTab === 'stats' ? brandAccent : '#94A3B8' }}
-          >
-            <BarChart3 className="h-4.5 w-4.5" aria-hidden />
-            <span>Stats</span>
-          </button>
-        </nav>
       </div>
-    </div>
+    </GymMemberShell>
   );
 }
