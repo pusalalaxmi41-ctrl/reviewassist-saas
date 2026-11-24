@@ -1,9 +1,13 @@
 import type {
+  GymAnimationKey,
   GymBodyMeasurement,
   GymCatalogExercise,
   GymEquipmentType,
+  GymFitnessGoal,
   GymMuscleGroup,
+  GymNutritionMeal,
   GymRoutineExerciseItem,
+  GymWeeklyScheduleDay,
   GymWorkoutExerciseLog,
   GymWorkoutFocus,
   GymWorkoutSession,
@@ -980,32 +984,68 @@ export function buildGymDataExportCsv(params: {
   return lines.join('\n');
 }
 
-/** 24 built-in global gym exercises matching the Migration 023 SQL seed verbatim. */
+/** Infers the matching looping SVG biomechanical animation key for any exercise. */
+export function inferGymAnimationKey(
+  name: string,
+  muscleGroup?: string,
+): GymAnimationKey {
+  const n = name.toLowerCase();
+  if (n.includes('incline')) return 'incline_press';
+  if (n.includes('bench') || n.includes('push-up') || n.includes('fly') || n.includes('pec')) {
+    return 'bench_press';
+  }
+  if (n.includes('pulldown') || n.includes('pull-up')) return 'lat_pulldown';
+  if (n.includes('row') || n.includes('deadlift')) return 'cable_row';
+  if (n.includes('leg press') || n.includes('leg curl') || n.includes('leg ext')) {
+    return 'leg_press';
+  }
+  if (n.includes('squat') || n.includes('lunge') || n.includes('calf')) return 'squat';
+  if (n.includes('shoulder') || n.includes('overhead') || n.includes('raise') || n.includes('face pull')) {
+    return 'shoulder_press';
+  }
+  if (n.includes('tricep') || n.includes('pushdown') || n.includes('dip')) {
+    return 'tricep_pushdown';
+  }
+  if (n.includes('curl')) return 'bicep_curl';
+  if (muscleGroup === 'core' || n.includes('crunch') || n.includes('plank') || n.includes('leg raise')) {
+    return 'core_plank';
+  }
+  if (muscleGroup === 'cardio' || n.includes('treadmill') || n.includes('hiit') || n.includes('cycle')) {
+    return 'cardio_hiit';
+  }
+  if (muscleGroup === 'back') return 'lat_pulldown';
+  if (muscleGroup === 'legs') return 'squat';
+  if (muscleGroup === 'shoulders') return 'shoulder_press';
+  if (muscleGroup === 'arms') return 'bicep_curl';
+  return 'bench_press';
+}
+
+/** 24 built-in global gym exercises matching the Migration 023 + 026 SQL seed. */
 export const BUILTIN_GYM_CATALOG_EXERCISES: ReadonlyArray<GymCatalogExercise> = [
-  { id: 'ex-bench-press', businessId: null, name: 'Barbell Bench Press', muscleGroup: 'chest', equipment: 'barbell', defaultSets: 4, defaultReps: '8-10', restSeconds: 90 },
-  { id: 'ex-incline-db', businessId: null, name: 'Incline Dumbbell Press', muscleGroup: 'chest', equipment: 'dumbbell', defaultSets: 3, defaultReps: '10-12', restSeconds: 75 },
-  { id: 'ex-cable-fly', businessId: null, name: 'Cable Chest Fly', muscleGroup: 'chest', equipment: 'cable', defaultSets: 3, defaultReps: '12-15', restSeconds: 60 },
-  { id: 'ex-pec-deck', businessId: null, name: 'Pec Deck Machine Fly', muscleGroup: 'chest', equipment: 'machine', defaultSets: 3, defaultReps: '12-15', restSeconds: 60 },
-  { id: 'ex-lat-pulldown', businessId: null, name: 'Wide-Grip Lat Pulldown', muscleGroup: 'back', equipment: 'cable', defaultSets: 4, defaultReps: '10-12', restSeconds: 75 },
-  { id: 'ex-barbell-row', businessId: null, name: 'Bent-Over Barbell Row', muscleGroup: 'back', equipment: 'barbell', defaultSets: 4, defaultReps: '8-10', restSeconds: 90 },
-  { id: 'ex-cable-row', businessId: null, name: 'Seated Cable Row', muscleGroup: 'back', equipment: 'cable', defaultSets: 3, defaultReps: '10-12', restSeconds: 75 },
-  { id: 'ex-deadlift', businessId: null, name: 'Barbell Deadlift', muscleGroup: 'back', equipment: 'barbell', defaultSets: 3, defaultReps: '5-6', restSeconds: 150 },
-  { id: 'ex-squat', businessId: null, name: 'Barbell Back Squat', muscleGroup: 'legs', equipment: 'barbell', defaultSets: 4, defaultReps: '6-8', restSeconds: 120 },
-  { id: 'ex-leg-press', businessId: null, name: '45° Leg Press Machine', muscleGroup: 'legs', equipment: 'machine', defaultSets: 4, defaultReps: '10-12', restSeconds: 90 },
-  { id: 'ex-rdl', businessId: null, name: 'Romanian Deadlift (RDL)', muscleGroup: 'legs', equipment: 'barbell', defaultSets: 3, defaultReps: '10-12', restSeconds: 90 },
-  { id: 'ex-leg-curl', businessId: null, name: 'Seated Leg Curl', muscleGroup: 'legs', equipment: 'machine', defaultSets: 3, defaultReps: '12-15', restSeconds: 60 },
-  { id: 'ex-calf-raise', businessId: null, name: 'Standing Calf Raise', muscleGroup: 'legs', equipment: 'machine', defaultSets: 4, defaultReps: '15-20', restSeconds: 45 },
-  { id: 'ex-ohp', businessId: null, name: 'Overhead Barbell Press (OHP)', muscleGroup: 'shoulders', equipment: 'barbell', defaultSets: 4, defaultReps: '6-8', restSeconds: 90 },
-  { id: 'ex-db-shoulder', businessId: null, name: 'Seated Dumbbell Shoulder Press', muscleGroup: 'shoulders', equipment: 'dumbbell', defaultSets: 3, defaultReps: '10-12', restSeconds: 75 },
-  { id: 'ex-lat-raise', businessId: null, name: 'Dumbbell Lateral Raises', muscleGroup: 'shoulders', equipment: 'dumbbell', defaultSets: 4, defaultReps: '12-15', restSeconds: 60 },
-  { id: 'ex-face-pull', businessId: null, name: 'Cable Face Pulls', muscleGroup: 'shoulders', equipment: 'cable', defaultSets: 3, defaultReps: '15', restSeconds: 60 },
-  { id: 'ex-ez-curl', businessId: null, name: 'EZ-Bar Bicep Curl', muscleGroup: 'arms', equipment: 'barbell', defaultSets: 3, defaultReps: '10-12', restSeconds: 60 },
-  { id: 'ex-hammer-curl', businessId: null, name: 'Dumbbell Hammer Curl', muscleGroup: 'arms', equipment: 'dumbbell', defaultSets: 3, defaultReps: '12', restSeconds: 60 },
-  { id: 'ex-tricep-pushdown', businessId: null, name: 'Tricep Rope Pushdown', muscleGroup: 'arms', equipment: 'cable', defaultSets: 3, defaultReps: '12-15', restSeconds: 60 },
-  { id: 'ex-leg-raise', businessId: null, name: 'Hanging Leg Raises', muscleGroup: 'core', equipment: 'bodyweight', defaultSets: 3, defaultReps: '12-15', restSeconds: 60 },
-  { id: 'ex-cable-crunch', businessId: null, name: 'Kneeling Cable Crunch', muscleGroup: 'core', equipment: 'cable', defaultSets: 3, defaultReps: '15', restSeconds: 60 },
-  { id: 'ex-treadmill-hiit', businessId: null, name: 'Treadmill HIIT Intervals', muscleGroup: 'cardio', equipment: 'cardio_machine', defaultSets: 1, defaultReps: '15 min', restSeconds: 60 },
-  { id: 'ex-pushups', businessId: null, name: 'Weighted / Classic Push-Ups', muscleGroup: 'full_body', equipment: 'bodyweight', defaultSets: 3, defaultReps: '15', restSeconds: 60 },
+  { id: 'ex-bench-press', businessId: null, name: 'Barbell Bench Press', muscleGroup: 'chest', equipment: 'barbell', defaultSets: 4, defaultReps: '8-10', restSeconds: 90, animationKey: 'bench_press', formCues: 'Retract shoulder blades, tuck elbows at 45°, lower bar to mid-chest in 2s.' },
+  { id: 'ex-incline-db', businessId: null, name: 'Incline Dumbbell Press', muscleGroup: 'chest', equipment: 'dumbbell', defaultSets: 3, defaultReps: '10-12', restSeconds: 75, animationKey: 'incline_press', formCues: 'Set bench to 30°, press dumbbells smoothly without locking elbows.' },
+  { id: 'ex-cable-fly', businessId: null, name: 'Cable Chest Fly', muscleGroup: 'chest', equipment: 'cable', defaultSets: 3, defaultReps: '12-15', restSeconds: 60, animationKey: 'bench_press', formCues: 'Keep a soft bend in elbows and squeeze chest at centerline.' },
+  { id: 'ex-pec-deck', businessId: null, name: 'Pec Deck Machine Fly', muscleGroup: 'chest', equipment: 'machine', defaultSets: 3, defaultReps: '12-15', restSeconds: 60, animationKey: 'bench_press', formCues: 'Keep chest proud, bring pads together with controlled eccentric.' },
+  { id: 'ex-lat-pulldown', businessId: null, name: 'Wide-Grip Lat Pulldown', muscleGroup: 'back', equipment: 'cable', defaultSets: 4, defaultReps: '10-12', restSeconds: 75, animationKey: 'lat_pulldown', formCues: 'Drive elbows down toward hips, pause 1s at upper chest, avoid swinging.' },
+  { id: 'ex-barbell-row', businessId: null, name: 'Bent-Over Barbell Row', muscleGroup: 'back', equipment: 'barbell', defaultSets: 4, defaultReps: '8-10', restSeconds: 90, animationKey: 'cable_row', formCues: 'Hinge at 45°, brace core, row barbell toward lower ribs.' },
+  { id: 'ex-cable-row', businessId: null, name: 'Seated Cable Row', muscleGroup: 'back', equipment: 'cable', defaultSets: 3, defaultReps: '10-12', restSeconds: 75, animationKey: 'cable_row', formCues: 'Keep torso tall, pull handle to navel and squeeze shoulder blades.' },
+  { id: 'ex-deadlift', businessId: null, name: 'Barbell Deadlift', muscleGroup: 'back', equipment: 'barbell', defaultSets: 3, defaultReps: '5-6', restSeconds: 150, animationKey: 'cable_row', formCues: 'Bar over mid-foot, flat back, push the floor away with legs.' },
+  { id: 'ex-squat', businessId: null, name: 'Barbell Back Squat', muscleGroup: 'legs', equipment: 'barbell', defaultSets: 4, defaultReps: '6-8', restSeconds: 120, animationKey: 'squat', formCues: 'Brace core, sit hips back and down, knees track over toes.' },
+  { id: 'ex-leg-press', businessId: null, name: '45° Leg Press Machine', muscleGroup: 'legs', equipment: 'machine', defaultSets: 4, defaultReps: '10-12', restSeconds: 90, animationKey: 'leg_press', formCues: 'Lower sled until knees reach 90°, keep lower back flat on pad.' },
+  { id: 'ex-rdl', businessId: null, name: 'Romanian Deadlift (RDL)', muscleGroup: 'legs', equipment: 'barbell', defaultSets: 3, defaultReps: '10-12', restSeconds: 90, animationKey: 'cable_row', formCues: 'Soft knees, push hips straight back until hamstrings stretch.' },
+  { id: 'ex-leg-curl', businessId: null, name: 'Seated Leg Curl', muscleGroup: 'legs', equipment: 'machine', defaultSets: 3, defaultReps: '12-15', restSeconds: 60, animationKey: 'leg_press', formCues: 'Curl pad smoothly under seat and hold 1s peak contraction.' },
+  { id: 'ex-calf-raise', businessId: null, name: 'Standing Calf Raise', muscleGroup: 'legs', equipment: 'machine', defaultSets: 4, defaultReps: '15-20', restSeconds: 45, animationKey: 'squat', formCues: 'Full stretch at bottom for 1s, drive high onto big toe.' },
+  { id: 'ex-ohp', businessId: null, name: 'Overhead Barbell Press (OHP)', muscleGroup: 'shoulders', equipment: 'barbell', defaultSets: 4, defaultReps: '6-8', restSeconds: 90, animationKey: 'shoulder_press', formCues: 'Squeeze glutes & abs, press straight overhead without arching back.' },
+  { id: 'ex-db-shoulder', businessId: null, name: 'Seated Dumbbell Shoulder Press', muscleGroup: 'shoulders', equipment: 'dumbbell', defaultSets: 3, defaultReps: '10-12', restSeconds: 75, animationKey: 'shoulder_press', formCues: 'Keep elbows slightly forward of torso, lower to ear level.' },
+  { id: 'ex-lat-raise', businessId: null, name: 'Dumbbell Lateral Raises', muscleGroup: 'shoulders', equipment: 'dumbbell', defaultSets: 4, defaultReps: '12-15', restSeconds: 60, animationKey: 'shoulder_press', formCues: 'Lead with elbows to shoulder height, control the descent.' },
+  { id: 'ex-face-pull', businessId: null, name: 'Cable Face Pulls', muscleGroup: 'shoulders', equipment: 'cable', defaultSets: 3, defaultReps: '15', restSeconds: 60, animationKey: 'cable_row', formCues: 'Pull rope toward forehead with high elbows and external rotation.' },
+  { id: 'ex-ez-curl', businessId: null, name: 'EZ-Bar Bicep Curl', muscleGroup: 'arms', equipment: 'barbell', defaultSets: 3, defaultReps: '10-12', restSeconds: 60, animationKey: 'bicep_curl', formCues: 'Pin elbows to ribs, curl cleanly without leaning back.' },
+  { id: 'ex-hammer-curl', businessId: null, name: 'Dumbbell Hammer Curl', muscleGroup: 'arms', equipment: 'dumbbell', defaultSets: 3, defaultReps: '12', restSeconds: 60, animationKey: 'bicep_curl', formCues: 'Neutral palms facing each other, controlled 2s lowering.' },
+  { id: 'ex-tricep-pushdown', businessId: null, name: 'Tricep Rope Pushdown', muscleGroup: 'arms', equipment: 'cable', defaultSets: 3, defaultReps: '12-15', restSeconds: 60, animationKey: 'tricep_pushdown', formCues: 'Keep upper arms locked at sides, split rope at full extension.' },
+  { id: 'ex-leg-raise', businessId: null, name: 'Hanging Leg Raises', muscleGroup: 'core', equipment: 'bodyweight', defaultSets: 3, defaultReps: '12-15', restSeconds: 60, animationKey: 'core_plank', formCues: 'Curl pelvis upward toward ribs, avoid swinging legs.' },
+  { id: 'ex-cable-crunch', businessId: null, name: 'Kneeling Cable Crunch', muscleGroup: 'core', equipment: 'cable', defaultSets: 3, defaultReps: '15', restSeconds: 60, animationKey: 'core_plank', formCues: 'Flex spine forward keeping hips stationary.' },
+  { id: 'ex-treadmill-hiit', businessId: null, name: 'Treadmill HIIT Intervals', muscleGroup: 'cardio', equipment: 'cardio_machine', defaultSets: 1, defaultReps: '15 min', restSeconds: 60, animationKey: 'cardio_hiit', formCues: '30s fast sprint / 60s brisk walk recovery for 10 rounds.' },
+  { id: 'ex-pushups', businessId: null, name: 'Weighted / Classic Push-Ups', muscleGroup: 'full_body', equipment: 'bodyweight', defaultSets: 3, defaultReps: '15', restSeconds: 60, animationKey: 'bench_press', formCues: 'Straight line head to heels, lower chest 1 inch from floor.' },
 ];
 
 export const GYM_TRAINER_ROUTINE_PRESETS: ReadonlyArray<{
@@ -1065,3 +1105,123 @@ export const GYM_TRAINER_ROUTINE_PRESETS: ReadonlyArray<{
     ],
   },
 ];
+
+export interface GymNutritionPreset {
+  key: 'fat_loss' | 'lean_muscle' | 'athletic_maintenance';
+  label: string;
+  planTitle: string;
+  dailyCaloriesKcal: number;
+  proteinGrams: number;
+  carbsGrams: number;
+  fatsGrams: number;
+  waterLiters: number;
+  supplementNotes: string;
+  meals: GymNutritionMeal[];
+}
+
+export const GYM_NUTRITION_PRESETS: ReadonlyArray<GymNutritionPreset> = [
+  {
+    key: 'fat_loss',
+    label: 'Fat Loss Indian Diet',
+    planTitle: 'Shred & Fat Loss Protocol',
+    dailyCaloriesKcal: 1750,
+    proteinGrams: 135,
+    carbsGrams: 165,
+    fatsGrams: 55,
+    waterLiters: 4.0,
+    supplementNotes: '1 scoop Whey Isolate in water post-workout • Black coffee pre-workout • Multivitamin daily',
+    meals: [
+      { mealTime: 'Morning (7:00 AM)', items: 'Warm Lemon Water + 5 Soaked Almonds + Black Coffee', calories: 55, protein: 2 },
+      { mealTime: 'Breakfast (9:00 AM)', items: '4 Egg Whites + 1 Whole Egg Bhurji OR 150g Paneer + 2 Besan Chilla', calories: 380, protein: 32 },
+      { mealTime: 'Lunch (1:30 PM)', items: '150g Grilled Chicken / Soya Chunks + 1 Phulka + Big Cucumber Salad + Dal', calories: 520, protein: 42 },
+      { mealTime: 'Pre-Workout (5:00 PM)', items: '1 Medium Banana + 1 tbsp Peanut Butter', calories: 195, protein: 5 },
+      { mealTime: 'Post-Workout (7:00 PM)', items: '1 Scoop Whey Isolate in Cold Water', calories: 120, protein: 25 },
+      { mealTime: 'Dinner (8:30 PM)', items: '150g Tandoori Chicken / Tofu Stir-Fry + Steamed Veggies + Mint Chutney', calories: 480, protein: 29 },
+    ],
+  },
+  {
+    key: 'lean_muscle',
+    label: 'Lean Muscle Gain',
+    planTitle: 'Lean Hypertrophy & Strength Plan',
+    dailyCaloriesKcal: 2650,
+    proteinGrams: 165,
+    carbsGrams: 330,
+    fatsGrams: 72,
+    waterLiters: 4.0,
+    supplementNotes: '1 scoop Whey Protein post-workout • 5g Creatine Monohydrate daily • Omega-3 Fish Oil',
+    meals: [
+      { mealTime: 'Morning (7:30 AM)', items: '1 Banana + 6 Soaked Almonds + 2 Whole Eggs', calories: 280, protein: 15 },
+      { mealTime: 'Breakfast (9:00 AM)', items: '60g Rolled Oats + 250ml Milk + 1 Scoop Whey + 1 tbsp Peanut Butter', calories: 590, protein: 42 },
+      { mealTime: 'Lunch (1:30 PM)', items: '200g Chicken Breast / Paneer + 200g Cooked Rice + Rajma/Dal + Curd', calories: 740, protein: 48 },
+      { mealTime: 'Pre-Workout (5:00 PM)', items: '2 Brown Bread Slices + 150g Boiled Sweet Potato + Black Coffee', calories: 310, protein: 8 },
+      { mealTime: 'Post-Workout (7:15 PM)', items: '1 Scoop Whey Isolate + 5g Creatine + 1 Banana', calories: 230, protein: 26 },
+      { mealTime: 'Dinner (9:00 PM)', items: '180g Chicken / 150g Paneer + 2 Whole Wheat Roti + Sautéed Vegetables', calories: 500, protein: 26 },
+    ],
+  },
+  {
+    key: 'athletic_maintenance',
+    label: 'Athletic Maintenance',
+    planTitle: 'Balanced Athletic Performance',
+    dailyCaloriesKcal: 2200,
+    proteinGrams: 145,
+    carbsGrams: 245,
+    fatsGrams: 68,
+    waterLiters: 3.5,
+    supplementNotes: '1 scoop Whey post-workout • Electrolytes during training',
+    meals: [
+      { mealTime: 'Morning (7:30 AM)', items: 'Warm Water + 4 Almonds + 2 Walnuts', calories: 110, protein: 3 },
+      { mealTime: 'Breakfast (8:45 AM)', items: '3 Egg Omelette / Moong Dal Chilla + 2 Multigrain Toast', calories: 450, protein: 28 },
+      { mealTime: 'Lunch (1:30 PM)', items: '160g Chicken / Paneer + 2 Roti + 1 Bowl Dal + Salad + Buttermilk', calories: 640, protein: 42 },
+      { mealTime: 'Pre-Workout (5:00 PM)', items: '1 Apple + 15g Roasted Makhana / Chana', calories: 180, protein: 4 },
+      { mealTime: 'Post-Workout (7:00 PM)', items: '1 Scoop Whey Protein in Water', calories: 125, protein: 25 },
+      { mealTime: 'Dinner (8:45 PM)', items: '150g Grilled Fish / Chicken / Tofu + 150g Rice + Stir-Fried Greens', calories: 695, protein: 43 },
+    ],
+  },
+];
+
+export function getNutritionPresetForGoal(goal?: GymFitnessGoal | null): GymNutritionPreset {
+  if (goal === 'weight_loss') return GYM_NUTRITION_PRESETS[0];
+  if (goal === 'muscle_gain' || goal === 'weight_gain') return GYM_NUTRITION_PRESETS[1];
+  return GYM_NUTRITION_PRESETS[2];
+}
+
+export function buildDefaultWeeklyScheduleForGoal(
+  goal?: GymFitnessGoal | null,
+): GymWeeklyScheduleDay[] {
+  const mapEx = (id: string, dayLabel: string): GymRoutineExerciseItem => {
+    const found = BUILTIN_GYM_CATALOG_EXERCISES.find((e) => e.id === id) ?? BUILTIN_GYM_CATALOG_EXERCISES[0];
+    return {
+      exerciseId: found.id,
+      name: found.name,
+      muscleGroup: found.muscleGroup,
+      dayLabel,
+      sets: found.defaultSets,
+      reps: found.defaultReps,
+      restSeconds: found.restSeconds,
+      animationKey: found.animationKey,
+      formCues: found.formCues,
+    };
+  };
+
+  if (goal === 'weight_loss' || goal === 'cardio_endurance') {
+    return [
+      { dayKey: 'mon', dayLabel: 'Mo', focusTitle: 'Upper & Core', isRestDay: false, exercises: [mapEx('ex-pushups', 'Upper & Core'), mapEx('ex-lat-pulldown', 'Upper & Core'), mapEx('ex-lat-raise', 'Upper & Core'), mapEx('ex-cable-crunch', 'Upper & Core')] },
+      { dayKey: 'tue', dayLabel: 'Tu', focusTitle: 'Rest day', isRestDay: true, exercises: [] },
+      { dayKey: 'wed', dayLabel: 'We', focusTitle: 'Lower & HIIT', isRestDay: false, exercises: [mapEx('ex-leg-press', 'Lower & HIIT'), mapEx('ex-leg-curl', 'Lower & HIIT'), mapEx('ex-calf-raise', 'Lower & HIIT'), mapEx('ex-treadmill-hiit', 'Lower & HIIT')] },
+      { dayKey: 'thu', dayLabel: 'Th', focusTitle: 'Rest day', isRestDay: true, exercises: [] },
+      { dayKey: 'fri', dayLabel: 'Fr', focusTitle: 'Full Body Burn', isRestDay: false, exercises: [mapEx('ex-bench-press', 'Full Body Burn'), mapEx('ex-cable-row', 'Full Body Burn'), mapEx('ex-squat', 'Full Body Burn'), mapEx('ex-leg-raise', 'Full Body Burn')] },
+      { dayKey: 'sat', dayLabel: 'Sa', focusTitle: 'Cardio & Core', isRestDay: false, exercises: [mapEx('ex-treadmill-hiit', 'Cardio & Core'), mapEx('ex-cable-crunch', 'Cardio & Core'), mapEx('ex-leg-raise', 'Cardio & Core')] },
+      { dayKey: 'sun', dayLabel: 'Su', focusTitle: 'Rest day', isRestDay: true, exercises: [] },
+    ];
+  }
+
+  return [
+    { dayKey: 'mon', dayLabel: 'Mo', focusTitle: 'Push Day', isRestDay: false, exercises: [mapEx('ex-bench-press', 'Push Day'), mapEx('ex-incline-db', 'Push Day'), mapEx('ex-db-shoulder', 'Push Day'), mapEx('ex-lat-raise', 'Push Day'), mapEx('ex-tricep-pushdown', 'Push Day')] },
+    { dayKey: 'tue', dayLabel: 'Tu', focusTitle: 'Rest day', isRestDay: true, exercises: [] },
+    { dayKey: 'wed', dayLabel: 'We', focusTitle: 'Pull Day', isRestDay: false, exercises: [mapEx('ex-lat-pulldown', 'Pull Day'), mapEx('ex-barbell-row', 'Pull Day'), mapEx('ex-cable-row', 'Pull Day'), mapEx('ex-face-pull', 'Pull Day'), mapEx('ex-ez-curl', 'Pull Day')] },
+    { dayKey: 'thu', dayLabel: 'Th', focusTitle: 'Rest day', isRestDay: true, exercises: [] },
+    { dayKey: 'fri', dayLabel: 'Fr', focusTitle: 'Leg Day', isRestDay: false, exercises: [mapEx('ex-squat', 'Leg Day'), mapEx('ex-leg-press', 'Leg Day'), mapEx('ex-rdl', 'Leg Day'), mapEx('ex-leg-curl', 'Leg Day'), mapEx('ex-calf-raise', 'Leg Day')] },
+    { dayKey: 'sat', dayLabel: 'Sa', focusTitle: 'Upper Pump & Core', isRestDay: false, exercises: [mapEx('ex-ohp', 'Upper Pump & Core'), mapEx('ex-hammer-curl', 'Upper Pump & Core'), mapEx('ex-tricep-pushdown', 'Upper Pump & Core'), mapEx('ex-leg-raise', 'Upper Pump & Core')] },
+    { dayKey: 'sun', dayLabel: 'Su', focusTitle: 'Rest day', isRestDay: true, exercises: [] },
+  ];
+}

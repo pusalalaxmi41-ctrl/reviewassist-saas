@@ -128,16 +128,19 @@ import type {
   GymCatalogExercise,
   GymCatalogExerciseInput,
   GymCatalogMuscleGroup,
+  GymCoachPlan,
   GymConfig,
   GymConfigInput,
   GymDailyCheckInResult,
   GymEffectiveMemberStatus,
+  GymExerciseLastSession,
   GymFitnessGoal,
   GymFreezeAction,
   GymInactiveAlertMember,
   GymLeaderboardEntry,
   GymLogSetResult,
   GymMember,
+  GymMemberAthleteHubPayload,
   GymMemberProgressHistory,
   GymMemberWorkoutPlanPayload,
   GymMemberWorkoutSummaryPayload,
@@ -162,6 +165,7 @@ import type {
   LogGymWorkoutSessionInput,
   PublicGymPortalPayload,
   SubmitGymRegistrationInput,
+  UpsertGymCoachPlanInput,
 } from '../../types/gym';
 import {
   addDaysToIsoDate,
@@ -282,6 +286,7 @@ const STORAGE_KEYS = {
   GYM_CUSTOM_EXERCISES: 'reviewassist_mock_gym_custom_exercises_v1',
   GYM_WORKOUT_ROUTINES: 'reviewassist_mock_gym_workout_routines_v1',
   GYM_WORKOUT_SET_LOGS: 'reviewassist_mock_gym_workout_set_logs_v1',
+  GYM_MEMBER_COACH_PLANS: 'reviewassist_mock_gym_member_coach_plans_v1',
   CAFE_CONFIGS: 'reviewassist_mock_cafe_configs_v1',
   CAFE_STAMP_PASSES: 'reviewassist_mock_cafe_stamp_passes_v1',
   CAFE_INVENTORY_ITEMS: 'reviewassist_mock_cafe_inventory_items_v1',
@@ -8348,6 +8353,283 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         (a, b) => b.best1rmKg - a.best1rmKg,
       ),
       recentSets: sets.slice(0, 80),
+    };
+  }
+
+  async upsertAndApproveGymCoachPlan(
+    input: UpsertGymCoachPlanInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymCoachPlan> {
+    const idErr = validateBusinessId(input.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = input.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const members = this.getOrSeedMockGymMembers();
+    const idx = members.findIndex(
+      (m) => m.businessId === cleanId && m.id === input.memberId,
+    );
+    if (idx === -1) throw new Error('Gym member not found in this business.');
+
+    let trainerName: string | null = null;
+    if (input.trainerId) {
+      const trainers = this.read<GymTrainer[]>(STORAGE_KEYS.GYM_TRAINERS, []);
+      const t = trainers.find(
+        (tr: GymTrainer) => tr.businessId === cleanId && tr.id === input.trainerId,
+      );
+      if (t) trainerName = t.trainerName;
+    }
+
+    const now = new Date().toISOString();
+    const allPlans = this.read<GymCoachPlan[]>(
+      STORAGE_KEYS.GYM_MEMBER_COACH_PLANS,
+      [],
+    );
+    const existingIdx = allPlans.findIndex(
+      (p) => p.businessId === cleanId && p.memberId === input.memberId,
+    );
+
+    const plan: GymCoachPlan = {
+      id: existingIdx >= 0 ? allPlans[existingIdx].id : `gymcp-${crypto.randomUUID()}`,
+      businessId: cleanId,
+      memberId: input.memberId,
+      trainerId: trainerName ? (input.trainerId ?? null) : null,
+      trainerName,
+      planTitle:
+        (input.planTitle || 'Personalized Transformation Plan').trim().slice(0, 120),
+      scheduleMode: input.scheduleMode === 'rotation' ? 'rotation' : 'fixed_week',
+      weeklySchedule: Array.isArray(input.weeklySchedule)
+        ? input.weeklySchedule
+        : [],
+      dailyCaloriesKcal: Math.max(800, Math.min(8000, Math.round(input.dailyCaloriesKcal || 2200))),
+      proteinGrams: Math.max(20, Math.min(500, Math.round(input.proteinGrams || 140))),
+      carbsGrams: Math.max(0, Math.min(1000, Math.round(input.carbsGrams || 230))),
+      fatsGrams: Math.max(10, Math.min(300, Math.round(input.fatsGrams || 65))),
+      waterLiters: Math.max(0.5, Math.min(12, Math.round((input.waterLiters || 3.5) * 10) / 10)),
+      nutritionMeals: Array.isArray(input.nutritionMeals)
+        ? input.nutritionMeals
+        : [],
+      supplementNotes: input.supplementNotes?.trim() || null,
+      coachNotes: input.coachNotes?.trim() || null,
+      approvalStatus: 'approved',
+      approvedBy:
+        input.approvedBy?.trim() || trainerName || 'Coach',
+      approvedAt: now,
+      updatedAt: now,
+    };
+
+    if (existingIdx >= 0) {
+      allPlans[existingIdx] = plan;
+    } else {
+      allPlans.push(plan);
+    }
+    this.write(STORAGE_KEYS.GYM_MEMBER_COACH_PLANS, allPlans);
+
+    if (trainerName || plan.coachNotes) {
+      members[idx] = {
+        ...members[idx],
+        ...(trainerName
+          ? { ptTrainerId: plan.trainerId, ptTrainerName: trainerName }
+          : {}),
+        ...(plan.coachNotes ? { trainerNotes: plan.coachNotes } : {}),
+        updatedAt: now,
+      };
+      this.write(STORAGE_KEYS.GYM_MEMBERS, members);
+    }
+
+    return plan;
+  }
+
+  async getGymMemberCoachPlanForOwner(params: {
+    businessId: string;
+    memberId: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymCoachPlan | null> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    const allPlans = this.read<GymCoachPlan[]>(
+      STORAGE_KEYS.GYM_MEMBER_COACH_PLANS,
+      [],
+    );
+    return (
+      allPlans.find(
+        (p) => p.businessId === cleanId && p.memberId === params.memberId,
+      ) ?? null
+    );
+  }
+
+  async getGymMemberAthleteHub(params: {
+    businessSlug: string;
+    memberId: string;
+  }): Promise<GymMemberAthleteHubPayload | null> {
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (!business || business.status !== 'active') return null;
+
+    const member = this.getOrSeedMockGymMembers().find(
+      (m) => m.businessId === business.id && m.id === params.memberId,
+    );
+    if (!member) return null;
+
+    const todayIso = getTodayIsoDateKey();
+    const monthPrefix = todayIso.slice(0, 7);
+
+    const coachPlan =
+      this.read<GymCoachPlan[]>(STORAGE_KEYS.GYM_MEMBER_COACH_PLANS, []).find(
+        (p) => p.businessId === business.id && p.memberId === member.id,
+      ) ?? null;
+
+    const sets = this.read<GymWorkoutSetRecord[]>(
+      STORAGE_KEYS.GYM_WORKOUT_SET_LOGS,
+      [],
+    ).filter((s) => s.businessId === business.id && s.memberId === member.id);
+
+    const totalVolumeLiftedKg = Math.round(
+      sets.reduce((sum, s) => sum + s.weightKg * s.reps, 0),
+    );
+    const volumeThisMonthKg = Math.round(
+      sets
+        .filter((s) => s.workoutDate.startsWith(monthPrefix))
+        .reduce((sum, s) => sum + s.weightKg * s.reps, 0),
+    );
+
+    const checkIns = this.read<GymAttendanceLog[]>(
+      STORAGE_KEYS.GYM_CHECK_INS,
+      [],
+    ).filter((c) => c.businessId === business.id && c.memberId === member.id);
+    const workoutsThisMonth = checkIns.filter((c) =>
+      c.checkInDate.startsWith(monthPrefix),
+    ).length;
+
+    const weightCheckInsThisMonth = this.read<GymBodyMeasurement[]>(
+      STORAGE_KEYS.GYM_BODY_MEASUREMENTS,
+      [],
+    ).filter(
+      (bm) =>
+        bm.businessId === business.id &&
+        bm.memberId === member.id &&
+        bm.recordedDate.startsWith(monthPrefix),
+    ).length;
+
+    // Smart recovery insight
+    const backSets = sets
+      .filter((s) => s.muscleGroup === 'back')
+      .sort((a, b) => b.workoutDate.localeCompare(a.workoutDate));
+    const legsSets = sets
+      .filter((s) => s.muscleGroup === 'legs')
+      .sort((a, b) => b.workoutDate.localeCompare(a.workoutDate));
+
+    let recoveryInsight = {
+      muscleGroup: 'full_body',
+      message:
+        'All major muscle groups are primed. Ready to push hard today!',
+    };
+    const backDaysAgo = backSets[0]
+      ? diffDaysBetweenIsoDates(backSets[0].workoutDate, todayIso)
+      : null;
+    const legsDaysAgo = legsSets[0]
+      ? diffDaysBetweenIsoDates(legsSets[0].workoutDate, todayIso)
+      : null;
+
+    if (backDaysAgo === null || backDaysAgo >= 5) {
+      recoveryInsight = {
+        muscleGroup: 'back',
+        message:
+          backDaysAgo === null
+            ? "Your back hasn't had tracked work yet — today's Pull session takes care of that."
+            : `Your back hasn't had any work in ${backDaysAgo} days. Today's plan takes care of that.`,
+      };
+    } else if (legsDaysAgo === null || legsDaysAgo >= 5) {
+      recoveryInsight = {
+        muscleGroup: 'legs',
+        message:
+          legsDaysAgo === null
+            ? 'Your legs are fresh — great day for squats or leg press.'
+            : `Your legs haven't had any work in ${legsDaysAgo} days. Ready for heavy lower-body work.`,
+      };
+    }
+
+    // Last session summary per exercise (strictly before todayIso)
+    const pastByExercise = new Map<string, GymWorkoutSetRecord[]>();
+    for (const s of sets) {
+      if (s.workoutDate >= todayIso) continue;
+      const arr = pastByExercise.get(s.exerciseName) ?? [];
+      arr.push(s);
+      pastByExercise.set(s.exerciseName, arr);
+    }
+
+    const lastSessionByExercise: Record<string, GymExerciseLastSession> = {};
+    for (const [exName, exSets] of pastByExercise.entries()) {
+      const sortedDates = exSets
+        .map((s) => s.workoutDate)
+        .sort((a, b) => b.localeCompare(a));
+      const latestDate = sortedDates[0];
+      const sessionSets = exSets
+        .filter((s) => s.workoutDate === latestDate)
+        .sort((a, b) => a.setNumber - b.setNumber);
+      const best = sessionSets.reduce(
+        (acc, s) => (s.weightKg > acc.weightKg ? s : acc),
+        sessionSets[0],
+      );
+      lastSessionByExercise[exName] = {
+        exerciseName: exName,
+        summary: sessionSets.map((s) => `${s.weightKg}×${s.reps}`).join(', '),
+        bestWeightKg: best.weightKg,
+        repsAtBest: best.reps,
+        lastDate: latestDate,
+      };
+    }
+
+    // Personal records
+    const prMap = new Map<string, GymPersonalRecordRow>();
+    for (const s of sets) {
+      const key = s.exerciseName.toLowerCase();
+      const curr = prMap.get(key);
+      if (
+        !curr ||
+        s.estimated1rmKg > curr.best1rmKg ||
+        s.weightKg > curr.bestWeightKg
+      ) {
+        prMap.set(key, {
+          exerciseName: s.exerciseName,
+          muscleGroup: s.muscleGroup,
+          bestWeightKg: Math.max(curr?.bestWeightKg ?? 0, s.weightKg),
+          best1rmKg: Math.max(curr?.best1rmKg ?? 0, s.estimated1rmKg),
+          lastDate: s.workoutDate,
+        });
+      }
+    }
+
+    const customExercises = this.read<GymCatalogExercise[]>(
+      STORAGE_KEYS.GYM_CUSTOM_EXERCISES,
+      [],
+    ).filter((e) => e.businessId === business.id);
+
+    const streak = member.currentStreakDays ?? 0;
+
+    return {
+      memberId: member.id,
+      weekStreakCount: streak > 0 ? Math.max(1, Math.floor(streak / 7)) : 0,
+      totalVolumeLiftedKg,
+      totalWorkoutsCount: member.totalCheckIns,
+      workoutsThisMonth,
+      monthlyWorkoutTarget: 16,
+      volumeThisMonthKg,
+      monthlyVolumeTargetKg: 25000,
+      weightCheckInsThisMonth,
+      coachPlan,
+      recoveryInsight,
+      lastSessionByExercise,
+      personalRecords: Array.from(prMap.values()).sort(
+        (a, b) => b.best1rmKg - a.best1rmKg,
+      ),
+      exerciseCatalog: [...BUILTIN_GYM_CATALOG_EXERCISES, ...customExercises],
     };
   }
 

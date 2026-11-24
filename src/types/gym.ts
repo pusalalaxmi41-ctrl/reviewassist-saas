@@ -262,6 +262,19 @@ export type GymCatalogEquipment =
   | 'bodyweight'
   | 'cardio_machine';
 
+export type GymAnimationKey =
+  | 'bench_press'
+  | 'incline_press'
+  | 'lat_pulldown'
+  | 'cable_row'
+  | 'squat'
+  | 'leg_press'
+  | 'shoulder_press'
+  | 'bicep_curl'
+  | 'tricep_pushdown'
+  | 'core_plank'
+  | 'cardio_hiit';
+
 export interface GymCatalogExercise {
   id: string;
   businessId: string | null;
@@ -271,6 +284,9 @@ export interface GymCatalogExercise {
   defaultSets: number;
   defaultReps: string;
   restSeconds: number;
+  animationKey?: GymAnimationKey;
+  animationGifUrl?: string | null;
+  formCues?: string | null;
 }
 
 export interface GymCatalogExerciseInput {
@@ -280,6 +296,9 @@ export interface GymCatalogExerciseInput {
   defaultSets?: number;
   defaultReps?: string;
   restSeconds?: number;
+  animationKey?: GymAnimationKey;
+  animationGifUrl?: string | null;
+  formCues?: string | null;
 }
 
 export interface GymRoutineExerciseItem {
@@ -290,6 +309,9 @@ export interface GymRoutineExerciseItem {
   sets: number;
   reps: string;
   restSeconds: number;
+  animationKey?: GymAnimationKey;
+  animationGifUrl?: string | null;
+  formCues?: string | null;
 }
 
 export interface GymWorkoutRoutine {
@@ -508,4 +530,92 @@ export interface GymOwnerDashboardPayload {
   monthlyLeaderboard?: GymLeaderboardEntry[];
   routines?: GymWorkoutRoutine[];
   exerciseCatalog?: GymCatalogExercise[];
+}
+
+export type GymWeekDayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+
+export interface GymWeeklyScheduleDay {
+  dayKey: GymWeekDayKey;
+  dayLabel: string;
+  focusTitle: string;
+  isRestDay: boolean;
+  exercises: GymRoutineExerciseItem[];
+}
+
+export interface GymNutritionMeal {
+  mealTime: string;
+  items: string;
+  calories: number;
+  protein: number;
+}
+
+export interface GymCoachPlan {
+  id: string;
+  businessId: string;
+  memberId: string;
+  trainerId: string | null;
+  trainerName: string | null;
+  planTitle: string;
+  scheduleMode: 'fixed_week' | 'rotation';
+  weeklySchedule: GymWeeklyScheduleDay[];
+  dailyCaloriesKcal: number;
+  proteinGrams: number;
+  carbsGrams: number;
+  fatsGrams: number;
+  waterLiters: number;
+  nutritionMeals: GymNutritionMeal[];
+  supplementNotes: string | null;
+  coachNotes: string | null;
+  approvalStatus: 'draft' | 'approved';
+  approvedBy: string | null;
+  approvedAt: string | null;
+  updatedAt: string;
+}
+
+export interface UpsertGymCoachPlanInput {
+  businessId: string;
+  memberId: string;
+  trainerId?: string | null;
+  planTitle: string;
+  scheduleMode: 'fixed_week' | 'rotation';
+  weeklySchedule: GymWeeklyScheduleDay[];
+  dailyCaloriesKcal: number;
+  proteinGrams: number;
+  carbsGrams: number;
+  fatsGrams: number;
+  waterLiters: number;
+  nutritionMeals: GymNutritionMeal[];
+  supplementNotes?: string | null;
+  coachNotes?: string | null;
+  approvedBy?: string | null;
+}
+
+export interface GymAthleteRecoveryInsight {
+  muscleGroup: string;
+  message: string;
+}
+
+export interface GymExerciseLastSession {
+  exerciseName: string;
+  summary: string;
+  bestWeightKg: number;
+  repsAtBest: number;
+  lastDate: string;
+}
+
+export interface GymMemberAthleteHubPayload {
+  memberId: string;
+  weekStreakCount: number;
+  totalVolumeLiftedKg: number;
+  totalWorkoutsCount: number;
+  workoutsThisMonth: number;
+  monthlyWorkoutTarget: number;
+  volumeThisMonthKg: number;
+  monthlyVolumeTargetKg: number;
+  weightCheckInsThisMonth: number;
+  coachPlan: GymCoachPlan | null;
+  recoveryInsight: GymAthleteRecoveryInsight;
+  lastSessionByExercise: Record<string, GymExerciseLastSession>;
+  personalRecords: GymPersonalRecordRow[];
+  exerciseCatalog: GymCatalogExercise[];
 }

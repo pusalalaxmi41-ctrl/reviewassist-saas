@@ -84,6 +84,7 @@ import type {
   GymBodyMeasurementInput,
   GymCatalogExercise,
   GymCatalogExerciseInput,
+  GymCoachPlan,
   GymConfig,
   GymConfigInput,
   GymDailyCheckInResult,
@@ -92,6 +93,7 @@ import type {
   GymLeaderboardEntry,
   GymLogSetResult,
   GymMember,
+  GymMemberAthleteHubPayload,
   GymMemberProgressHistory,
   GymMemberWorkoutPlanPayload,
   GymMemberWorkoutSummaryPayload,
@@ -111,6 +113,7 @@ import type {
   LogGymWorkoutSessionInput,
   PublicGymPortalPayload,
   SubmitGymRegistrationInput,
+  UpsertGymCoachPlanInput,
 } from '../../types/gym';
 import type {
   CafeConfig,
@@ -1026,6 +1029,25 @@ export interface IBusinessRepository {
     memberId: string;
     options?: AIConfigAccessOptions;
   }): Promise<GymMemberWorkoutSummaryPayload>;
+
+  /** Owner/Trainer creates or updates a member's personalized weekly workout split + nutrition plan and approves it to the member app. */
+  upsertAndApproveGymCoachPlan(
+    input: UpsertGymCoachPlanInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymCoachPlan>;
+
+  /** Owner/Trainer reads the member's customized Coach Plan (or null if not yet customized). */
+  getGymMemberCoachPlanForOwner(params: {
+    businessId: string;
+    memberId: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymCoachPlan | null>;
+
+  /** Full Athlete Hub payload for the Dark-Mode 5-tab Member PWA (streak, volume, monthly challenges, coach plan, recovery insight, last-session history, PRs, animated catalog). */
+  getGymMemberAthleteHub(params: {
+    businessSlug: string;
+    memberId: string;
+  }): Promise<GymMemberAthleteHubPayload | null>;
 
   // ---------------------------------------------------------------------------
   // Module 7: Dedicated CafeOS (Stamp Pass, Birthday Coffee, Inventory & Counter)

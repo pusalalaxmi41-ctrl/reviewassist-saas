@@ -112,6 +112,7 @@ import type {
   GymBodyMeasurementInput,
   GymCatalogExercise,
   GymCatalogExerciseInput,
+  GymCoachPlan,
   GymConfig,
   GymConfigInput,
   GymDailyCheckInResult,
@@ -120,6 +121,7 @@ import type {
   GymLeaderboardEntry,
   GymLogSetResult,
   GymMember,
+  GymMemberAthleteHubPayload,
   GymMemberProgressHistory,
   GymMemberWorkoutPlanPayload,
   GymMemberWorkoutSummaryPayload,
@@ -140,6 +142,7 @@ import type {
   LogGymWorkoutSessionInput,
   PublicGymPortalPayload,
   SubmitGymRegistrationInput,
+  UpsertGymCoachPlanInput,
 } from '../../types/gym';
 import type {
   CafeConfig,
@@ -5740,6 +5743,142 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       return data as GymMemberWorkoutSummaryPayload;
     }
     return mockBusinessRepository.getGymMemberWorkoutSummary(params);
+  }
+
+  async upsertAndApproveGymCoachPlan(
+    input: UpsertGymCoachPlanInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<GymCoachPlan> {
+    const idErr = validateBusinessId(input.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = input.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc(
+      'upsert_and_approve_gym_coach_plan',
+      {
+        p_business_id: cleanId,
+        p_member_id: input.memberId,
+        p_trainer_id: input.trainerId ?? null,
+        p_plan_title: input.planTitle,
+        p_schedule_mode: input.scheduleMode,
+        p_weekly_schedule: input.weeklySchedule,
+        p_daily_calories_kcal: input.dailyCaloriesKcal,
+        p_protein_grams: input.proteinGrams,
+        p_carbs_grams: input.carbsGrams,
+        p_fats_grams: input.fatsGrams,
+        p_water_liters: input.waterLiters,
+        p_nutrition_meals: input.nutritionMeals,
+        p_supplement_notes: input.supplementNotes ?? null,
+        p_coach_notes: input.coachNotes ?? null,
+        p_approved_by: input.approvedBy ?? 'Coach',
+      },
+    );
+
+    if (error) {
+      const msg = error.message ?? '';
+      if (
+        msg.includes('does not exist') ||
+        error.code === '42P01' ||
+        error.code === '42883' ||
+        error.code === 'PGRST202'
+      ) {
+        return mockBusinessRepository.upsertAndApproveGymCoachPlan(
+          input,
+          options,
+        );
+      }
+      throw new Error(error.message || 'Failed to approve coach plan.');
+    }
+
+    return data as GymCoachPlan;
+  }
+
+  async getGymMemberCoachPlanForOwner(params: {
+    businessId: string;
+    memberId: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymCoachPlan | null> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('gym_member_coach_plans')
+      .select('*, gym_trainers(trainer_name)')
+      .eq('business_id', cleanId)
+      .eq('member_id', params.memberId)
+      .maybeSingle();
+
+    if (error) {
+      const msg = error.message ?? '';
+      if (
+        msg.includes('does not exist') ||
+        error.code === '42P01' ||
+        error.code === '42883' ||
+        error.code === 'PGRST202'
+      ) {
+        return mockBusinessRepository.getGymMemberCoachPlanForOwner(params);
+      }
+      throw new Error(error.message);
+    }
+
+    if (!data) return null;
+    const row = data as Record<string, unknown>;
+    const trainerObj = row.gym_trainers as
+      | { trainer_name?: string }
+      | null
+      | undefined;
+
+    return {
+      id: String(row.id),
+      businessId: String(row.business_id),
+      memberId: String(row.member_id),
+      trainerId: (row.trainer_id as string | null) ?? null,
+      trainerName: trainerObj?.trainer_name ?? null,
+      planTitle: String(row.plan_title ?? 'Personalized Transformation Plan'),
+      scheduleMode:
+        row.schedule_mode === 'rotation' ? 'rotation' : 'fixed_week',
+      weeklySchedule: Array.isArray(row.weekly_schedule)
+        ? (row.weekly_schedule as GymCoachPlan['weeklySchedule'])
+        : [],
+      dailyCaloriesKcal: Number(row.daily_calories_kcal ?? 2200),
+      proteinGrams: Number(row.protein_grams ?? 140),
+      carbsGrams: Number(row.carbs_grams ?? 230),
+      fatsGrams: Number(row.fats_grams ?? 65),
+      waterLiters: Number(row.water_liters ?? 3.5),
+      nutritionMeals: Array.isArray(row.nutrition_meals)
+        ? (row.nutrition_meals as GymCoachPlan['nutritionMeals'])
+        : [],
+      supplementNotes: (row.supplement_notes as string | null) ?? null,
+      coachNotes: (row.coach_notes as string | null) ?? null,
+      approvalStatus:
+        row.approval_status === 'draft' ? 'draft' : 'approved',
+      approvedBy: (row.approved_by as string | null) ?? null,
+      approvedAt: (row.approved_at as string | null) ?? null,
+      updatedAt: String(row.updated_at ?? new Date().toISOString()),
+    };
+  }
+
+  async getGymMemberAthleteHub(params: {
+    businessSlug: string;
+    memberId: string;
+  }): Promise<GymMemberAthleteHubPayload | null> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc(
+      'get_gym_member_full_athlete_hub',
+      {
+        p_slug: params.businessSlug.trim(),
+        p_member_id: params.memberId,
+      },
+    );
+    if (!error && data && typeof data === 'object') {
+      return data as GymMemberAthleteHubPayload;
+    }
+    return mockBusinessRepository.getGymMemberAthleteHub(params);
   }
 
   // ---------------------------------------------------------------------------

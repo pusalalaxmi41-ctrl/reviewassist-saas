@@ -37,7 +37,9 @@ import type {
   GymMember,
   GymMemberProgressHistory,
   GymMemberWorkoutSummaryPayload,
+  GymNutritionMeal,
   GymOwnerDashboardPayload,
+  GymWeeklyScheduleDay,
   GymPaymentMethod,
 } from '../../types/gym';
 import { businessRepository } from '../../services/storage';
@@ -52,7 +54,12 @@ import {
   getWorkoutFocusMeta,
   GYM_FITNESS_GOAL_OPTIONS,
 } from '../../utils/gymValidation';
-import { GYM_TRAINER_ROUTINE_PRESETS } from '../../utils/gymWorkoutEngine';
+import {
+  buildDefaultWeeklyScheduleForGoal,
+  getNutritionPresetForGoal,
+  GYM_NUTRITION_PRESETS,
+  GYM_TRAINER_ROUTINE_PRESETS,
+} from '../../utils/gymWorkoutEngine';
 import { formatPriceFromPaise } from '../../utils/restaurantValidation';
 
 export type GymCommandSection =
@@ -381,8 +388,9 @@ export function GymManagerView({
     useState<GymCatalogEquipment>('dumbbell');
   const [routineAssignMemberId, setRoutineAssignMemberId] = useState('');
 
-  // Member Progress Drawer (Attendance + Body Journal + Strength PRs + Coach Notes)
+  // Member Progress Drawer (Attendance + Body Journal + Strength PRs + Coach Studio)
   const [progressMemberId, setProgressMemberId] = useState<string | null>(null);
+  const [drawerTab, setDrawerTab] = useState<'progress' | 'coach_studio'>('progress');
   const [memberProgress, setMemberProgress] =
     useState<GymMemberProgressHistory | null>(null);
   const [workoutSummary, setWorkoutSummary] =
@@ -390,6 +398,21 @@ export function GymManagerView({
   const [loadingProgress, setLoadingProgress] = useState(false);
   const [notesDraft, setNotesDraft] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
+
+  // Coach Plan & Nutrition Studio state
+  const [studioTrainerId, setStudioTrainerId] = useState('');
+  const [studioPlanTitle, setStudioPlanTitle] = useState('Personalized Transformation Plan');
+  const [studioScheduleMode, setStudioScheduleMode] = useState<'fixed_week' | 'rotation'>('fixed_week');
+  const [studioWeeklySchedule, setStudioWeeklySchedule] = useState<GymWeeklyScheduleDay[]>([]);
+  const [studioCalories, setStudioCalories] = useState('2200');
+  const [studioProtein, setStudioProtein] = useState('140');
+  const [studioCarbs, setStudioCarbs] = useState('230');
+  const [studioFats, setStudioFats] = useState('65');
+  const [studioWater, setStudioWater] = useState('3.5');
+  const [studioMeals, setStudioMeals] = useState<GymNutritionMeal[]>([]);
+  const [studioSupplements, setStudioSupplements] = useState('');
+  const [studioApprovedAt, setStudioApprovedAt] = useState<string | null>(null);
+  const [savingCoachPlan, setSavingCoachPlan] = useState(false);
 
   const gymPortalUrl = getGymPortalUrl(business.slug);
 
@@ -786,11 +809,12 @@ export function GymManagerView({
 
   async function handleOpenProgressDrawer(memberId: string) {
     setProgressMemberId(memberId);
+    setDrawerTab('progress');
     setMemberProgress(null);
     setWorkoutSummary(null);
     setLoadingProgress(true);
     try {
-      const [hist, summary] = await Promise.all([
+      const [hist, summary, existingPlan] = await Promise.all([
         businessRepository.getGymMemberProgressHistory({
           businessId: business.id,
           memberId,
@@ -800,15 +824,92 @@ export function GymManagerView({
           businessId: business.id,
           memberId,
         }),
+        businessRepository.getGymMemberCoachPlanForOwner({
+          businessId: business.id,
+          memberId,
+        }),
       ]);
       setMemberProgress(hist);
       setWorkoutSummary(summary);
       setNotesDraft(hist.member.trainerNotes ?? '');
+
+      if (existingPlan) {
+        setStudioTrainerId(existingPlan.trainerId ?? hist.member.ptTrainerId ?? '');
+        setStudioPlanTitle(existingPlan.planTitle);
+        setStudioScheduleMode(existingPlan.scheduleMode);
+        setStudioWeeklySchedule(
+          existingPlan.weeklySchedule.length > 0
+            ? existingPlan.weeklySchedule
+            : buildDefaultWeeklyScheduleForGoal(hist.member.fitnessGoal),
+        );
+        setStudioCalories(String(existingPlan.dailyCaloriesKcal));
+        setStudioProtein(String(existingPlan.proteinGrams));
+        setStudioCarbs(String(existingPlan.carbsGrams));
+        setStudioFats(String(existingPlan.fatsGrams));
+        setStudioWater(String(existingPlan.waterLiters));
+        setStudioMeals(existingPlan.nutritionMeals);
+        setStudioSupplements(existingPlan.supplementNotes ?? '');
+        setStudioApprovedAt(existingPlan.approvedAt);
+      } else {
+        const preset = getNutritionPresetForGoal(hist.member.fitnessGoal);
+        setStudioTrainerId(hist.member.ptTrainerId ?? '');
+        setStudioPlanTitle(preset.planTitle);
+        setStudioScheduleMode('fixed_week');
+        setStudioWeeklySchedule(
+          buildDefaultWeeklyScheduleForGoal(hist.member.fitnessGoal),
+        );
+        setStudioCalories(String(preset.dailyCaloriesKcal));
+        setStudioProtein(String(preset.proteinGrams));
+        setStudioCarbs(String(preset.carbsGrams));
+        setStudioFats(String(preset.fatsGrams));
+        setStudioWater(String(preset.waterLiters));
+        setStudioMeals(preset.meals);
+        setStudioSupplements(preset.supplementNotes);
+        setStudioApprovedAt(null);
+      }
     } catch (err) {
       setErrorMsg((err as Error).message);
       setProgressMemberId(null);
     } finally {
       setLoadingProgress(false);
+    }
+  }
+
+  async function handleApproveAndPushCoachPlan(e: FormEvent) {
+    e.preventDefault();
+    if (!progressMemberId) return;
+    setSavingCoachPlan(true);
+    setErrorMsg(null);
+    try {
+      const assignedTrainer = (dashboard?.trainers ?? []).find(
+        (t) => t.id === studioTrainerId,
+      );
+      const saved = await businessRepository.upsertAndApproveGymCoachPlan({
+        businessId: business.id,
+        memberId: progressMemberId,
+        trainerId: studioTrainerId || null,
+        planTitle: studioPlanTitle,
+        scheduleMode: studioScheduleMode,
+        weeklySchedule: studioWeeklySchedule,
+        dailyCaloriesKcal: Number.parseInt(studioCalories, 10) || 2200,
+        proteinGrams: Number.parseInt(studioProtein, 10) || 140,
+        carbsGrams: Number.parseInt(studioCarbs, 10) || 230,
+        fatsGrams: Number.parseInt(studioFats, 10) || 65,
+        waterLiters: Number.parseFloat(studioWater) || 3.5,
+        nutritionMeals: studioMeals,
+        supplementNotes: studioSupplements,
+        coachNotes: notesDraft,
+        approvedBy: assignedTrainer?.trainerName ?? 'Head Coach',
+      });
+      setStudioApprovedAt(saved.approvedAt);
+      flashStatus(
+        `Coach Plan & Indian Diet approved and pushed to ${toTitleCase(memberProgress?.member.fullName)}'s phone app!`,
+      );
+      await loadDashboard();
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setSavingCoachPlan(false);
     }
   }
 
@@ -2634,10 +2735,242 @@ const totalPendingDuesPaise = dashboard?.totalBalanceDuePaise ?? 0;
 
               {loadingProgress || !memberProgress ? (
                 <p className="py-12 text-center text-[13px] text-slate-500">
-                  Loading attendance, Strength PRs &amp; measurements…
+                  Loading attendance, Strength PRs &amp; Coach Studio…
                 </p>
               ) : (
                 <>
+                  {/* 2-Tab Drawer Switcher */}
+                  <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-slate-100 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setDrawerTab('progress')}
+                      className={`rounded-lg py-2 text-[12px] font-extrabold transition-colors cursor-pointer ${
+                        drawerTab === 'progress'
+                          ? 'bg-[#0F1115] text-[#C8F135]'
+                          : 'text-slate-600 hover:text-[#0F1115]'
+                      }`}
+                    >
+                      Progress &amp; PRs
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDrawerTab('coach_studio')}
+                      className={`rounded-lg py-2 text-[12px] font-extrabold transition-colors cursor-pointer ${
+                        drawerTab === 'coach_studio'
+                          ? 'bg-[#0F1115] text-[#C8F135]'
+                          : 'text-slate-600 hover:text-[#0F1115]'
+                      }`}
+                    >
+                      Coach Plan &amp; Nutrition Studio
+                    </button>
+                  </div>
+
+                  {drawerTab === 'coach_studio' ? (
+                    <form
+                      onSubmit={(e) => void handleApproveAndPushCoachPlan(e)}
+                      className="space-y-4"
+                    >
+                      <div className="rounded-2xl bg-[#0F1115] p-4 text-white space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-[#C8F135]">
+                            Coach Personalization Engine
+                          </span>
+                          {studioApprovedAt && (
+                            <span className="rounded-full bg-[#C8F135]/20 px-2 py-0.5 text-[10px] font-extrabold text-[#C8F135]">
+                              ✓ Live on Member App
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[12px] text-slate-300">
+                          Customize weekly workout split + daily Indian diet macros and push directly to{' '}
+                          <strong>{toTitleCase(memberProgress.member.fullName)}</strong>&apos;s Plan tab.
+                        </p>
+                      </div>
+
+                      {/* Trainer & Plan Title */}
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-500">
+                            Assigned Trainer
+                          </label>
+                          <select
+                            value={studioTrainerId}
+                            onChange={(e) => setStudioTrainerId(e.target.value)}
+                            className="h-9.5 w-full rounded-xl border border-slate-300 px-2.5 text-[12.5px] font-semibold"
+                          >
+                            <option value="">Head Coach (Default)</option>
+                            {(dashboard?.trainers ?? []).map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.trainerName}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-500">
+                            Schedule Mode
+                          </label>
+                          <select
+                            value={studioScheduleMode}
+                            onChange={(e) =>
+                              setStudioScheduleMode(
+                                e.target.value === 'rotation' ? 'rotation' : 'fixed_week',
+                              )
+                            }
+                            className="h-9.5 w-full rounded-xl border border-slate-300 px-2.5 text-[12.5px] font-semibold"
+                          >
+                            <option value="fixed_week">Fixed Week (Mo–Su)</option>
+                            <option value="rotation">Rotation Split</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-500">
+                          Plan Title
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={studioPlanTitle}
+                          onChange={(e) => setStudioPlanTitle(e.target.value)}
+                          className="h-9.5 w-full rounded-xl border border-slate-300 px-3 text-[13px] font-semibold"
+                        />
+                      </div>
+
+                      {/* 1-Tap Diet Presets */}
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                          1-Tap Indian Diet Presets
+                        </label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {GYM_NUTRITION_PRESETS.map((preset) => (
+                            <button
+                              key={preset.key}
+                              type="button"
+                              onClick={() => {
+                                setStudioPlanTitle(preset.planTitle);
+                                setStudioCalories(String(preset.dailyCaloriesKcal));
+                                setStudioProtein(String(preset.proteinGrams));
+                                setStudioCarbs(String(preset.carbsGrams));
+                                setStudioFats(String(preset.fatsGrams));
+                                setStudioWater(String(preset.waterLiters));
+                                setStudioMeals(preset.meals);
+                                setStudioSupplements(preset.supplementNotes);
+                              }}
+                              className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11.5px] font-bold text-[#0F1115] hover:bg-[#C8F135]/30 cursor-pointer"
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Daily Macros */}
+                      <div className="grid grid-cols-5 gap-1.5">
+                        {[
+                          { label: 'Kcal', val: studioCalories, set: setStudioCalories },
+                          { label: 'Protein(g)', val: studioProtein, set: setStudioProtein },
+                          { label: 'Carbs(g)', val: studioCarbs, set: setStudioCarbs },
+                          { label: 'Fats(g)', val: studioFats, set: setStudioFats },
+                          { label: 'Water(L)', val: studioWater, set: setStudioWater },
+                        ].map((m) => (
+                          <div key={m.label} className="space-y-1">
+                            <label className="text-[10px] font-bold text-slate-500">
+                              {m.label}
+                            </label>
+                            <input
+                              type="number"
+                              step={m.label === 'Water(L)' ? '0.1' : '1'}
+                              value={m.val}
+                              onChange={(e) => m.set(e.target.value)}
+                              className="h-9 w-full rounded-lg border border-slate-300 px-2 text-[12px] font-bold tabular-nums"
+                            />
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* 7-Day Weekly Split Editor */}
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                          7-Day Weekly Training Split (Mo–Su)
+                        </label>
+                        <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                          {studioWeeklySchedule.map((day, dIdx) => (
+                            <div
+                              key={day.dayKey}
+                              className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 flex items-center justify-between gap-2"
+                            >
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <span className="w-6 text-[12px] font-black text-[#0F1115]">
+                                  {day.dayLabel}
+                                </span>
+                                <input
+                                  type="text"
+                                  value={day.focusTitle}
+                                  disabled={day.isRestDay}
+                                  onChange={(e) => {
+                                    const next = [...studioWeeklySchedule];
+                                    next[dIdx] = { ...day, focusTitle: e.target.value };
+                                    setStudioWeeklySchedule(next);
+                                  }}
+                                  className="h-8 flex-1 rounded-lg border border-slate-200 bg-white px-2 text-[12px] font-bold disabled:opacity-50"
+                                />
+                              </div>
+                              <label className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 cursor-pointer shrink-0">
+                                <input
+                                  type="checkbox"
+                                  checked={day.isRestDay}
+                                  onChange={(e) => {
+                                    const next = [...studioWeeklySchedule];
+                                    next[dIdx] = {
+                                      ...day,
+                                      isRestDay: e.target.checked,
+                                      focusTitle: e.target.checked ? 'Rest day' : 'Workout Day',
+                                    };
+                                    setStudioWeeklySchedule(next);
+                                  }}
+                                />
+                                Rest
+                              </label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Meals Preview & Supplements */}
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                          Meals ({studioMeals.length} scheduled) &amp; Supplements
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Supplement & hydration notes..."
+                          value={studioSupplements}
+                          onChange={(e) => setStudioSupplements(e.target.value)}
+                          className="h-9.5 w-full rounded-xl border border-slate-300 px-3 text-[12.5px]"
+                        />
+                        <textarea
+                          rows={2}
+                          value={notesDraft}
+                          onChange={(e) => setNotesDraft(e.target.value)}
+                          placeholder="Coach notes visible on member's Nutrition tab..."
+                          className="w-full rounded-xl border border-slate-300 p-2.5 text-[12.5px]"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={savingCoachPlan}
+                        className="gym-tactile flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0F1115] text-[13.5px] font-extrabold text-[#C8F135] hover:bg-slate-800 cursor-pointer"
+                      >
+                        {savingCoachPlan
+                          ? 'Pushing Plan…'
+                          : 'Approve & Push to Member App ✓'}
+                      </button>
+                    </form>
+                  ) : (
+                    <>
                   {/* Strength & Workout Summary (OpenGym Engine) */}
                   <div className="rounded-2xl bg-[#0F1115] p-4 text-white space-y-3">
                     <div className="flex items-center justify-between">
@@ -2723,6 +3056,8 @@ const totalPendingDuesPaise = dashboard?.totalBalanceDuePaise ?? 0;
                       {savingNotes ? 'Saving…' : 'Save Coach Notes ✓'}
                     </button>
                   </form>
+                    </>
+                  )}
                 </>
               )}
             </div>
