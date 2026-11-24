@@ -79,12 +79,12 @@ import {
   build12WeekActivityHeatmap,
   buildDefaultWeeklyScheduleForGoal,
   buildGymDataExportCsv,
+  BUILTIN_GYM_CATALOG_EXERCISES,
   calculateBarbellPlates,
   getNutritionPresetForGoal,
 } from '../utils/gymWorkoutEngine';
 import { formatPriceFromPaise } from '../utils/restaurantValidation';
 import { playNotificationChime } from '../utils/hospitalityHelpers';
-import { GymMuscleMapSvg } from '../components/gym/GymMuscleMapSvg';
 import { ExerciseAnimationPreview } from '../components/gym/ExerciseAnimationPreview';
 import {
   GymMemberShell,
@@ -564,16 +564,54 @@ export default function CustomerGymPage() {
     });
   }, [activeTab, businessSlug, memberPass]);
 
-  // Weekly Schedule (Coach Approved OR Smart Goal Default)
+  const catalogExercises = useMemo(() => {
+    const raw =
+      athleteHub?.exerciseCatalog ?? workoutPlan?.exerciseCatalog ?? [];
+    const builtinMap = new Map(
+      BUILTIN_GYM_CATALOG_EXERCISES.map((b) => [b.name.trim().toLowerCase(), b]),
+    );
+    return raw.map((ex) => {
+      const b = builtinMap.get(ex.name.trim().toLowerCase());
+      return {
+        ...ex,
+        animationGifUrl: ex.animationGifUrl?.trim() || b?.animationGifUrl || null,
+        formCues: ex.formCues?.trim() || b?.formCues || null,
+      };
+    });
+  }, [athleteHub?.exerciseCatalog, workoutPlan?.exerciseCatalog]);
+
+  // Weekly Schedule (Coach Approved OR Smart Goal Default), hydrated with live GIF URLs
   const effectiveWeeklySchedule = useMemo<GymWeeklyScheduleDay[]>(() => {
-    if (
+    const rawSchedule =
       athleteHub?.coachPlan?.weeklySchedule &&
       athleteHub.coachPlan.weeklySchedule.length > 0
-    ) {
-      return athleteHub.coachPlan.weeklySchedule;
-    }
-    return buildDefaultWeeklyScheduleForGoal(memberPass?.fitnessGoal);
-  }, [athleteHub?.coachPlan, memberPass?.fitnessGoal]);
+        ? athleteHub.coachPlan.weeklySchedule
+        : buildDefaultWeeklyScheduleForGoal(memberPass?.fitnessGoal);
+
+    const byName = new Map(
+      catalogExercises.map((ex) => [ex.name.trim().toLowerCase(), ex]),
+    );
+    const builtinByName = new Map(
+      BUILTIN_GYM_CATALOG_EXERCISES.map((ex) => [
+        ex.name.trim().toLowerCase(),
+        ex,
+      ]),
+    );
+
+    return rawSchedule.map((day) => ({
+      ...day,
+      exercises: day.exercises.map((item) => {
+        const key = item.name.trim().toLowerCase();
+        const cat = byName.get(key) ?? builtinByName.get(key);
+        return {
+          ...item,
+          animationGifUrl:
+            item.animationGifUrl?.trim() || cat?.animationGifUrl || null,
+          formCues: item.formCues?.trim() || cat?.formCues || null,
+        };
+      }),
+    }));
+  }, [athleteHub, memberPass, catalogExercises]);
 
   const effectiveNutrition = useMemo(() => {
     const coachPlan = athleteHub?.coachPlan;
@@ -649,12 +687,6 @@ export default function CustomerGymPage() {
         ? calculateBarbellPlates(plateCalcTargetKg, plateBarKg)
         : null,
     [plateCalcTargetKg, plateBarKg],
-  );
-
-  const catalogExercises = useMemo(
-    () =>
-      athleteHub?.exerciseCatalog ?? workoutPlan?.exerciseCatalog ?? [],
-    [athleteHub?.exerciseCatalog, workoutPlan?.exerciseCatalog],
   );
 
   const filteredExercises = useMemo(() => {
@@ -1820,10 +1852,17 @@ export default function CustomerGymPage() {
               })}
             </div>
             {activeEx && (
-              <GymMuscleMapSvg
-                activeMuscles={[activeEx.muscleGroup]}
-                compact
-              />
+              <div className="h-10 w-16 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-[#111419]">
+                <ImageWithFallback
+                  src={resolveAnatomyAssetForMuscles(
+                    [activeEx.muscleGroup],
+                    activeEx.name,
+                  )}
+                  alt={`${activeEx.muscleGroup} focus`}
+                  eager
+                  className="h-full w-full object-cover"
+                />
+              </div>
             )}
           </div>
 
@@ -2697,18 +2736,8 @@ export default function CustomerGymPage() {
                         eager
                         className="h-full w-full object-cover"
                         fallback={
-                          <div className="flex h-full w-full items-center justify-center">
-                            <GymMuscleMapSvg
-                              activeMuscles={Array.from(
-                                new Set(
-                                  todayScheduleDay.exercises.map(
-                                    (e) => e.muscleGroup,
-                                  ),
-                                ),
-                              )}
-                              accentColor={brandAccent}
-                              compact
-                            />
+                          <div className="flex h-full w-full items-center justify-center text-[#778191]">
+                            <Dumbbell className="h-7 w-7" aria-hidden />
                           </div>
                         }
                       />
@@ -4854,15 +4883,33 @@ export default function CustomerGymPage() {
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-[#0B0D10] border border-white/[0.06] p-3 space-y-2">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 text-left">
-                  What you just trained
+              <div className="rounded-2xl bg-[#111419] border border-white/[0.08] p-3 space-y-2.5">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-[#A4ADBB] text-left">
+                  Muscles trained
                 </p>
-                <div className="flex justify-center">
-                  <GymMuscleMapSvg
-                    activeMuscles={workoutCompleteSummary.muscles}
+                <div className="h-36 w-full overflow-hidden rounded-xl border border-white/10 bg-[#0B0D10]">
+                  <ImageWithFallback
+                    src={resolveAnatomyAssetForMuscles(
+                      workoutCompleteSummary.muscles,
+                      workoutCompleteSummary.dayTitle,
+                    )}
+                    alt="Muscles trained summary"
+                    eager
+                    className="h-full w-full object-cover"
                   />
                 </div>
+                {workoutCompleteSummary.muscles.length > 0 && (
+                  <div className="flex flex-wrap justify-center gap-1.5">
+                    {workoutCompleteSummary.muscles.map((m) => (
+                      <span
+                        key={m}
+                        className="rounded-full bg-[#232933] px-2.5 py-0.5 text-[10.5px] font-bold capitalize text-[#F5F7FA]"
+                      >
+                        {m.replace('_', ' ')}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <button
