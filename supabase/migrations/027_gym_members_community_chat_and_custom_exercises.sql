@@ -67,12 +67,17 @@ create policy "gym_community_messages_owner_all"
 do $$
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    begin
+    if not exists (
+      select 1 from pg_publication_tables
+       where pubname = 'supabase_realtime'
+         and schemaname = 'public'
+         and tablename = 'gym_community_messages'
+    ) then
       alter publication supabase_realtime add table public.gym_community_messages;
-    exception when duplicate_object then
-      null;
-    end;
+    end if;
   end if;
+exception when others then
+  null;
 end;
 $$;
 

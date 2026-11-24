@@ -97,7 +97,7 @@ set
     when lower(name) like '%bench%' or lower(name) like '%push-up%' or lower(name) like '%fly%' then 'bench_press'
     when lower(name) like '%pulldown%' or lower(name) like '%pull-up%' then 'lat_pulldown'
     when lower(name) like '%row%' or lower(name) like '%deadlift%' then 'cable_row'
-    when lower(name) like '%leg press%' or lower(name) like '%extension%' or lower(name) like '%curl%' and muscle_group = 'legs' then 'leg_press'
+    when lower(name) like '%leg press%' or lower(name) like '%extension%' or (lower(name) like '%curl%' and muscle_group = 'legs') then 'leg_press'
     when lower(name) like '%squat%' or lower(name) like '%lunge%' or lower(name) like '%calf%' then 'squat'
     when lower(name) like '%shoulder%' or lower(name) like '%raise%' or lower(name) like '%overhead%' then 'shoulder_press'
     when lower(name) like '%tricep%' or lower(name) like '%pushdown%' or lower(name) like '%dip%' then 'tricep_pushdown'
@@ -243,7 +243,6 @@ begin
   if p_trainer_id is not null and v_trainer_name is not null then
     update public.gym_members
        set pt_trainer_id = p_trainer_id,
-           pt_trainer_name = v_trainer_name,
            trainer_notes = coalesce(nullif(pg_catalog.btrim(coalesce(p_coach_notes, '')), ''), trainer_notes),
            updated_at = now()
      where id = v_member.id;
@@ -477,7 +476,7 @@ begin
 
   return jsonb_build_object(
     'memberId', v_member.id,
-    'weekStreakCount', greatest(1, floor(coalesce(v_member.current_streak_days, 0) / 7.0)::integer),
+    'weekStreakCount', case when coalesce(v_member.current_streak_days, 0) > 0 then greatest(1, floor(v_member.current_streak_days / 7.0)::integer) else 0 end,
     'totalVolumeLiftedKg', round(v_total_volume)::integer,
     'totalWorkoutsCount', coalesce(v_member.total_check_ins, 0),
     'workoutsThisMonth', v_workouts_month,
