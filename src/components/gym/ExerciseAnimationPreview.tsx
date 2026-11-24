@@ -17,7 +17,65 @@ function isVideoMediaUrl(url: string): boolean {
   return /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(url.trim());
 }
 
-/** Crisp studio-grade demonstration supporting real-person MP4/WebM loops, GIFs, and anatomical SVG fallback. */
+function SculptedHead({
+  cx,
+  cy,
+  facing = 'right',
+  ghost = false,
+}: {
+  cx: number;
+  cy: number;
+  facing?: 'left' | 'right' | 'front';
+  ghost?: boolean;
+}) {
+  const fill = ghost ? '#CBD5E1' : 'url(#anatBodyShade)';
+  const stroke = ghost ? '#94A3B8' : '#1E293B';
+  if (facing === 'front') {
+    return (
+      <g>
+        <path
+          d={`M${cx - 5.5} ${cy + 7} L${cx - 4.5} ${cy + 13} L${cx + 4.5} ${cy + 13} L${cx + 5.5} ${cy + 7} Z`}
+          fill={fill}
+        />
+        <path
+          d={`M${cx - 8} ${cy - 4} Q${cx} ${cy - 12} ${cx + 8} ${cy - 4} L${cx + 6.5} ${cy + 5} Q${cx} ${cy + 11} ${cx - 6.5} ${cy + 5} Z`}
+          fill={fill}
+          stroke={stroke}
+          strokeWidth={ghost ? 1 : 1.4}
+        />
+        {!ghost && (
+          <path
+            d={`M${cx - 7.5} ${cy - 3} Q${cx} ${cy - 12} ${cx + 7.5} ${cy - 3} Q${cx} ${cy - 6} ${cx - 7.5} ${cy - 3} Z`}
+            fill="#1E293B"
+          />
+        )}
+      </g>
+    );
+  }
+  const dir = facing === 'left' ? -1 : 1;
+  return (
+    <g>
+      <path
+        d={`M${cx - 4 * dir} ${cy + 6} L${cx - 5 * dir} ${cy + 13} L${cx + 4 * dir} ${cy + 13} L${cx + 3 * dir} ${cy + 6} Z`}
+        fill={fill}
+      />
+      <path
+        d={`M${cx - 8 * dir} ${cy - 3} Q${cx} ${cy - 12} ${cx + 8 * dir} ${cy - 2} L${cx + 7 * dir} ${cy + 5} Q${cx + 2 * dir} ${cy + 10} ${cx - 6 * dir} ${cy + 6} Z`}
+        fill={fill}
+        stroke={stroke}
+        strokeWidth={ghost ? 1 : 1.4}
+      />
+      {!ghost && (
+        <path
+          d={`M${cx - 7 * dir} ${cy - 2} Q${cx - 1 * dir} ${cy - 12} ${cx + 7 * dir} ${cy - 4} Q${cx - 1 * dir} ${cy - 5} ${cx - 7 * dir} ${cy - 2} Z`}
+          fill="#1E293B"
+        />
+      )}
+    </g>
+  );
+}
+
+/** Crisp studio-grade white-stage anatomical GIF, looping video, and muscular vector preview. */
 export function ExerciseAnimationPreview({
   animationKey,
   animationGifUrl,
@@ -30,7 +88,9 @@ export function ExerciseAnimationPreview({
   const cleanUrl = animationGifUrl?.trim() || '';
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const [pausedKey, setPausedKey] = useState<string | null>(null);
+  const [frozenGifFrame, setFrozenGifFrame] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
   const mediaFailed = Boolean(cleanUrl && failedUrl === cleanUrl);
   const paused = pausedKey === (cleanUrl || 'svg');
@@ -42,6 +102,42 @@ export function ExerciseAnimationPreview({
   const frameClass = isStage
     ? `relative overflow-hidden rounded-2xl bg-white border border-slate-200 w-full h-56 flex items-center justify-center shadow-sm ${className}`
     : `relative overflow-hidden rounded-xl bg-white border border-slate-200 w-12 h-12 shrink-0 flex items-center justify-center ${className}`;
+
+  function handleToggleMediaPause(isVideo: boolean) {
+    const nextPaused = !paused;
+    setPausedKey(nextPaused ? cleanUrl : null);
+
+    if (isVideo) {
+      if (videoRef.current) {
+        if (nextPaused) videoRef.current.pause();
+        else void videoRef.current.play().catch(() => {});
+      }
+      return;
+    }
+
+    if (!nextPaused) {
+      setFrozenGifFrame(null);
+      return;
+    }
+
+    const imgEl = imgRef.current;
+    if (imgEl && imgEl.naturalWidth > 0 && typeof document !== 'undefined') {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = imgEl.naturalWidth;
+        canvas.height = imgEl.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(imgEl, 0, 0);
+          setFrozenGifFrame(canvas.toDataURL('image/png'));
+          return;
+        }
+      } catch {
+        // Cross-origin GIF fallback: toggle dim indicator safely
+      }
+    }
+    setFrozenGifFrame(cleanUrl);
+  }
 
   if (cleanUrl && !mediaFailed) {
     const isVideo = isVideoMediaUrl(cleanUrl);
@@ -56,42 +152,38 @@ export function ExerciseAnimationPreview({
             muted
             playsInline
             onError={() => setFailedUrl(cleanUrl)}
-            className="h-full w-full object-cover"
+            className="h-full w-full object-contain bg-white"
           />
         ) : (
           <img
-            src={cleanUrl}
-            alt={`${exerciseName} real-person demonstration`}
+            ref={imgRef}
+            src={paused && frozenGifFrame ? frozenGifFrame : cleanUrl}
+            alt={`${exerciseName} anatomical demonstration`}
             onError={() => setFailedUrl(cleanUrl)}
-            className="h-full w-full object-cover"
+            className="h-full w-full object-contain p-1 bg-white"
           />
         )}
-        {isStage && (
-          <span className="absolute top-2.5 left-2.5 inline-flex items-center gap-1 rounded-full bg-slate-900/80 px-2.5 py-0.5 text-[10px] font-bold text-white backdrop-blur-xs">
+        {isStage && isVideo && (
+          <span className="absolute top-2.5 left-2.5 inline-flex items-center gap-1 rounded-full bg-slate-900/75 px-2.5 py-0.5 text-[10px] font-bold text-white backdrop-blur-xs">
             <Video className="h-3 w-3" aria-hidden />
-            {isVideo ? 'Real Form Video' : 'Real Form Loop'}
+            Real Form Video
           </span>
         )}
-        {isStage && isVideo && (
+        {isStage && (
           <button
             type="button"
-            onClick={() => {
-              const nextPaused = !paused;
-              setPausedKey(nextPaused ? cleanUrl : null);
-              if (videoRef.current) {
-                if (nextPaused) videoRef.current.pause();
-                else void videoRef.current.play().catch(() => {});
-              }
-            }}
-            className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 rounded-full bg-slate-900/80 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur-xs cursor-pointer"
+            onClick={() => handleToggleMediaPause(isVideo)}
+            className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 rounded-full bg-slate-900/75 px-3 py-1 text-[11px] font-bold text-white backdrop-blur-xs hover:bg-slate-900 cursor-pointer"
           >
             {paused ? (
               <>
-                <Play className="h-3 w-3" aria-hidden /> Play
+                <Play className="h-3 w-3 fill-current" aria-hidden />
+                <span>tap to resume</span>
               </>
             ) : (
               <>
-                <Pause className="h-3 w-3" aria-hidden /> Pause
+                <Pause className="h-3 w-3" aria-hidden />
+                <span>tap to pause</span>
               </>
             )}
           </button>
@@ -100,9 +192,10 @@ export function ExerciseAnimationPreview({
           <button
             type="button"
             onClick={onMinimize}
-            className="absolute bottom-2.5 left-2.5 inline-flex items-center gap-1 rounded-full bg-slate-900/75 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur-xs cursor-pointer"
+            className="absolute bottom-2.5 left-2.5 inline-flex items-center gap-1 rounded-full bg-slate-900/75 px-3 py-1 text-[11px] font-bold text-white backdrop-blur-xs hover:bg-slate-900 cursor-pointer"
           >
-            <Minimize2 className="h-3 w-3" aria-hidden /> Minimize
+            <Minimize2 className="h-3 w-3" aria-hidden />
+            <span>Minimize</span>
           </button>
         )}
       </div>
@@ -155,15 +248,15 @@ export function ExerciseAnimationPreview({
 
             {/* Ghosted Start Position */}
             <g opacity="0.22" transform={resolvedKey === 'incline_press' ? 'rotate(-16 118 96)' : undefined}>
-              <ellipse cx="74" cy="90" rx="9" ry="9" fill="#CBD5E1" stroke="#64748B" />
+              <SculptedHead cx={74} cy={90} facing="right" ghost />
               <path d="M84 86 Q116 80 148 88 L148 101 L84 101 Z" fill="#CBD5E1" />
               <line x1="60" y1="74" x2="176" y2="74" stroke="#64748B" strokeWidth="3.5" />
             </g>
 
             {/* Anatomical Athlete Torso + Highlighted Pectorals & Triceps */}
             <g transform={resolvedKey === 'incline_press' ? 'rotate(-16 118 96)' : undefined}>
-              {/* Head & Neck */}
-              <circle cx="72" cy="89" r="9.5" fill="url(#anatBodyShade)" stroke="#1E293B" strokeWidth="1.5" />
+              {/* Sculpted Head & Neck */}
+              <SculptedHead cx={72} cy={89} facing="right" />
               {/* Athletic Quads on Floor */}
               <path d="M148 93 L172 95 L182 138 L170 140 L162 104 L146 102 Z" fill="url(#anatBodyShade)" stroke="#1E293B" strokeWidth="1.4" />
               {/* Torso */}
@@ -171,7 +264,7 @@ export function ExerciseAnimationPreview({
               {/* Active Chest Muscle Fiber Highlight (Pecs) */}
               <path d="M90 83 Q106 76 118 84 L112 96 L88 94 Z" fill="url(#anatMuscleHot)" stroke="#991B1B" strokeWidth="1" />
               {/* Anterior Deltoid Highlight */}
-              <circle cx="91" cy="88" r="6" fill="#F97316" fillOpacity="0.85" stroke="#991B1B" strokeWidth="0.9" />
+              <path d="M85 88 Q91 81 97 88 Q91 94 85 88 Z" fill="#F97316" fillOpacity="0.9" stroke="#991B1B" strokeWidth="0.9" />
             </g>
 
             {/* Animated Press Arms + Olympic Barbell & Plates */}
@@ -202,7 +295,7 @@ export function ExerciseAnimationPreview({
 
             {/* Ghosted Start Pose (Arms Extended Wide) */}
             <g opacity="0.22">
-              <circle cx="120" cy="48" r="9" fill="#CBD5E1" />
+              <SculptedHead cx={120} cy={48} facing="front" ghost />
               <path d="M104 60 L136 60 L130 98 L110 98 Z" fill="#CBD5E1" />
               <path d="M104 64 L78 46" stroke="#EF4444" strokeWidth="7" strokeLinecap="round" />
               <path d="M136 64 L162 46" stroke="#EF4444" strokeWidth="7" strokeLinecap="round" />
@@ -218,8 +311,8 @@ export function ExerciseAnimationPreview({
             <path d="M137 63 Q144 76 130 92 L126 68 Z" fill="url(#anatMuscleHot)" stroke="#991B1B" strokeWidth="1" />
             {/* Shorts */}
             <path d="M108 94 L132 94 L134 109 L106 109 Z" fill="#1E293B" />
-            {/* Head */}
-            <circle cx="120" cy="46" r="9.5" fill="url(#anatBodyShade)" stroke="#1E293B" strokeWidth="1.5" />
+            {/* Sculpted Head */}
+            <SculptedHead cx={120} cy={46} facing="front" />
 
             {/* Animated Pulldown Bar + Arms Contracting Lats */}
             <g className="gym-ex-pull" style={playStyle}>
@@ -255,7 +348,7 @@ export function ExerciseAnimationPreview({
             </g>
 
             {/* Seated Athlete + Highlighted Mid-Back / Rhomboids & Rear Delts */}
-            <circle cx="152" cy="48" r="9" fill="url(#anatBodyShade)" stroke="#1E293B" strokeWidth="1.5" />
+            <SculptedHead cx={152} cy={48} facing="left" />
             <path d="M142 58 L160 58 L156 105 L136 105 Z" fill="url(#anatBodyShade)" stroke="#1E293B" strokeWidth="1.5" />
             {/* Crimson Mid-Back / Lat Fiber Highlight */}
             <path d="M143 61 L157 61 L154 90 L141 84 Z" fill="url(#anatMuscleHot)" stroke="#991B1B" strokeWidth="1" />
@@ -279,9 +372,9 @@ export function ExerciseAnimationPreview({
             <rect x="52" y="24" width="6" height="122" rx="2" fill="url(#anatFrameMetal)" stroke="#475569" strokeWidth="1" />
             <rect x="182" y="24" width="6" height="122" rx="2" fill="url(#anatFrameMetal)" stroke="#475569" strokeWidth="1" />
 
-            {/* Ghosted Top Pose (Reference Screenshot #1) */}
+            {/* Ghosted Top Pose */}
             <g opacity="0.22">
-              <circle cx="94" cy="36" r="9" fill="#CBD5E1" />
+              <SculptedHead cx={94} cy={36} facing="right" ghost />
               <rect x="82" y="47" width="24" height="36" rx="6" fill="#CBD5E1" />
               <path d="M84 82 L80 132 L88 132 L92 88 L98 88 L102 132 L110 132 L104 82 Z" fill="#EF4444" />
             </g>
@@ -302,8 +395,8 @@ export function ExerciseAnimationPreview({
               {/* Lower Calves */}
               <path d="M116 118 L120 140 L127 140 L123 118 Z" fill="url(#anatMuscleHot)" stroke="#1E293B" strokeWidth="1.2" />
               <path d="M154 118 L150 140 L143 140 L147 118 Z" fill="url(#anatMuscleHot)" stroke="#1E293B" strokeWidth="1.2" />
-              {/* Head */}
-              <circle cx="135" cy="37" r="9.5" fill="url(#anatBodyShade)" stroke="#1E293B" strokeWidth="1.5" />
+              {/* Sculpted Head */}
+              <SculptedHead cx={135} cy={37} facing="front" />
               {/* Barbell Across Upper Traps */}
               <line x1="78" y1="50" x2="192" y2="50" stroke="#1E293B" strokeWidth="3.5" strokeLinecap="round" />
               <rect x="78" y="34" width="8" height="32" rx="2" fill="#1E293B" />
@@ -328,7 +421,7 @@ export function ExerciseAnimationPreview({
             {/* Crimson/Coral Anterior & Lateral Deltoids */}
             <circle cx="101" cy="65" r="7.5" fill="url(#anatMuscleHot)" stroke="#991B1B" strokeWidth="1" />
             <circle cx="139" cy="65" r="7.5" fill="url(#anatMuscleHot)" stroke="#991B1B" strokeWidth="1" />
-            <circle cx="120" cy="44" r="9.5" fill="url(#anatBodyShade)" stroke="#1E293B" strokeWidth="1.5" />
+            <SculptedHead cx={120} cy={44} facing="front" />
 
             {/* Animated Overhead Press Bar + Arms */}
             <g className="gym-ex-press" style={playStyle}>
@@ -345,7 +438,7 @@ export function ExerciseAnimationPreview({
         {(resolvedKey === 'bicep_curl' || resolvedKey === 'tricep_pushdown') && (
           <g>
             {/* Standing Athlete Figure */}
-            <circle cx="108" cy="36" r="9.5" fill="url(#anatBodyShade)" stroke="#1E293B" strokeWidth="1.5" />
+            <SculptedHead cx={108} cy={36} facing="right" />
             <path d="M94 49 Q108 45 122 49 L118 92 L98 92 Z" fill="url(#anatBodyShade)" stroke="#1E293B" strokeWidth="1.5" />
             <path d="M97 88 L119 88 L121 102 L95 102 Z" fill="#1E293B" />
             <path d="M96 100 L92 142 L102 142 L106 104 L110 104 L114 142 L124 142 L119 100 Z" fill="url(#anatBodyShade)" stroke="#1E293B" strokeWidth="1.4" />
@@ -370,7 +463,7 @@ export function ExerciseAnimationPreview({
             {/* Exercise Mat */}
             <rect x="34" y="130" width="172" height="8" rx="4" fill="#334155" />
             <g className="gym-ex-press" style={playStyle}>
-              <circle cx="62" cy="86" r="9.5" fill="url(#anatBodyShade)" stroke="#1E293B" strokeWidth="1.5" />
+              <SculptedHead cx={62} cy={86} facing="right" />
               <path d="M72 88 L142 96 L140 112 L70 104 Z" fill="url(#anatBodyShade)" stroke="#1E293B" strokeWidth="1.5" />
               {/* Highlighted Six-Pack Rectus Abdominis */}
               <rect x="92" y="92" width="38" height="12" rx="4" fill="url(#anatMuscleHot)" stroke="#991B1B" strokeWidth="1" />
@@ -394,7 +487,7 @@ export function ExerciseAnimationPreview({
               />
             ))}
             <g className="gym-ex-cardio" style={playStyle}>
-              <circle cx="122" cy="36" r="9.5" fill="url(#anatBodyShade)" stroke="#1E293B" strokeWidth="1.5" />
+              <SculptedHead cx={122} cy={36} facing="front" />
               <path d="M108 49 Q122 45 136 49 L132 86 L112 86 Z" fill="url(#anatBodyShade)" stroke="#1E293B" strokeWidth="1.5" />
               {/* Highlighted Quads & Calves */}
               <path d="M111 86 L102 114 L112 118 L120 88 Z" fill="url(#anatMuscleHot)" stroke="#991B1B" strokeWidth="1" />

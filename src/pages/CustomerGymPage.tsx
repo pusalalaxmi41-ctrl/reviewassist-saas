@@ -45,6 +45,7 @@ import {
   Star,
   Trash2,
   Trophy,
+  Upload,
   Users,
   Utensils,
   Volume2,
@@ -80,6 +81,7 @@ import {
   GYM_WORKOUT_FOCUS_OPTIONS,
   normalizeGymAccentColor,
   normalizeGymPreferredShift,
+  readExerciseMediaFileAsDataUrl,
 } from '../utils/gymValidation';
 import {
   build12WeekActivityHeatmap,
@@ -4630,13 +4632,31 @@ export default function CustomerGymPage() {
                         <option value="bodyweight">Bodyweight</option>
                       </select>
                     </div>
-                    <input
-                      type="url"
-                      placeholder="Optional GIF URL (https://...)"
-                      value={newExGifUrl}
-                      onChange={(e) => setNewExGifUrl(e.target.value)}
-                      className="h-9.5 w-full rounded-xl border border-white/10 bg-[#1E222B] px-3 text-[12px] text-white"
-                    />
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="Optional GIF/Video URL or upload"
+                        value={newExGifUrl}
+                        onChange={(e) => setNewExGifUrl(e.target.value)}
+                        className="h-9.5 flex-1 min-w-0 rounded-xl border border-white/10 bg-[#1E222B] px-3 text-[12px] text-white"
+                      />
+                      <label className="inline-flex h-9.5 shrink-0 items-center gap-1 rounded-xl border border-white/15 bg-[#1E222B] px-2.5 text-[11px] font-bold text-slate-200 hover:bg-white/10 cursor-pointer">
+                        <Upload className="h-3.5 w-3.5" aria-hidden />
+                        .GIF
+                        <input
+                          type="file"
+                          accept="image/gif,image/webp,image/png,image/jpeg"
+                          className="sr-only"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            void readExerciseMediaFileAsDataUrl(file)
+                              .then((dataUrl) => setNewExGifUrl(dataUrl))
+                              .catch((err) => setErrorMsg((err as Error).message));
+                          }}
+                        />
+                      </label>
+                    </div>
                     <button
                       type="submit"
                       disabled={creatingCustomEx}

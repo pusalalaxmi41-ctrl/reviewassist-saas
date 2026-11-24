@@ -28,6 +28,7 @@ import {
   Sparkles,
   Trash2,
   Trophy,
+  Upload,
   UserPlus,
   Users,
   Video,
@@ -65,6 +66,7 @@ import {
   normalizeGymAccentColor,
   normalizeGymPreferredShift,
   normalizeGymThemePreset,
+  readExerciseMediaFileAsDataUrl,
 } from '../../utils/gymValidation';
 import {
   buildDefaultWeeklyScheduleForGoal,
@@ -2810,22 +2812,48 @@ const totalPendingDuesPaise = dashboard?.totalBalanceDuePaise ?? 0;
                       <X className="h-4 w-4" aria-hidden />
                     </button>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <input
-                      type="url"
-                      placeholder="https://.../bench-press.mp4 or .gif (leave empty to reset)"
+                      type="text"
+                      placeholder="https://.../bench-press.mp4, .gif, or upload a file (empty = reset)"
                       value={mediaUrlInput}
                       onChange={(e) => setMediaUrlInput(e.target.value)}
-                      className="h-9 flex-1 min-w-[220px] rounded-xl border border-slate-300 bg-white px-3 text-[12px]"
+                      className="h-9 flex-1 min-w-[200px] rounded-xl border border-slate-300 bg-white px-3 text-[12px]"
                     />
+                    <label className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 text-[11.5px] font-bold text-[#0F1115] hover:bg-slate-100 cursor-pointer">
+                      <Upload className="h-3.5 w-3.5" aria-hidden />
+                      Upload .GIF
+                      <input
+                        type="file"
+                        accept="image/gif,image/webp,image/png,image/jpeg"
+                        className="sr-only"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          void readExerciseMediaFileAsDataUrl(file)
+                            .then((dataUrl) => {
+                              setMediaUrlInput(dataUrl);
+                              flashStatus(
+                                `Loaded "${file.name}" — click Save Media to apply!`,
+                              );
+                            })
+                            .catch((err) => setErrorMsg((err as Error).message));
+                        }}
+                      />
+                    </label>
                     <button
                       type="submit"
                       disabled={savingMedia}
                       className="h-9 rounded-xl bg-[#0F1115] px-4 text-[12px] font-extrabold text-[#C8F135] disabled:opacity-50 cursor-pointer"
                     >
-                      {savingMedia ? 'Saving...' : 'Save Media URL'}
+                      {savingMedia ? 'Saving...' : 'Save Media'}
                     </button>
                   </div>
+                  {mediaUrlInput.trim() && (
+                    <div className="flex items-center gap-2 text-[11px] font-semibold text-emerald-700">
+                      <span>✓ Media ready to save</span>
+                    </div>
+                  )}
                 </form>
               )}
 

@@ -191,6 +191,7 @@ import {
   normalizeGymPreferredShift,
   normalizeGymThemePreset,
   normalizeGymWorkoutFocus,
+  sanitizeGymMediaUrl,
   validateGymBodyMeasurementInput,
   validateGymConfigInput,
   validateGymOwnerAction,
@@ -8124,7 +8125,7 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     if (!exerciseKey) {
       throw new Error('Exercise name or key is required.');
     }
-    const cleanUrl = (input.mediaUrl || '').trim().slice(0, 600);
+    const cleanUrl = sanitizeGymMediaUrl(input.mediaUrl);
     const store = this.read<
       Array<{
         businessId: string;
@@ -9172,7 +9173,7 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       defaultReps: (input.defaultReps || '10-12').trim().slice(0, 20),
       restSeconds: 75,
       animationKey: inferGymAnimationKey(cleanName, muscleGroup),
-      animationGifUrl: input.animationGifUrl?.trim() || null,
+      animationGifUrl: sanitizeGymMediaUrl(input.animationGifUrl) || null,
       formCues:
         'Keep steady tempo, brace core, and focus on controlled eccentric contraction.',
     };

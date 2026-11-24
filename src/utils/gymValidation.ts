@@ -888,3 +888,44 @@ export function getGymBalanceDueWhatsAppLink(
   const waPhone = digits.length === 10 ? `91${digits}` : digits;
   return `https://wa.me/${waPhone}?text=${encodeURIComponent(msg)}`;
 }
+
+/**
+ * Sanitizes an exercise video/GIF URL, relative bundled path (`/exercises/...`),
+ * or compact uploaded Data URL (`data:image/gif|webp|png|jpeg;base64,...`).
+ */
+export function sanitizeGymMediaUrl(raw?: string | null): string {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed) return '';
+  if (/^data:image\/(gif|webp|png|jpeg|jpg);base64,/i.test(trimmed)) {
+    return trimmed.slice(0, 650000);
+  }
+  if (/^(\/exercises\/|https?:\/\/)/i.test(trimmed)) {
+    return trimmed.slice(0, 1200);
+  }
+  return '';
+}
+
+/** Reads a small `.gif`, `.webp`, `.png`, or `.jpg` exercise file cleanly for direct upload. */
+export function readExerciseMediaFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) {
+      reject(new Error('Please choose a .gif, .webp, .png, or .jpg image file.'));
+      return;
+    }
+    if (file.size > 450 * 1024) {
+      reject(
+        new Error(
+          'GIF/image is larger than 450 KB. Compress it or paste an external .mp4 / .gif URL instead.',
+        ),
+      );
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') resolve(reader.result);
+      else reject(new Error('Could not read image file.'));
+    };
+    reader.onerror = () => reject(new Error('Failed reading selected file.'));
+    reader.readAsDataURL(file);
+  });
+}

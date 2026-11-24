@@ -339,9 +339,25 @@ assert(
 const catB = await repo.getGymExerciseCatalog(gymB.id, ownerBOpts);
 const benchB = catB.find((e) => e.name.toLowerCase() === 'barbell bench press');
 assert(
-  !benchB?.animationGifUrl,
-  'Gym B global exercise catalog remains cleanly isolated without Gym A video override',
+  benchB?.animationGifUrl === '/exercises/barbell-bench-press.gif',
+  'Gym B global exercise catalog keeps default Option-A bench GIF cleanly isolated without Gym A video override',
   benchB,
+);
+
+// Test compact uploaded GIF Data URL preservation
+const sampleDataGif = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+const uploadedMediaRes = await repo.ownerUpsertGymExerciseMedia(
+  {
+    businessId: gymB.id,
+    exerciseKey: 'Wide-Grip Lat Pulldown',
+    mediaUrl: sampleDataGif,
+  },
+  ownerBOpts,
+);
+assert(
+  uploadedMediaRes.mediaUrl === sampleDataGif && uploadedMediaRes.mediaType === 'gif',
+  'ownerUpsertGymExerciseMedia preserves compact uploaded base64 GIF Data URL',
+  uploadedMediaRes,
 );
 
 // 4. Test Dynamic Gym Branding, Custom Theme Color & Gym Logo
@@ -419,6 +435,16 @@ assert(
       'revoke all on function public.get_gym_members_batch_stats(uuid) from public, anon',
     ),
   'Migration 028 sets hardened search_path & revokes anon execution on owner RPCs',
+);
+
+const sql029Text = await Deno.readTextFile(
+  './supabase/migrations/029_gym_seed_anatomical_bench_gif_and_upload_support.sql',
+);
+assert(
+  sql029Text.includes('pg_catalog.substr(') &&
+    !/\bsubstring\s*\(/i.test(sql029Text) &&
+    sql029Text.includes('/exercises/barbell-bench-press.gif'),
+  'Migration 029 seeds /exercises/barbell-bench-press.gif and obeys pg_catalog.substr SQL guardrail',
 );
 
 console.log(

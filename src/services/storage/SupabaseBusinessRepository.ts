@@ -187,6 +187,7 @@ import {
   normalizeGymPreferredShift,
   normalizeGymThemePreset,
   normalizeGymWorkoutFocus,
+  sanitizeGymMediaUrl,
   validateGymBodyMeasurementInput,
   validateGymConfigInput,
   validateGymOwnerAction,
@@ -5777,7 +5778,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     await this.verifyBusinessOwnership(cleanId, options);
     const client = this.requireClient();
 
-    const cleanUrl = (input.mediaUrl || '').trim().slice(0, 600);
+    const cleanUrl = sanitizeGymMediaUrl(input.mediaUrl);
     const detectedType =
       input.mediaType ??
       (/\.(mp4|webm|mov)(\?|#|$)/i.test(cleanUrl) ? 'video' : 'gif');
@@ -6190,7 +6191,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       p_equipment: input.equipment,
       p_default_sets: input.defaultSets ?? 3,
       p_default_reps: input.defaultReps ?? '10-12',
-      p_animation_gif_url: input.animationGifUrl ?? null,
+      p_animation_gif_url: sanitizeGymMediaUrl(input.animationGifUrl) || null,
     });
     if (!error && data && typeof data === 'object') {
       return data as GymCatalogExercise;

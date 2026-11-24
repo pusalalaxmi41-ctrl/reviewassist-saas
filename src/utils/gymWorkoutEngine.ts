@@ -1022,7 +1022,7 @@ export function inferGymAnimationKey(
 
 /** 24 built-in global gym exercises matching the Migration 023 + 026 SQL seed. */
 export const BUILTIN_GYM_CATALOG_EXERCISES: ReadonlyArray<GymCatalogExercise> = [
-  { id: 'ex-bench-press', businessId: null, name: 'Barbell Bench Press', muscleGroup: 'chest', equipment: 'barbell', defaultSets: 4, defaultReps: '8-10', restSeconds: 90, animationKey: 'bench_press', formCues: 'Retract shoulder blades, tuck elbows at 45°, lower bar to mid-chest in 2s.' },
+  { id: 'ex-bench-press', businessId: null, name: 'Barbell Bench Press', muscleGroup: 'chest', equipment: 'barbell', defaultSets: 4, defaultReps: '8-10', restSeconds: 90, animationKey: 'bench_press', animationGifUrl: '/exercises/barbell-bench-press.gif', formCues: 'Retract shoulder blades, tuck elbows at 45°, lower bar to mid-chest in 2s.' },
   { id: 'ex-incline-db', businessId: null, name: 'Incline Dumbbell Press', muscleGroup: 'chest', equipment: 'dumbbell', defaultSets: 3, defaultReps: '10-12', restSeconds: 75, animationKey: 'incline_press', formCues: 'Set bench to 30°, press dumbbells smoothly without locking elbows.' },
   { id: 'ex-cable-fly', businessId: null, name: 'Cable Chest Fly', muscleGroup: 'chest', equipment: 'cable', defaultSets: 3, defaultReps: '12-15', restSeconds: 60, animationKey: 'bench_press', formCues: 'Keep a soft bend in elbows and squeeze chest at centerline.' },
   { id: 'ex-pec-deck', businessId: null, name: 'Pec Deck Machine Fly', muscleGroup: 'chest', equipment: 'machine', defaultSets: 3, defaultReps: '12-15', restSeconds: 60, animationKey: 'bench_press', formCues: 'Keep chest proud, bring pads together with controlled eccentric.' },
@@ -1199,6 +1199,7 @@ export function buildDefaultWeeklyScheduleForGoal(
       reps: found.defaultReps,
       restSeconds: found.restSeconds,
       animationKey: found.animationKey,
+      animationGifUrl: found.animationGifUrl ?? null,
       formCues: found.formCues,
     };
   };
