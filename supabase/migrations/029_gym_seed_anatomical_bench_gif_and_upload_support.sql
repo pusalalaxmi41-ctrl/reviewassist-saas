@@ -5,7 +5,7 @@
 --   2. Upgrades owner_upsert_gym_exercise_media and create_custom_gym_exercise to
 --      preserve both HTTPS/relative paths and uploaded compact GIF Data URLs cleanly.
 -- SQL Safety:
---   - Uses pg_catalog.substr(x, 1, N) exclusively (never substring()).
+--   - Uses pg_catalog.substr(x, 1, N) exclusively.
 --   - All SECURITY DEFINER functions pin search_path = pg_catalog, public, pg_temp.
 -- ============================================================================
 

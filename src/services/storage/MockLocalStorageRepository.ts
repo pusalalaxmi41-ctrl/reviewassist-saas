@@ -8148,7 +8148,7 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         input.mediaType ??
         (/\.(mp4|webm|mov)(\?|#|$)/i.test(cleanUrl)
           ? 'video'
-          : /\.(gif)(\?|#|$)/i.test(cleanUrl)
+          : /\.(gif)(\?|#|$)|^data:image\/gif/i.test(cleanUrl)
             ? 'gif'
             : 'image');
       filtered.push({
