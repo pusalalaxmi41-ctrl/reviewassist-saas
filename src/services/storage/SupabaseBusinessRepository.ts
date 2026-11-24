@@ -168,6 +168,19 @@ import type {
   ClaimCafeStampResponse,
   PublicCafeHubPayload,
 } from '../../types/cafe';
+import type {
+  ClaimLoyaltyStarResponse,
+  LoyaltyMemberCard,
+  LoyaltyOwnerDashboardPayload,
+  LoyaltyProgramConfig,
+  LoyaltyProgramConfigInput,
+  LoyaltySourceChannel,
+  PublicLoyaltyHubPayload,
+} from '../../types/loyalty';
+import {
+  normalizeLoyaltyPhone,
+  validateLoyaltyConfigInput,
+} from '../../utils/loyaltyValidation';
 import {
   CAFE_INVENTORY_STARTER_PACK,
   createDefaultCafeConfig,
@@ -7006,5 +7019,290 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     }
 
     return mockBusinessRepository.submitCafeCounterOrder(params);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Module 8: Standalone Loyalty & AI Google Review OS (LoyaltyOS)
+  // ---------------------------------------------------------------------------
+
+  async getLoyaltyOwnerDashboard(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<LoyaltyOwnerDashboardPayload> {
+    const err = validateBusinessId(businessId);
+    if (err) throw new Error(err);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('get_loyalty_owner_dashboard', {
+      p_business_id: cleanId,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as LoyaltyOwnerDashboardPayload;
+    }
+    if (error && error.message.includes('Unauthorized')) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.getLoyaltyOwnerDashboard(cleanId, options);
+  }
+
+  async updateLoyaltyProgramConfig(
+    businessId: string,
+    input: LoyaltyProgramConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<LoyaltyProgramConfig> {
+    const cleanInput = validateLoyaltyConfigInput(businessId, input);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('loyalty_program_configs')
+      .upsert(
+        {
+          business_id: cleanId,
+          stars_required: cleanInput.starsRequired,
+          reward_title: cleanInput.rewardTitle,
+          reward_description: cleanInput.rewardDescription ?? null,
+          verification_mode: cleanInput.verificationMode,
+          counter_secret_pin: cleanInput.counterSecretPin || '1234',
+          scan_cooldown_hours: cleanInput.scanCooldownHours,
+          google_review_bonus_enabled: cleanInput.googleReviewBonusEnabled,
+          google_review_bonus_stars: cleanInput.googleReviewBonusStars,
+          brand_accent_hex: cleanInput.brandAccentHex || '#C8F135',
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'business_id' },
+      )
+      .select('*')
+      .single();
+
+    if (!error && data) {
+      const r = data as {
+        business_id: string;
+        stars_required: number;
+        reward_title: string;
+        reward_description: string | null;
+        verification_mode: LoyaltyProgramConfig['verificationMode'];
+        counter_secret_pin: string;
+        scan_cooldown_hours: number;
+        google_review_bonus_enabled: boolean;
+        google_review_bonus_stars: number;
+        brand_accent_hex: string;
+        created_at: string;
+        updated_at: string;
+      };
+      return {
+        businessId: r.business_id,
+        starsRequired: r.stars_required,
+        rewardTitle: r.reward_title,
+        rewardDescription: r.reward_description,
+        verificationMode: r.verification_mode,
+        counterSecretPin: r.counter_secret_pin,
+        scanCooldownHours: r.scan_cooldown_hours,
+        googleReviewBonusEnabled: r.google_review_bonus_enabled,
+        googleReviewBonusStars: r.google_review_bonus_stars,
+        brandAccentHex: r.brand_accent_hex,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      };
+    }
+
+    return mockBusinessRepository.updateLoyaltyProgramConfig(cleanId, input, options);
+  }
+
+  async approvePendingLoyaltyStar(params: {
+    businessId: string;
+    eventId: string;
+    decision: 'approved' | 'rejected';
+    options?: AIConfigAccessOptions;
+  }): Promise<{ status: 'approved' | 'rejected'; eventId: string }> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('approve_pending_loyalty_star', {
+      p_business_id: cleanId,
+      p_event_id: params.eventId,
+      p_decision: params.decision,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as { status: 'approved' | 'rejected'; eventId: string };
+    }
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('Pending star request'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.approvePendingLoyaltyStar(params);
+  }
+
+  async issueLoyaltyDeskStar(params: {
+    businessId: string;
+    customerName: string;
+    phone: string;
+    note?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<LoyaltyMemberCard> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('issue_loyalty_desk_star', {
+      p_business_id: cleanId,
+      p_customer_name: params.customerName.trim().slice(0, 80),
+      p_phone: normalizeLoyaltyPhone(params.phone),
+      p_note: params.note?.trim().slice(0, 160) || null,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as LoyaltyMemberCard;
+    }
+    if (
+      error &&
+      (error.message.includes('Unauthorized') || error.message.includes('valid'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.issueLoyaltyDeskStar(params);
+  }
+
+  async confirmLoyaltyRewardRedemption(params: {
+    businessId: string;
+    cardId: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<LoyaltyMemberCard> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc(
+      'request_or_confirm_loyalty_reward_redemption',
+      {
+        p_slug: null,
+        p_business_id: cleanId,
+        p_card_id: params.cardId,
+        p_phone: null,
+        p_action: 'confirm',
+      },
+    );
+    if (!error && data && typeof data === 'object') {
+      return data as LoyaltyMemberCard;
+    }
+    if (
+      error &&
+      (error.message.includes('Unauthorized') || error.message.includes('No unlocked'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.confirmLoyaltyRewardRedemption(params);
+  }
+
+  async getPublicLoyaltyHub(
+    businessSlug: string,
+    phone?: string | null,
+  ): Promise<PublicLoyaltyHubPayload | null> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('get_public_loyalty_hub', {
+      p_slug: businessSlug.trim().toLowerCase(),
+      p_phone: phone ? normalizeLoyaltyPhone(phone) : null,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as PublicLoyaltyHubPayload;
+    }
+    if (!error && data === null) {
+      return null;
+    }
+    return mockBusinessRepository.getPublicLoyaltyHub(businessSlug, phone);
+  }
+
+  async claimLoyaltyVisitStar(params: {
+    businessSlug: string;
+    customerName: string;
+    phone: string;
+    counterPin?: string | null;
+    sourceChannel?: LoyaltySourceChannel;
+    bypassCooldownForTest?: boolean;
+  }): Promise<ClaimLoyaltyStarResponse> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('claim_loyalty_visit_star', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_customer_name: params.customerName.trim().slice(0, 80),
+      p_phone: normalizeLoyaltyPhone(params.phone),
+      p_counter_pin: params.counterPin?.trim() || null,
+      p_source_channel: params.sourceChannel ?? 'qr_nfc',
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as ClaimLoyaltyStarResponse;
+    }
+    if (
+      error &&
+      (error.message.includes('Cooldown active') ||
+        error.message.includes('Invalid Counter PIN') ||
+        error.message.includes('waiting for cashier approval') ||
+        error.message.includes('valid') ||
+        error.message.includes('at least 2'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.claimLoyaltyVisitStar(params);
+  }
+
+  async claimLoyaltyGoogleReviewBonus(params: {
+    businessSlug: string;
+    phone: string;
+  }): Promise<ClaimLoyaltyStarResponse> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('claim_loyalty_google_review_bonus', {
+      p_slug: params.businessSlug.trim().toLowerCase(),
+      p_phone: normalizeLoyaltyPhone(params.phone),
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as ClaimLoyaltyStarResponse;
+    }
+    if (
+      error &&
+      (error.message.includes('already claimed') ||
+        error.message.includes('first visit star') ||
+        error.message.includes('disabled'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.claimLoyaltyGoogleReviewBonus(params);
+  }
+
+  async requestLoyaltyRewardRedemption(params: {
+    businessSlug: string;
+    phone: string;
+  }): Promise<LoyaltyMemberCard> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc(
+      'request_or_confirm_loyalty_reward_redemption',
+      {
+        p_slug: params.businessSlug.trim().toLowerCase(),
+        p_business_id: null,
+        p_card_id: null,
+        p_phone: normalizeLoyaltyPhone(params.phone),
+        p_action: 'request',
+      },
+    );
+    if (!error && data && typeof data === 'object') {
+      return data as LoyaltyMemberCard;
+    }
+    if (
+      error &&
+      (error.message.includes('No unlocked') || error.message.includes('not found'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.requestLoyaltyRewardRedemption(params);
   }
 }

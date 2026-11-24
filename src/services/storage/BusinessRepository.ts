@@ -138,6 +138,15 @@ import type {
   ClaimCafeStampResponse,
   PublicCafeHubPayload,
 } from '../../types/cafe';
+import type {
+  ClaimLoyaltyStarResponse,
+  LoyaltyMemberCard,
+  LoyaltyOwnerDashboardPayload,
+  LoyaltyProgramConfig,
+  LoyaltyProgramConfigInput,
+  LoyaltySourceChannel,
+  PublicLoyaltyHubPayload,
+} from '../../types/loyalty';
 
 export interface AIConfigAccessOptions {
   /** Optional explicit owner ID used to verify tenant isolation. */
@@ -1206,4 +1215,74 @@ export interface IBusinessRepository {
     items: Array<{ itemId: string; quantity: number }>;
     orderNote?: string | null;
   }): Promise<CafeCounterOrder>;
+
+  // ---------------------------------------------------------------------------
+  // Module 8: Standalone Loyalty & AI Google Review OS (LoyaltyOS)
+  // ---------------------------------------------------------------------------
+
+  /** Owner dashboard: program config, KPI metrics, member cards, pending approvals & activity feed. */
+  getLoyaltyOwnerDashboard(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<LoyaltyOwnerDashboardPayload>;
+
+  /** Owner updates LoyaltyOS reward goal, anti-fraud mode, PIN, cooldown, and review bonus rules. */
+  updateLoyaltyProgramConfig(
+    businessId: string,
+    input: LoyaltyProgramConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<LoyaltyProgramConfig>;
+
+  /** Owner approves or rejects a pending cashier_approval scan star request. */
+  approvePendingLoyaltyStar(params: {
+    businessId: string;
+    eventId: string;
+    decision: 'approved' | 'rejected';
+    options?: AIConfigAccessOptions;
+  }): Promise<{ status: 'approved' | 'rejected'; eventId: string }>;
+
+  /** Owner issues a +1 manual desk star to a walk-in or returning customer. */
+  issueLoyaltyDeskStar(params: {
+    businessId: string;
+    customerName: string;
+    phone: string;
+    note?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<LoyaltyMemberCard>;
+
+  /** Owner verifies 4-digit in-store counter lock code and confirms reward redemption. */
+  confirmLoyaltyRewardRedemption(params: {
+    businessId: string;
+    cardId: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<LoyaltyMemberCard>;
+
+  /** Public LoyaltyOS portal payload (omits counterSecretPin). */
+  getPublicLoyaltyHub(
+    businessSlug: string,
+    phone?: string | null,
+  ): Promise<PublicLoyaltyHubPayload | null>;
+
+  /** Public static QR/NFC visit star claim with cooldown + counter PIN / cashier approval enforcement. */
+  claimLoyaltyVisitStar(params: {
+    businessSlug: string;
+    customerName: string;
+    phone: string;
+    counterPin?: string | null;
+    sourceChannel?: LoyaltySourceChannel;
+    /** Optional bypass for deterministic multi-visit verification tests in Mock mode only. */
+    bypassCooldownForTest?: boolean;
+  }): Promise<ClaimLoyaltyStarResponse>;
+
+  /** Public +1 bonus star claim after posting/copying an AI Google Review draft (1x per card). */
+  claimLoyaltyGoogleReviewBonus(params: {
+    businessSlug: string;
+    phone: string;
+  }): Promise<ClaimLoyaltyStarResponse>;
+
+  /** Public guest request for a live 4-digit in-store reward verification code. */
+  requestLoyaltyRewardRedemption(params: {
+    businessSlug: string;
+    phone: string;
+  }): Promise<LoyaltyMemberCard>;
 }

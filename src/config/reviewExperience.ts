@@ -42,6 +42,7 @@ export const CATEGORY_ORDER: BusinessCategory[] = [
   'barber',
   'clinic',
   'gym',
+  'loyalty',
   'retail',
   'services',
 ];
@@ -240,6 +241,28 @@ export const CATEGORY_EXPERIENCE: Record<BusinessCategory, CategoryExperience> =
       { id: 'pricey', emoji: '💸', label: 'A bit pricey', phrase: 'the fees feel a bit high' },
     ],
     notePlaceholder: 'Your goals, favourite trainer or class?',
+  },
+  loyalty: {
+    label: 'Loyalty & AI Reviews',
+    setupLabel: 'Standalone Loyalty & AI Reviews (Retail, Clinic, Salon, Bakery)',
+    emoji: '⭐',
+    sceneEmojis: ['⭐', '🎁', '🛍️'],
+    greeting: 'Thanks for visiting us today!',
+    liked: [
+      { id: 'service', emoji: '🙋', label: 'Helpful service', phrase: 'the team was helpful and welcoming' },
+      { id: 'quality', emoji: '✨', label: 'Great quality', phrase: 'the quality exceeded expectations' },
+      { id: 'fast', emoji: '⚡', label: 'Quick billing', phrase: 'the checkout experience was smooth and quick' },
+      { id: 'clean', emoji: '🧼', label: 'Clean & organized', phrase: 'the place was neat and well organized' },
+      { id: 'value', emoji: '💰', label: 'Great value', phrase: 'pricing felt fair for the quality' },
+      { id: 'rewards', emoji: '🎁', label: 'Loyalty perks', phrase: 'collecting loyalty stars was super easy' },
+    ],
+    improve: [
+      { id: 'wait', emoji: '⏳', label: 'Counter wait time', phrase: 'checkout took a bit longer than expected' },
+      { id: 'stock', emoji: '📦', label: 'Stock availability', phrase: 'some items were out of stock' },
+      { id: 'clarity', emoji: '🗣️', label: 'More info needed', phrase: 'clearer guidance would have helped' },
+      { id: 'pricey', emoji: '💸', label: 'Pricing', phrase: 'prices felt slightly high' },
+    ],
+    notePlaceholder: 'What did you buy or experience today?',
   },
   retail: {
     label: 'Retail Store',

@@ -220,6 +220,21 @@ import type {
   ClaimCafeStampResponse,
   PublicCafeHubPayload,
 } from '../../types/cafe';
+import type {
+  ClaimLoyaltyStarResponse,
+  LoyaltyMemberCard,
+  LoyaltyOwnerDashboardPayload,
+  LoyaltyProgramConfig,
+  LoyaltyProgramConfigInput,
+  LoyaltySourceChannel,
+  LoyaltyStarEvent,
+  PublicLoyaltyHubPayload,
+} from '../../types/loyalty';
+import {
+  applyStarsWithRewardRollover,
+  normalizeLoyaltyPhone,
+  validateLoyaltyConfigInput,
+} from '../../utils/loyaltyValidation';
 import {
   CAFE_INVENTORY_STARTER_PACK,
   computeCafeCounterTokenSig,
@@ -311,6 +326,9 @@ const STORAGE_KEYS = {
   CAFE_INVENTORY_ITEMS: 'reviewassist_mock_cafe_inventory_items_v1',
   CAFE_INVENTORY_LOGS: 'reviewassist_mock_cafe_inventory_logs_v1',
   CAFE_COUNTER_ORDERS: 'reviewassist_mock_cafe_counter_orders_v1',
+  LOYALTY_CONFIGS: 'reviewassist_mock_loyalty_os_configs_v1',
+  LOYALTY_CARDS: 'reviewassist_mock_loyalty_os_cards_v1',
+  LOYALTY_EVENTS: 'reviewassist_mock_loyalty_os_events_v1',
 };
 
 // Initial seed businesses for development & preview
@@ -366,6 +384,19 @@ const INITIAL_BUSINESSES: Business[] = [
     status: 'active',
     accountState: 'active',
     createdAt: '2026-11-04T07:00:00.000Z',
+  },
+  {
+    id: 'biz-glow-boutique-5',
+    ownerId: 'owner-glow-boutique-5',
+    slug: 'glow-boutique-rewards',
+    name: 'Glow Boutique & Studio',
+    category: 'loyalty',
+    city: 'Hyderabad',
+    googleReviewUrl: PLACEHOLDER_GOOGLE_REVIEW_URL,
+    googleReviewUrlIsPlaceholder: true,
+    status: 'active',
+    accountState: 'active',
+    createdAt: '2026-11-05T10:00:00.000Z',
   },
 ];
 
@@ -9969,6 +10000,659 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     orders.push(created);
     this.write(STORAGE_KEYS.CAFE_COUNTER_ORDERS, orders);
     return created;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Module 8: Standalone Loyalty & AI Google Review OS (LoyaltyOS)
+  // ---------------------------------------------------------------------------
+
+  private getOrCreateLoyaltyConfigRecord(businessId: string): LoyaltyProgramConfig {
+    const store = this.read<Record<string, LoyaltyProgramConfig>>(
+      STORAGE_KEYS.LOYALTY_CONFIGS,
+      {},
+    );
+    const existing = store[businessId];
+    if (existing) return existing;
+
+    const now = new Date().toISOString();
+    const fresh: LoyaltyProgramConfig = {
+      businessId,
+      starsRequired: 5,
+      rewardTitle: 'Flat 20% OFF or Free Signature Item',
+      rewardDescription: 'Show your 4-digit counter lock code to redeem in person',
+      verificationMode: 'cooldown_only',
+      counterSecretPin: '1234',
+      scanCooldownHours: 12,
+      googleReviewBonusEnabled: true,
+      googleReviewBonusStars: 1,
+      brandAccentHex: '#C8F135',
+      createdAt: now,
+      updatedAt: now,
+    };
+    store[businessId] = fresh;
+    this.write(STORAGE_KEYS.LOYALTY_CONFIGS, store);
+    return fresh;
+  }
+
+  async getLoyaltyOwnerDashboard(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<LoyaltyOwnerDashboardPayload> {
+    const err = validateBusinessId(businessId);
+    if (err) throw new Error(err);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const config = this.getOrCreateLoyaltyConfigRecord(cleanId);
+    const cards = this.read<LoyaltyMemberCard[]>(STORAGE_KEYS.LOYALTY_CARDS, [])
+      .filter((c) => c.businessId === cleanId)
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      );
+    const events = this.read<LoyaltyStarEvent[]>(STORAGE_KEYS.LOYALTY_EVENTS, [])
+      .filter((e) => e.businessId === cleanId)
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+
+    const cardMap = new Map(cards.map((c) => [c.id, c]));
+    const hydrateEvent = (ev: LoyaltyStarEvent): LoyaltyStarEvent => {
+      const card = cardMap.get(ev.cardId);
+      return {
+        ...ev,
+        customerName: card?.customerName,
+        memberCode: card?.memberCode,
+        phone: card?.phone,
+      };
+    };
+
+    const now = new Date();
+    const monthStartMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+    return {
+      config,
+      kpis: {
+        totalMembers: cards.length,
+        starsIssuedThisMonth: events
+          .filter(
+            (e) =>
+              e.status === 'approved' &&
+              e.starsDelta > 0 &&
+              new Date(e.createdAt).getTime() >= monthStartMs,
+          )
+          .reduce((acc, e) => acc + e.starsDelta, 0),
+        aiReviewsGenerated: events.filter(
+          (e) => e.status === 'approved' && e.eventType === 'google_review_bonus',
+        ).length,
+        rewardsUnlocked: cards.reduce((acc, c) => acc + c.rewardsUnlocked, 0),
+        rewardsRedeemed: cards.reduce((acc, c) => acc + c.rewardsRedeemed, 0),
+      },
+      memberDirectory: cards,
+      pendingApprovals: events
+        .filter((e) => e.status === 'pending_approval')
+        .map(hydrateEvent)
+        .reverse(),
+      recentActivityFeed: events.slice(0, 35).map(hydrateEvent),
+    };
+  }
+
+  async updateLoyaltyProgramConfig(
+    businessId: string,
+    input: LoyaltyProgramConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<LoyaltyProgramConfig> {
+    const cleanInput = validateLoyaltyConfigInput(businessId, input);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const store = this.read<Record<string, LoyaltyProgramConfig>>(
+      STORAGE_KEYS.LOYALTY_CONFIGS,
+      {},
+    );
+    const existing = this.getOrCreateLoyaltyConfigRecord(cleanId);
+    const now = new Date().toISOString();
+    const updated: LoyaltyProgramConfig = {
+      ...existing,
+      starsRequired: cleanInput.starsRequired,
+      rewardTitle: cleanInput.rewardTitle,
+      rewardDescription: cleanInput.rewardDescription ?? null,
+      verificationMode: cleanInput.verificationMode,
+      counterSecretPin: cleanInput.counterSecretPin || existing.counterSecretPin || '1234',
+      scanCooldownHours: cleanInput.scanCooldownHours,
+      googleReviewBonusEnabled: cleanInput.googleReviewBonusEnabled,
+      googleReviewBonusStars: cleanInput.googleReviewBonusStars,
+      brandAccentHex: cleanInput.brandAccentHex || existing.brandAccentHex,
+      updatedAt: now,
+    };
+    store[cleanId] = updated;
+    this.write(STORAGE_KEYS.LOYALTY_CONFIGS, store);
+    return updated;
+  }
+
+  async approvePendingLoyaltyStar(params: {
+    businessId: string;
+    eventId: string;
+    decision: 'approved' | 'rejected';
+    options?: AIConfigAccessOptions;
+  }): Promise<{ status: 'approved' | 'rejected'; eventId: string }> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    const events = this.read<LoyaltyStarEvent[]>(STORAGE_KEYS.LOYALTY_EVENTS, []);
+    const evIdx = events.findIndex(
+      (e) =>
+        e.id === params.eventId &&
+        e.businessId === cleanId &&
+        e.status === 'pending_approval',
+    );
+    if (evIdx === -1) {
+      throw new Error('Pending star request not found or already resolved.');
+    }
+
+    const ev = events[evIdx];
+    const now = new Date().toISOString();
+
+    if (params.decision === 'rejected') {
+      events[evIdx] = { ...ev, status: 'rejected', note: 'Declined by cashier' };
+      this.write(STORAGE_KEYS.LOYALTY_EVENTS, events);
+      return { status: 'rejected', eventId: ev.id };
+    }
+
+    const cfg = this.getOrCreateLoyaltyConfigRecord(cleanId);
+    const cards = this.read<LoyaltyMemberCard[]>(STORAGE_KEYS.LOYALTY_CARDS, []);
+    const cIdx = cards.findIndex((c) => c.id === ev.cardId && c.businessId === cleanId);
+    if (cIdx === -1) throw new Error('Customer loyalty card not found.');
+
+    const rollover = applyStarsWithRewardRollover({
+      currentStars: cards[cIdx].currentStars,
+      lifetimeStars: cards[cIdx].lifetimeStars,
+      rewardsUnlocked: cards[cIdx].rewardsUnlocked,
+      addedStars: Math.max(1, ev.starsDelta),
+      starsRequired: cfg.starsRequired,
+    });
+    cards[cIdx] = {
+      ...cards[cIdx],
+      currentStars: rollover.currentStars,
+      lifetimeStars: rollover.lifetimeStars,
+      rewardsUnlocked: rollover.rewardsUnlocked,
+      lastStarEarnedAt: now,
+      updatedAt: now,
+    };
+    events[evIdx] = {
+      ...ev,
+      status: 'approved',
+      note: 'Approved by cashier at counter',
+    };
+    this.write(STORAGE_KEYS.LOYALTY_CARDS, cards);
+    this.write(STORAGE_KEYS.LOYALTY_EVENTS, events);
+    return { status: 'approved', eventId: ev.id };
+  }
+
+  async issueLoyaltyDeskStar(params: {
+    businessId: string;
+    customerName: string;
+    phone: string;
+    note?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<LoyaltyMemberCard> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    const cleanPhone = normalizeLoyaltyPhone(params.phone);
+    if (cleanPhone.length < 7) {
+      throw new Error('Please enter a valid customer mobile number.');
+    }
+    const cleanName = params.customerName.trim().slice(0, 80) || 'Walk-In Guest';
+    const cfg = this.getOrCreateLoyaltyConfigRecord(cleanId);
+    const cards = this.read<LoyaltyMemberCard[]>(STORAGE_KEYS.LOYALTY_CARDS, []);
+    const events = this.read<LoyaltyStarEvent[]>(STORAGE_KEYS.LOYALTY_EVENTS, []);
+    const idx = cards.findIndex(
+      (c) => c.businessId === cleanId && c.phone === cleanPhone,
+    );
+    const now = new Date().toISOString();
+
+    let saved: LoyaltyMemberCard;
+    if (idx !== -1) {
+      const rollover = applyStarsWithRewardRollover({
+        currentStars: cards[idx].currentStars,
+        lifetimeStars: cards[idx].lifetimeStars,
+        rewardsUnlocked: cards[idx].rewardsUnlocked,
+        addedStars: 1,
+        starsRequired: cfg.starsRequired,
+      });
+      saved = {
+        ...cards[idx],
+        currentStars: rollover.currentStars,
+        lifetimeStars: rollover.lifetimeStars,
+        rewardsUnlocked: rollover.rewardsUnlocked,
+        lastStarEarnedAt: now,
+        updatedAt: now,
+      };
+      cards[idx] = saved;
+    } else {
+      const bizCount = cards.filter((c) => c.businessId === cleanId).length;
+      const rollover = applyStarsWithRewardRollover({
+        currentStars: 0,
+        lifetimeStars: 0,
+        rewardsUnlocked: 0,
+        addedStars: 1,
+        starsRequired: cfg.starsRequired,
+      });
+      saved = {
+        id: `loy-card-${crypto.randomUUID()}`,
+        businessId: cleanId,
+        memberCode: `STAR-${String(bizCount + 1).padStart(3, '0')}`,
+        customerName: cleanName.length >= 2 ? cleanName : 'Walk-In Guest',
+        phone: cleanPhone,
+        currentStars: rollover.currentStars,
+        lifetimeStars: rollover.lifetimeStars,
+        rewardsUnlocked: rollover.rewardsUnlocked,
+        rewardsRedeemed: 0,
+        googleReviewBonusClaimed: false,
+        pendingRedemptionCode: null,
+        lastStarEarnedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      };
+      cards.push(saved);
+    }
+
+    events.push({
+      id: `loy-ev-${crypto.randomUUID()}`,
+      businessId: cleanId,
+      cardId: saved.id,
+      eventType: 'manual_bonus',
+      starsDelta: 1,
+      status: 'approved',
+      sourceChannel: 'counter_desk',
+      note: params.note?.trim() || 'Issued by desk cashier',
+      createdAt: now,
+    });
+    this.write(STORAGE_KEYS.LOYALTY_CARDS, cards);
+    this.write(STORAGE_KEYS.LOYALTY_EVENTS, events);
+    return saved;
+  }
+
+  async confirmLoyaltyRewardRedemption(params: {
+    businessId: string;
+    cardId: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<LoyaltyMemberCard> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    const cards = this.read<LoyaltyMemberCard[]>(STORAGE_KEYS.LOYALTY_CARDS, []);
+    const idx = cards.findIndex(
+      (c) => c.businessId === cleanId && c.id === params.cardId,
+    );
+    if (idx === -1 || cards[idx].rewardsUnlocked < 1) {
+      throw new Error('No unlocked reward available to redeem on this card.');
+    }
+
+    const now = new Date().toISOString();
+    const updated: LoyaltyMemberCard = {
+      ...cards[idx],
+      rewardsUnlocked: Math.max(0, cards[idx].rewardsUnlocked - 1),
+      rewardsRedeemed: cards[idx].rewardsRedeemed + 1,
+      pendingRedemptionCode: null,
+      updatedAt: now,
+    };
+    cards[idx] = updated;
+
+    const events = this.read<LoyaltyStarEvent[]>(STORAGE_KEYS.LOYALTY_EVENTS, []);
+    events.push({
+      id: `loy-ev-${crypto.randomUUID()}`,
+      businessId: cleanId,
+      cardId: updated.id,
+      eventType: 'reward_redeemed',
+      starsDelta: 0,
+      status: 'approved',
+      sourceChannel: 'counter_desk',
+      note: 'Reward verified & handed over in store',
+      createdAt: now,
+    });
+    this.write(STORAGE_KEYS.LOYALTY_CARDS, cards);
+    this.write(STORAGE_KEYS.LOYALTY_EVENTS, events);
+    return updated;
+  }
+
+  async getPublicLoyaltyHub(
+    businessSlug: string,
+    phone?: string | null,
+  ): Promise<PublicLoyaltyHubPayload | null> {
+    const business = await this.getBusinessBySlug(businessSlug);
+    if (
+      !business ||
+      (business.status ?? 'active') !== 'active' ||
+      (business.accountState ?? 'active') !== 'active'
+    ) {
+      return null;
+    }
+
+    const config = this.getOrCreateLoyaltyConfigRecord(business.id);
+    const { counterSecretPin: _pin, ...publicConfig } = config;
+    void _pin;
+
+    const cleanPhone = normalizeLoyaltyPhone(phone ?? '');
+    let card: LoyaltyMemberCard | null = null;
+    let recentEvents: LoyaltyStarEvent[] = [];
+
+    if (cleanPhone.length >= 7) {
+      card =
+        this.read<LoyaltyMemberCard[]>(STORAGE_KEYS.LOYALTY_CARDS, []).find(
+          (c) => c.businessId === business.id && c.phone === cleanPhone,
+        ) ?? null;
+      if (card) {
+        recentEvents = this.read<LoyaltyStarEvent[]>(STORAGE_KEYS.LOYALTY_EVENTS, [])
+          .filter((e) => e.cardId === card!.id)
+          .sort(
+            (a, b) =>
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+          )
+          .slice(0, 12);
+      }
+    }
+
+    return {
+      business: {
+        id: business.id,
+        name: business.name,
+        slug: business.slug,
+        city: business.city,
+        category: business.category,
+        googleReviewUrl: business.googleReviewUrl,
+      },
+      config: publicConfig,
+      card,
+      recentEvents,
+    };
+  }
+
+  async claimLoyaltyVisitStar(params: {
+    businessSlug: string;
+    customerName: string;
+    phone: string;
+    counterPin?: string | null;
+    sourceChannel?: LoyaltySourceChannel;
+    bypassCooldownForTest?: boolean;
+  }): Promise<ClaimLoyaltyStarResponse> {
+    const cleanName = params.customerName.trim().slice(0, 80);
+    if (cleanName.length < 2) {
+      throw new Error('Please enter your name (at least 2 characters).');
+    }
+    const cleanPhone = normalizeLoyaltyPhone(params.phone);
+    if (cleanPhone.length < 7) {
+      throw new Error('Please enter a valid phone number.');
+    }
+
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (
+      !business ||
+      (business.status ?? 'active') !== 'active' ||
+      (business.accountState ?? 'active') !== 'active'
+    ) {
+      throw new Error('Business not found or inactive.');
+    }
+
+    const cfg = this.getOrCreateLoyaltyConfigRecord(business.id);
+    if (
+      cfg.verificationMode === 'counter_pin' &&
+      (params.counterPin ?? '').trim() !== (cfg.counterSecretPin ?? '1234')
+    ) {
+      throw new Error(
+        "Invalid Counter PIN — ask the cashier for today's 4-digit code.",
+      );
+    }
+
+    const cards = this.read<LoyaltyMemberCard[]>(STORAGE_KEYS.LOYALTY_CARDS, []);
+    const events = this.read<LoyaltyStarEvent[]>(STORAGE_KEYS.LOYALTY_EVENTS, []);
+    const idx = cards.findIndex(
+      (c) => c.businessId === business.id && c.phone === cleanPhone,
+    );
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const sourceChannel: LoyaltySourceChannel = params.sourceChannel ?? 'qr_nfc';
+
+    if (idx !== -1) {
+      const existing = cards[idx];
+      if (
+        !params.bypassCooldownForTest &&
+        existing.lastStarEarnedAt &&
+        now.getTime() - new Date(existing.lastStarEarnedAt).getTime() <
+          cfg.scanCooldownHours * 3600_000
+      ) {
+        throw new Error(
+          'Cooldown active: You already earned a star recently. Come back on your next visit!',
+        );
+      }
+    }
+
+    let card: LoyaltyMemberCard;
+    if (idx === -1) {
+      const bizCount = cards.filter((c) => c.businessId === business.id).length;
+      card = {
+        id: `loy-card-${crypto.randomUUID()}`,
+        businessId: business.id,
+        memberCode: `STAR-${String(bizCount + 1).padStart(3, '0')}`,
+        customerName: cleanName,
+        phone: cleanPhone,
+        currentStars: 0,
+        lifetimeStars: 0,
+        rewardsUnlocked: 0,
+        rewardsRedeemed: 0,
+        googleReviewBonusClaimed: false,
+        pendingRedemptionCode: null,
+        lastStarEarnedAt: null,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      cards.push(card);
+    } else {
+      card = cards[idx];
+    }
+
+    const activeIdx = cards.findIndex((c) => c.id === card.id);
+
+    if (cfg.verificationMode === 'cashier_approval') {
+      const alreadyPending = events.some(
+        (e) => e.cardId === card.id && e.status === 'pending_approval',
+      );
+      if (alreadyPending) {
+        throw new Error('Your star request is already waiting for cashier approval.');
+      }
+      const evId = `loy-ev-${crypto.randomUUID()}`;
+      cards[activeIdx] = { ...card, customerName: cleanName, updatedAt: nowIso };
+      events.push({
+        id: evId,
+        businessId: business.id,
+        cardId: card.id,
+        eventType: 'visit_star',
+        starsDelta: 1,
+        status: 'pending_approval',
+        sourceChannel,
+        note: 'Waiting for counter approval',
+        createdAt: nowIso,
+      });
+      this.write(STORAGE_KEYS.LOYALTY_CARDS, cards);
+      this.write(STORAGE_KEYS.LOYALTY_EVENTS, events);
+      return {
+        pendingApproval: true,
+        justUnlockedReward: false,
+        starsRequired: cfg.starsRequired,
+        card: cards[activeIdx],
+        eventId: evId,
+      };
+    }
+
+    const rollover = applyStarsWithRewardRollover({
+      currentStars: card.currentStars,
+      lifetimeStars: card.lifetimeStars,
+      rewardsUnlocked: card.rewardsUnlocked,
+      addedStars: 1,
+      starsRequired: cfg.starsRequired,
+    });
+    const evId = `loy-ev-${crypto.randomUUID()}`;
+    cards[activeIdx] = {
+      ...card,
+      customerName: cleanName,
+      currentStars: rollover.currentStars,
+      lifetimeStars: rollover.lifetimeStars,
+      rewardsUnlocked: rollover.rewardsUnlocked,
+      lastStarEarnedAt: nowIso,
+      updatedAt: nowIso,
+    };
+    events.push({
+      id: evId,
+      businessId: business.id,
+      cardId: card.id,
+      eventType: 'visit_star',
+      starsDelta: 1,
+      status: 'approved',
+      sourceChannel,
+      note: 'Verified in-store visit star',
+      createdAt: nowIso,
+    });
+    this.write(STORAGE_KEYS.LOYALTY_CARDS, cards);
+    this.write(STORAGE_KEYS.LOYALTY_EVENTS, events);
+    return {
+      pendingApproval: false,
+      justUnlockedReward: rollover.earnedRewards > 0,
+      starsRequired: cfg.starsRequired,
+      card: cards[activeIdx],
+      eventId: evId,
+    };
+  }
+
+  async claimLoyaltyGoogleReviewBonus(params: {
+    businessSlug: string;
+    phone: string;
+  }): Promise<ClaimLoyaltyStarResponse> {
+    const cleanPhone = normalizeLoyaltyPhone(params.phone);
+    if (cleanPhone.length < 7) {
+      throw new Error('Please enter a valid phone number.');
+    }
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (
+      !business ||
+      (business.status ?? 'active') !== 'active' ||
+      (business.accountState ?? 'active') !== 'active'
+    ) {
+      throw new Error('Business not found or inactive.');
+    }
+    const cfg = this.getOrCreateLoyaltyConfigRecord(business.id);
+    if (!cfg.googleReviewBonusEnabled) {
+      throw new Error('Google review bonus stars are currently disabled for this store.');
+    }
+
+    const cards = this.read<LoyaltyMemberCard[]>(STORAGE_KEYS.LOYALTY_CARDS, []);
+    const idx = cards.findIndex(
+      (c) => c.businessId === business.id && c.phone === cleanPhone,
+    );
+    if (idx === -1) {
+      throw new Error(
+        'Please collect your first visit star before claiming the Google review bonus.',
+      );
+    }
+    if (cards[idx].googleReviewBonusClaimed) {
+      throw new Error('Google review bonus star already claimed for this loyalty card.');
+    }
+
+    const rollover = applyStarsWithRewardRollover({
+      currentStars: cards[idx].currentStars,
+      lifetimeStars: cards[idx].lifetimeStars,
+      rewardsUnlocked: cards[idx].rewardsUnlocked,
+      addedStars: cfg.googleReviewBonusStars,
+      starsRequired: cfg.starsRequired,
+    });
+    const now = new Date().toISOString();
+    cards[idx] = {
+      ...cards[idx],
+      currentStars: rollover.currentStars,
+      lifetimeStars: rollover.lifetimeStars,
+      rewardsUnlocked: rollover.rewardsUnlocked,
+      googleReviewBonusClaimed: true,
+      updatedAt: now,
+    };
+    const events = this.read<LoyaltyStarEvent[]>(STORAGE_KEYS.LOYALTY_EVENTS, []);
+    events.push({
+      id: `loy-ev-${crypto.randomUUID()}`,
+      businessId: business.id,
+      cardId: cards[idx].id,
+      eventType: 'google_review_bonus',
+      starsDelta: cfg.googleReviewBonusStars,
+      status: 'approved',
+      sourceChannel: 'ai_review',
+      note: 'AI Google Review bonus star claimed',
+      createdAt: now,
+    });
+    this.write(STORAGE_KEYS.LOYALTY_CARDS, cards);
+    this.write(STORAGE_KEYS.LOYALTY_EVENTS, events);
+    return {
+      pendingApproval: false,
+      justUnlockedReward: rollover.earnedRewards > 0,
+      starsRequired: cfg.starsRequired,
+      card: cards[idx],
+    };
+  }
+
+  async requestLoyaltyRewardRedemption(params: {
+    businessSlug: string;
+    phone: string;
+  }): Promise<LoyaltyMemberCard> {
+    const cleanPhone = normalizeLoyaltyPhone(params.phone);
+    if (cleanPhone.length < 7) {
+      throw new Error('Please enter a valid phone number.');
+    }
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (
+      !business ||
+      (business.status ?? 'active') !== 'active' ||
+      (business.accountState ?? 'active') !== 'active'
+    ) {
+      throw new Error('Business not found or inactive.');
+    }
+
+    const cards = this.read<LoyaltyMemberCard[]>(STORAGE_KEYS.LOYALTY_CARDS, []);
+    const idx = cards.findIndex(
+      (c) => c.businessId === business.id && c.phone === cleanPhone,
+    );
+    if (idx === -1) {
+      throw new Error('Loyalty card not found for this phone number.');
+    }
+    if (cards[idx].rewardsUnlocked < 1) {
+      throw new Error('No unlocked rewards ready yet — keep collecting stars!');
+    }
+
+    if (!cards[idx].pendingRedemptionCode) {
+      const randBytes = new Uint32Array(1);
+      crypto.getRandomValues(randBytes);
+      const code = String(1000 + (randBytes[0] % 9000));
+      cards[idx] = {
+        ...cards[idx],
+        pendingRedemptionCode: code,
+        updatedAt: new Date().toISOString(),
+      };
+      this.write(STORAGE_KEYS.LOYALTY_CARDS, cards);
+    }
+    return cards[idx];
   }
 }
 

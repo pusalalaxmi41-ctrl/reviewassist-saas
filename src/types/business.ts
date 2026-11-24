@@ -7,6 +7,7 @@ export type BusinessCategory =
   | 'barber'
   | 'clinic'
   | 'gym'
+  | 'loyalty'
   | 'retail'
   | 'services';
 

@@ -24,6 +24,7 @@ import {
   Shield,
   ShieldAlert,
   ShieldOff,
+  Star,
   Trash2,
   Users,
   UtensilsCrossed,
@@ -98,6 +99,7 @@ type AdminNavSection =
   | 'cafes'
   | 'barbers'
   | 'gyms'
+  | 'loyalty'
   | 'clients'
   | 'accounts'
   | 'activity'
@@ -154,7 +156,7 @@ export default function AdminPanelPage() {
   const [clientStatusTab, setClientStatusTab] =
     useState<ClientFilterTab>('all');
   const [clientIndustryFilter, setClientIndustryFilter] = useState<
-    'all' | 'restaurant' | 'cafe' | 'barber' | 'gym'
+    'all' | 'restaurant' | 'cafe' | 'barber' | 'gym' | 'loyalty'
   >('all');
 
   // Accounts filters
@@ -259,6 +261,11 @@ export default function AdminPanelPage() {
     () => clients.filter((c) => getIndustryWorkspaceType(c.category) === 'gym'),
     [clients],
   );
+  const loyaltyClients = useMemo(
+    () =>
+      clients.filter((c) => getIndustryWorkspaceType(c.category) === 'loyalty'),
+    [clients],
+  );
 
   const pendingRestaurantsCount = useMemo(
     () => restaurantClients.filter((c) => c.status === 'pending').length,
@@ -276,17 +283,23 @@ export default function AdminPanelPage() {
     () => gymClients.filter((c) => c.status === 'pending').length,
     [gymClients],
   );
+  const pendingLoyaltyCount = useMemo(
+    () => loyaltyClients.filter((c) => c.status === 'pending').length,
+    [loyaltyClients],
+  );
 
-  // Scoped list for the active directory tab ('restaurants' | 'cafes' | 'barbers' | 'gyms' | 'clients')
+  // Scoped list for the active directory tab ('restaurants' | 'cafes' | 'barbers' | 'gyms' | 'loyalty' | 'clients')
   const scopedClientsForDirectory = useMemo(() => {
     if (activeNav === 'restaurants') return restaurantClients;
     if (activeNav === 'cafes') return cafeClients;
     if (activeNav === 'barbers') return barberClients;
     if (activeNav === 'gyms') return gymClients;
+    if (activeNav === 'loyalty') return loyaltyClients;
     if (clientIndustryFilter === 'restaurant') return restaurantClients;
     if (clientIndustryFilter === 'cafe') return cafeClients;
     if (clientIndustryFilter === 'barber') return barberClients;
     if (clientIndustryFilter === 'gym') return gymClients;
+    if (clientIndustryFilter === 'loyalty') return loyaltyClients;
     return clients;
   }, [
     activeNav,
@@ -296,6 +309,7 @@ export default function AdminPanelPage() {
     cafeClients,
     barberClients,
     gymClients,
+    loyaltyClients,
   ]);
 
   // Filtered Clients for the active directory view
@@ -636,6 +650,12 @@ export default function AdminPanelPage() {
       badge: pendingGymsCount || undefined,
     },
     {
+      id: 'loyalty',
+      label: 'Loyalty & AI Reviews',
+      icon: Star,
+      badge: pendingLoyaltyCount || undefined,
+    },
+    {
       id: 'clients',
       label: 'All Businesses',
       icon: Building2,
@@ -812,7 +832,9 @@ export default function AdminPanelPage() {
                       ? '✂️ Barber & Salon Approvals (BarberOS)'
                       : activeNav === 'gyms'
                         ? '🏋️ Gym & Fitness Approvals (GymOS)'
-                        : activeNav === 'clients'
+                        : activeNav === 'loyalty'
+                          ? '⭐ Loyalty & AI Reviews Approvals (LoyaltyOS)'
+                          : activeNav === 'clients'
                           ? 'All Businesses'
                           : activeNav.charAt(0).toUpperCase() +
                             activeNav.slice(1)}
@@ -1067,7 +1089,8 @@ export default function AdminPanelPage() {
             activeNav === 'restaurants' ||
             activeNav === 'cafes' ||
             activeNav === 'barbers' ||
-            activeNav === 'gyms') && (
+            activeNav === 'gyms' ||
+            activeNav === 'loyalty') && (
             <div className="rounded-lg border border-slate-200 bg-white shadow-2xs">
               {/* Industry Filter Bar when viewing All Businesses */}
               {activeNav === 'clients' ? (
@@ -1098,6 +1121,11 @@ export default function AdminPanelPage() {
                           id: 'gym',
                           label: '🏋️ Gym & Fitness',
                           count: gymClients.length,
+                        },
+                        {
+                          id: 'loyalty',
+                          label: '⭐ Loyalty & AI Reviews',
+                          count: loyaltyClients.length,
                         },
                       ] as const
                     ).map((ind) => (
@@ -1135,7 +1163,9 @@ export default function AdminPanelPage() {
                           ? '☕ Cafe & Coffee Shop Approval Queue — Unlocks CafeOS (Wallet Stamp Card, Birthday Free Coffee, Counter Inventory & Quick Order)'
                           : activeNav === 'barbers'
                             ? '✂️ Barber & Salon Approval Queue — Unlocks BarberOS (Live Queue Timer, Broadcast Delays, Token QRs)'
-                            : '🏋️ Gym & Fitness Approval Queue — Unlocks GymOS (Member Signup QR, 3-Day Renewal Radar, Daily Check-In)'}
+                            : activeNav === 'loyalty'
+                              ? '⭐ Loyalty & AI Reviews Approval Queue — Unlocks LoyaltyOS (Anti-Fraud Counter QR/NFC Star Wallet & 4-Digit Reward Lock)'
+                              : '🏋️ Gym & Fitness Approval Queue — Unlocks GymOS (Member Signup QR, 3-Day Renewal Radar, Daily Check-In)'}
                     </p>
                   </div>
                   <span className="rounded-full bg-white border border-slate-200 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
@@ -1254,7 +1284,11 @@ export default function AdminPanelPage() {
                             ? '/gym'
                             : badge.workspace === 'barber'
                               ? '/queue'
-                              : '/menu';
+                              : badge.workspace === 'cafe'
+                                ? '/cafe'
+                                : badge.workspace === 'loyalty'
+                                  ? '/loyalty'
+                                  : '/menu';
                         return (
                           <tr
                             key={biz.id}

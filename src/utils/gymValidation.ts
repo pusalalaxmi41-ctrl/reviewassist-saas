@@ -16,6 +16,7 @@ import type {
 import { validateBusinessId } from './aiConfigValidation';
 import { isBarberOrSalonCategory } from './barberQueueValidation';
 import { isCafeCategory } from './cafeValidation';
+import { isLoyaltyCategory } from './loyaltyValidation';
 import { formatPriceFromPaise } from './restaurantValidation';
 
 // eslint-disable-next-line no-control-regex
@@ -283,6 +284,7 @@ export function getIndustryWorkspaceType(
   if (isGymCategory(category)) return 'gym';
   if (isBarberOrSalonCategory(category)) return 'barber';
   if (isCafeCategory(category)) return 'cafe';
+  if (isLoyaltyCategory(category)) return 'loyalty';
   return 'restaurant';
 }
 
@@ -320,6 +322,15 @@ export function getIndustryBadgeMeta(
       label: 'Cafe & Coffee Shop',
       moduleName: 'CafeOS',
       badgeClass: 'bg-amber-50 text-amber-950 border-amber-300',
+    };
+  }
+  if (isLoyaltyCategory(category)) {
+    return {
+      workspace: 'loyalty',
+      emoji: '⭐',
+      label: 'Loyalty & AI Reviews',
+      moduleName: 'LoyaltyOS',
+      badgeClass: 'bg-lime-100 text-slate-900 border-lime-400',
     };
   }
   return {
@@ -363,6 +374,9 @@ export function getPrimaryCustomerQrUrlForBusiness(
   }
   if (isCafeCategory(business.category)) {
     return `${host}/r/${slug}/cafe`;
+  }
+  if (isLoyaltyCategory(business.category)) {
+    return `${host}/r/${slug}/loyalty`;
   }
   return `${host}/r/${slug}/menu`;
 }

@@ -29,6 +29,7 @@
     "test:gym-shifts-branding": "deno run --allow-read --allow-env tests/verify-gym-self-plan-shifts-branding.ts",
     "test:hospitality": "deno run --allow-read --allow-env tests/verify-complete-hospitality-os.ts",
     "test:cafe": "deno run --allow-read --allow-env tests/verify-cafe-os.ts",
+    "test:loyalty-os": "deno run --allow-read --allow-env tests/verify-loyalty-ai-review-os.ts",
     "preview": "vite preview"
   },
   "dependencies": {

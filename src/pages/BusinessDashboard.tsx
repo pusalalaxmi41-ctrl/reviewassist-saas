@@ -43,8 +43,10 @@ import {
 import { BarberOwnerWorkspace } from '../components/barber/BarberOwnerWorkspace';
 import { GymOwnerWorkspace } from '../components/gym/GymOwnerWorkspace';
 import { CafeManagerView } from '../components/cafe/CafeManagerView';
+import { LoyaltyManagerView } from '../components/loyalty/LoyaltyManagerView';
 import { getIndustryWorkspaceType } from '../utils/gymValidation';
 import { isCafeCategory } from '../utils/cafeValidation';
+import { isLoyaltyCategory } from '../utils/loyaltyValidation';
 import {
   loadWorkspaceModules,
   saveWorkspaceModules,
@@ -288,6 +290,19 @@ export default function BusinessDashboard() {
         hasOtherBusinesses={businesses.some(
           (b) => getIndustryWorkspaceType(b.category) !== 'gym',
         )}
+        onSelectBusiness={handleSelectBusiness}
+        onBusinessUpdated={handleBusinessUpdated}
+      />
+    );
+  }
+  if (workspaceType === 'loyalty') {
+    const loyaltyOnly = businesses.filter((b) => isLoyaltyCategory(b.category));
+    return (
+      <LoyaltyManagerView
+        key={currentBusiness.id}
+        business={currentBusiness}
+        loyaltyBusinesses={loyaltyOnly.length > 0 ? loyaltyOnly : [currentBusiness]}
+        hasOtherBusinesses={businesses.some((b) => !isLoyaltyCategory(b.category))}
         onSelectBusiness={handleSelectBusiness}
         onBusinessUpdated={handleBusinessUpdated}
       />
