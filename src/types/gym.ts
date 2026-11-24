@@ -619,3 +619,48 @@ export interface GymMemberAthleteHubPayload {
   personalRecords: GymPersonalRecordRow[];
   exerciseCatalog: GymCatalogExercise[];
 }
+
+export type GymCommunityMessageType =
+  | 'chat'
+  | 'pr_celebration'
+  | 'checkin_milestone'
+  | 'coach_announcement';
+
+export interface GymCommunityMessage {
+  id: string;
+  businessId: string;
+  memberId: string | null;
+  senderName: string;
+  senderCode: string | null;
+  messageType: GymCommunityMessageType;
+  messageText: string;
+  createdAt: string;
+}
+
+export interface GymDirectoryMemberEntry {
+  id: string;
+  fullName: string;
+  memberCode: string;
+  fitnessGoal?: GymFitnessGoal;
+  currentStreakDays: number;
+  workoutsThisMonth: number;
+  isCheckedInToday: boolean;
+  todayWorkoutFocus?: GymWorkoutFocus | null;
+  isFrozen: boolean;
+}
+
+export interface GymMembersCommunityHubPayload {
+  membersDirectory: GymDirectoryMemberEntry[];
+  chatMessages: GymCommunityMessage[];
+}
+
+export interface MemberCreateCustomExerciseInput {
+  businessSlug: string;
+  memberId: string;
+  name: string;
+  muscleGroup: GymCatalogMuscleGroup;
+  equipment: GymCatalogEquipment;
+  defaultSets?: number;
+  defaultReps?: string;
+  animationGifUrl?: string | null;
+}

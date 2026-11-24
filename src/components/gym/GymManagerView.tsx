@@ -14,6 +14,7 @@ import {
   ExternalLink,
   Flame,
   IndianRupee,
+  Megaphone,
   MessageCircle,
   Play,
   Plus,
@@ -33,6 +34,7 @@ import type { Business } from '../../types/business';
 import type {
   GymCatalogEquipment,
   GymCatalogMuscleGroup,
+  GymCommunityMessage,
   GymFitnessGoal,
   GymMember,
   GymMemberProgressHistory,
@@ -414,6 +416,11 @@ export function GymManagerView({
   const [studioApprovedAt, setStudioApprovedAt] = useState<string | null>(null);
   const [savingCoachPlan, setSavingCoachPlan] = useState(false);
 
+  // Community Chat Moderation & Announcements
+  const [communityMessages, setCommunityMessages] = useState<GymCommunityMessage[]>([]);
+  const [announcementDraft, setAnnouncementDraft] = useState('');
+  const [postingAnnouncement, setPostingAnnouncement] = useState(false);
+
   const gymPortalUrl = getGymPortalUrl(business.slug);
 
   function flashStatus(msg: string) {
@@ -426,12 +433,18 @@ export function GymManagerView({
 
   const loadDashboard = useCallback(async () => {
     try {
-      const data = await businessRepository.getGymOwnerDashboard(
-        business.id,
-        undefined,
-        selectedMonthKey,
-      );
+      const [data, commMsgs] = await Promise.all([
+        businessRepository.getGymOwnerDashboard(
+          business.id,
+          undefined,
+          selectedMonthKey,
+        ),
+        businessRepository
+          .getGymCommunityMessagesForOwner({ businessId: business.id })
+          .catch(() => [] as GymCommunityMessage[]),
+      ]);
       setDashboard(data);
+      setCommunityMessages(commMsgs);
       if (data.config.plans.length > 0) {
         setWalkInPlanId((prev) =>
           data.config.plans.some((p) => p.id === prev)
@@ -930,6 +943,44 @@ export function GymManagerView({
       setErrorMsg((err as Error).message);
     } finally {
       setSavingNotes(false);
+    }
+  }
+
+  async function handlePostAnnouncement(e: FormEvent) {
+    e.preventDefault();
+    if (!announcementDraft.trim()) return;
+    setPostingAnnouncement(true);
+    try {
+      await businessRepository.ownerPostOrDeleteGymCommunityMessage({
+        businessId: business.id,
+        action: 'post',
+        messageText: announcementDraft.trim(),
+        senderName: 'Head Coach',
+      });
+      setAnnouncementDraft('');
+      flashStatus('Posted announcement to Members Community Chat!');
+      await loadDashboard();
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setPostingAnnouncement(false);
+    }
+  }
+
+  async function handleDeleteCommunityMessage(messageId: string) {
+    setBusyId(messageId);
+    try {
+      await businessRepository.ownerPostOrDeleteGymCommunityMessage({
+        businessId: business.id,
+        action: 'delete',
+        messageId,
+      });
+      flashStatus('Removed message from Community Chat.');
+      await loadDashboard();
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -1746,6 +1797,69 @@ const totalPendingDuesPaise = dashboard?.totalBalanceDuePaise ?? 0;
                           </span>
                         </div>
                       </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              {/* Community & Announcements Moderation Card */}
+              <section className="gym-card gym-fade-up gym-stagger-3 space-y-3 p-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="flex items-center gap-1.5 text-[14px] font-extrabold text-[#0F1115]">
+                    <Megaphone className="h-4 w-4 text-[#0F1115]" aria-hidden />
+                    Community &amp; Announcements
+                  </h2>
+                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10.5px] font-bold text-slate-600 tabular-nums">
+                    {communityMessages.length} msgs
+                  </span>
+                </div>
+
+                <form
+                  onSubmit={(e) => void handlePostAnnouncement(e)}
+                  className="flex gap-1.5"
+                >
+                  <input
+                    type="text"
+                    placeholder="Post Coach Announcement (e.g. Sunday Challenge)..."
+                    value={announcementDraft}
+                    onChange={(e) => setAnnouncementDraft(e.target.value)}
+                    className="h-9 flex-1 rounded-xl border border-slate-300 px-3 text-[12px]"
+                  />
+                  <button
+                    type="submit"
+                    disabled={postingAnnouncement || !announcementDraft.trim()}
+                    className="gym-tactile h-9 rounded-xl bg-[#0F1115] px-3 text-[11.5px] font-extrabold text-[#C8F135] disabled:opacity-40 cursor-pointer"
+                  >
+                    Post
+                  </button>
+                </form>
+
+                {communityMessages.length > 0 && (
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                    {communityMessages.slice(-4).reverse().map((msg) => (
+                      <div
+                        key={msg.id}
+                        className="flex items-start justify-between gap-2 rounded-xl border border-slate-100 bg-slate-50 px-2.5 py-2 text-[11.5px]"
+                      >
+                        <div className="min-w-0">
+                          <span className="font-extrabold text-[#0F1115]">
+                            {msg.messageType === 'coach_announcement' ? '📢 ' : ''}
+                            {msg.senderName}
+                          </span>{' '}
+                          <span className="text-slate-600 break-words">
+                            {msg.messageText}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={busyId === msg.id}
+                          onClick={() => void handleDeleteCommunityMessage(msg.id)}
+                          className="shrink-0 rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 cursor-pointer"
+                          title="Delete message"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 )}

@@ -113,6 +113,8 @@ import type {
   GymCatalogExercise,
   GymCatalogExerciseInput,
   GymCoachPlan,
+  GymCommunityMessage,
+  GymCommunityMessageType,
   GymConfig,
   GymConfigInput,
   GymDailyCheckInResult,
@@ -123,6 +125,7 @@ import type {
   GymMember,
   GymMemberAthleteHubPayload,
   GymMemberProgressHistory,
+  GymMembersCommunityHubPayload,
   GymMemberWorkoutPlanPayload,
   GymMemberWorkoutSummaryPayload,
   GymOwnerDashboardPayload,
@@ -140,6 +143,7 @@ import type {
   GymWorkoutRoutine,
   GymWorkoutSession,
   LogGymWorkoutSessionInput,
+  MemberCreateCustomExerciseInput,
   PublicGymPortalPayload,
   SubmitGymRegistrationInput,
   UpsertGymCoachPlanInput,
@@ -5879,6 +5883,169 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       return data as GymMemberAthleteHubPayload;
     }
     return mockBusinessRepository.getGymMemberAthleteHub(params);
+  }
+
+  async getGymMembersCommunityHub(params: {
+    businessSlug: string;
+    requesterMemberId: string;
+  }): Promise<GymMembersCommunityHubPayload> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('get_gym_members_community_hub', {
+      p_slug: params.businessSlug.trim(),
+      p_requester_member_id: params.requesterMemberId,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as GymMembersCommunityHubPayload;
+    }
+    if (
+      error &&
+      !error.message?.includes('does not exist') &&
+      error.code !== 'PGRST202' &&
+      error.code !== '42883'
+    ) {
+      throw new Error(error.message || 'Failed to load gym community.');
+    }
+    return mockBusinessRepository.getGymMembersCommunityHub(params);
+  }
+
+  async sendGymCommunityMessage(params: {
+    businessSlug: string;
+    memberId: string;
+    messageText: string;
+    messageType?: GymCommunityMessageType;
+  }): Promise<GymCommunityMessage> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('send_gym_community_message', {
+      p_slug: params.businessSlug.trim(),
+      p_member_id: params.memberId,
+      p_message_text: params.messageText,
+      p_message_type: params.messageType ?? 'chat',
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as GymCommunityMessage;
+    }
+    if (
+      error &&
+      !error.message?.includes('does not exist') &&
+      error.code !== 'PGRST202' &&
+      error.code !== '42883'
+    ) {
+      throw new Error(error.message || 'Failed to send chat message.');
+    }
+    return mockBusinessRepository.sendGymCommunityMessage(params);
+  }
+
+  async memberCreateCustomGymExercise(
+    input: MemberCreateCustomExerciseInput,
+  ): Promise<GymCatalogExercise> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('create_custom_gym_exercise', {
+      p_slug: input.businessSlug.trim(),
+      p_member_id: input.memberId,
+      p_name: input.name,
+      p_muscle_group: input.muscleGroup,
+      p_equipment: input.equipment,
+      p_default_sets: input.defaultSets ?? 3,
+      p_default_reps: input.defaultReps ?? '10-12',
+      p_animation_gif_url: input.animationGifUrl ?? null,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as GymCatalogExercise;
+    }
+    if (
+      error &&
+      !error.message?.includes('does not exist') &&
+      error.code !== 'PGRST202' &&
+      error.code !== '42883'
+    ) {
+      throw new Error(error.message || 'Failed to create custom exercise.');
+    }
+    return mockBusinessRepository.memberCreateCustomGymExercise(input);
+  }
+
+  async getGymCommunityMessagesForOwner(params: {
+    businessId: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymCommunityMessage[]> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('gym_community_messages')
+      .select('*')
+      .eq('business_id', cleanId)
+      .order('created_at', { ascending: true })
+      .limit(60);
+
+    if (error) {
+      const msg = error.message ?? '';
+      if (
+        msg.includes('does not exist') ||
+        error.code === '42P01' ||
+        error.code === 'PGRST202'
+      ) {
+        return mockBusinessRepository.getGymCommunityMessagesForOwner(params);
+      }
+      throw new Error(error.message);
+    }
+
+    return (data ?? []).map((row) => ({
+      id: String(row.id),
+      businessId: String(row.business_id),
+      memberId: (row.member_id as string | null) ?? null,
+      senderName: String(row.sender_name),
+      senderCode: (row.sender_code as string | null) ?? null,
+      messageType:
+        (row.message_type as GymCommunityMessageType) ?? 'chat',
+      messageText: String(row.message_text),
+      createdAt: String(row.created_at),
+    }));
+  }
+
+  async ownerPostOrDeleteGymCommunityMessage(params: {
+    businessId: string;
+    action: 'post' | 'delete';
+    messageText?: string;
+    messageId?: string;
+    senderName?: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymCommunityMessage | { deletedId: string }> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc(
+      'owner_post_or_delete_gym_community_message',
+      {
+        p_business_id: cleanId,
+        p_action: params.action,
+        p_message_text: params.messageText ?? null,
+        p_message_id: params.messageId ?? null,
+        p_sender_name: params.senderName ?? 'Head Coach',
+      },
+    );
+
+    if (error) {
+      const msg = error.message ?? '';
+      if (
+        msg.includes('does not exist') ||
+        error.code === '42P01' ||
+        error.code === '42883' ||
+        error.code === 'PGRST202'
+      ) {
+        return mockBusinessRepository.ownerPostOrDeleteGymCommunityMessage(
+          params,
+        );
+      }
+      throw new Error(error.message);
+    }
+
+    return data as GymCommunityMessage | { deletedId: string };
   }
 
   // ---------------------------------------------------------------------------

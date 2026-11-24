@@ -127,11 +127,15 @@ import type {
   GymBodyMeasurementInput,
   GymCatalogExercise,
   GymCatalogExerciseInput,
+  GymCatalogEquipment,
   GymCatalogMuscleGroup,
   GymCoachPlan,
+  GymCommunityMessage,
+  GymCommunityMessageType,
   GymConfig,
   GymConfigInput,
   GymDailyCheckInResult,
+  GymDirectoryMemberEntry,
   GymEffectiveMemberStatus,
   GymExerciseLastSession,
   GymFitnessGoal,
@@ -142,6 +146,7 @@ import type {
   GymMember,
   GymMemberAthleteHubPayload,
   GymMemberProgressHistory,
+  GymMembersCommunityHubPayload,
   GymMemberWorkoutPlanPayload,
   GymMemberWorkoutSummaryPayload,
   GymOwnerDashboardPayload,
@@ -163,6 +168,7 @@ import type {
   GymWorkoutSession,
   GymWorkoutSetRecord,
   LogGymWorkoutSessionInput,
+  MemberCreateCustomExerciseInput,
   PublicGymPortalPayload,
   SubmitGymRegistrationInput,
   UpsertGymCoachPlanInput,
@@ -188,6 +194,7 @@ import {
 import {
   BUILTIN_GYM_CATALOG_EXERCISES,
   calculateEpley1RM,
+  inferGymAnimationKey,
 } from '../../utils/gymWorkoutEngine';
 import type {
   CafeConfig,
@@ -287,6 +294,7 @@ const STORAGE_KEYS = {
   GYM_WORKOUT_ROUTINES: 'reviewassist_mock_gym_workout_routines_v1',
   GYM_WORKOUT_SET_LOGS: 'reviewassist_mock_gym_workout_set_logs_v1',
   GYM_MEMBER_COACH_PLANS: 'reviewassist_mock_gym_member_coach_plans_v1',
+  GYM_COMMUNITY_MESSAGES: 'reviewassist_mock_gym_community_messages_v1',
   CAFE_CONFIGS: 'reviewassist_mock_cafe_configs_v1',
   CAFE_STAMP_PASSES: 'reviewassist_mock_cafe_stamp_passes_v1',
   CAFE_INVENTORY_ITEMS: 'reviewassist_mock_cafe_inventory_items_v1',
@@ -8278,6 +8286,29 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     allSets.push(created);
     this.write(STORAGE_KEYS.GYM_WORKOUT_SET_LOGS, allSets);
 
+    if (isPersonalRecord) {
+      const messages = this.read<GymCommunityMessage[]>(
+        STORAGE_KEYS.GYM_COMMUNITY_MESSAGES,
+        [],
+      );
+      const cleanSender = member.fullName
+        .trim()
+        .split(/\s+/)
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        .join(' ');
+      messages.push({
+        id: `gymmsg-${crypto.randomUUID()}`,
+        businessId: business.id,
+        memberId: member.id,
+        senderName: cleanSender,
+        senderCode: member.memberCode,
+        messageType: 'pr_celebration',
+        messageText: `🏆 ${cleanSender} hit a new Personal Record: ${cleanExName} — ${weightKg} kg × ${reps}!`,
+        createdAt: new Date().toISOString(),
+      });
+      this.write(STORAGE_KEYS.GYM_COMMUNITY_MESSAGES, messages);
+    }
+
     const totalVolumeTodayKg =
       Math.round(
         allSets
@@ -8631,6 +8662,279 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       ),
       exerciseCatalog: [...BUILTIN_GYM_CATALOG_EXERCISES, ...customExercises],
     };
+  }
+
+  async getGymMembersCommunityHub(params: {
+    businessSlug: string;
+    requesterMemberId: string;
+  }): Promise<GymMembersCommunityHubPayload> {
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (!business || business.status !== 'active') {
+      throw new Error('Gym portal is not active.');
+    }
+
+    const allMembers = this.getOrSeedMockGymMembers();
+    const requester = allMembers.find(
+      (m) => m.businessId === business.id && m.id === params.requesterMemberId,
+    );
+    if (!requester) {
+      throw new Error('Unauthorized: requester does not belong to this gym.');
+    }
+
+    const todayIso = getTodayIsoDateKey();
+    const monthPrefix = todayIso.slice(0, 7);
+    const checkIns = this.read<GymAttendanceLog[]>(
+      STORAGE_KEYS.GYM_CHECK_INS,
+      [],
+    ).filter((c) => c.businessId === business.id);
+
+    const membersDirectory: GymDirectoryMemberEntry[] = allMembers
+      .filter((m) => m.businessId === business.id && m.status === 'active')
+      .map((m) => {
+        const myCheckIns = checkIns.filter((c) => c.memberId === m.id);
+        const todayCi = myCheckIns
+          .filter((c) => c.checkInDate === todayIso)
+          .sort((a, b) => b.checkedInAt.localeCompare(a.checkedInAt))[0];
+        const workoutsThisMonth = myCheckIns.filter((c) =>
+          c.checkInDate.startsWith(monthPrefix),
+        ).length;
+        const cleanName = m.fullName
+          .trim()
+          .split(/\s+/)
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+          .join(' ');
+        return {
+          id: m.id,
+          fullName: cleanName,
+          memberCode: m.memberCode,
+          fitnessGoal: m.fitnessGoal,
+          currentStreakDays: m.currentStreakDays ?? 0,
+          workoutsThisMonth,
+          isCheckedInToday: Boolean(todayCi),
+          todayWorkoutFocus: todayCi?.workoutFocus ?? null,
+          isFrozen: Boolean(m.isFrozen),
+        };
+      })
+      .sort((a, b) => {
+        if (a.isCheckedInToday !== b.isCheckedInToday) {
+          return a.isCheckedInToday ? -1 : 1;
+        }
+        if (b.workoutsThisMonth !== a.workoutsThisMonth) {
+          return b.workoutsThisMonth - a.workoutsThisMonth;
+        }
+        return b.currentStreakDays - a.currentStreakDays;
+      });
+
+    const chatMessages = this.read<GymCommunityMessage[]>(
+      STORAGE_KEYS.GYM_COMMUNITY_MESSAGES,
+      [],
+    )
+      .filter((msg) => msg.businessId === business.id)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .slice(-60);
+
+    return {
+      membersDirectory,
+      chatMessages,
+    };
+  }
+
+  async sendGymCommunityMessage(params: {
+    businessSlug: string;
+    memberId: string;
+    messageText: string;
+    messageType?: GymCommunityMessageType;
+  }): Promise<GymCommunityMessage> {
+    const cleanText = (params.messageText || '').trim().slice(0, 500);
+    if (!cleanText) {
+      throw new Error('Message cannot be empty.');
+    }
+
+    const business = await this.getBusinessBySlug(params.businessSlug);
+    if (!business || business.status !== 'active') {
+      throw new Error('Gym portal is not active.');
+    }
+
+    const member = this.getOrSeedMockGymMembers().find(
+      (m) => m.businessId === business.id && m.id === params.memberId,
+    );
+    if (!member || member.status !== 'active') {
+      throw new Error(
+        'Active gym membership required to post in community chat.',
+      );
+    }
+
+    const cleanSender = member.fullName
+      .trim()
+      .split(/\s+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
+
+    const created: GymCommunityMessage = {
+      id: `gymmsg-${crypto.randomUUID()}`,
+      businessId: business.id,
+      memberId: member.id,
+      senderName: cleanSender,
+      senderCode: member.memberCode,
+      messageType: params.messageType ?? 'chat',
+      messageText: cleanText,
+      createdAt: new Date().toISOString(),
+    };
+
+    const messages = this.read<GymCommunityMessage[]>(
+      STORAGE_KEYS.GYM_COMMUNITY_MESSAGES,
+      [],
+    );
+    messages.push(created);
+    this.write(STORAGE_KEYS.GYM_COMMUNITY_MESSAGES, messages);
+
+    return created;
+  }
+
+  async memberCreateCustomGymExercise(
+    input: MemberCreateCustomExerciseInput,
+  ): Promise<GymCatalogExercise> {
+    const cleanName = (input.name || '').trim().slice(0, 80);
+    if (cleanName.length < 2) {
+      throw new Error('Exercise name must be at least 2 characters.');
+    }
+
+    const business = await this.getBusinessBySlug(input.businessSlug);
+    if (!business || business.status !== 'active') {
+      throw new Error('Gym portal is not active.');
+    }
+
+    const member = this.getOrSeedMockGymMembers().find(
+      (m) => m.businessId === business.id && m.id === input.memberId,
+    );
+    if (!member || member.status !== 'active') {
+      throw new Error(
+        'Active gym membership required to add custom exercises.',
+      );
+    }
+
+    const validMuscles: GymCatalogMuscleGroup[] = [
+      'chest',
+      'back',
+      'legs',
+      'shoulders',
+      'arms',
+      'core',
+      'cardio',
+      'full_body',
+    ];
+    const muscleGroup: GymCatalogMuscleGroup = validMuscles.includes(
+      input.muscleGroup,
+    )
+      ? input.muscleGroup
+      : 'full_body';
+
+    const validEquip: GymCatalogEquipment[] = [
+      'barbell',
+      'dumbbell',
+      'machine',
+      'cable',
+      'bodyweight',
+      'cardio_machine',
+    ];
+    const equipment: GymCatalogEquipment = validEquip.includes(input.equipment)
+      ? input.equipment
+      : 'dumbbell';
+
+    const created: GymCatalogExercise = {
+      id: `gymex-${crypto.randomUUID()}`,
+      businessId: business.id,
+      name: cleanName,
+      muscleGroup,
+      equipment,
+      defaultSets: Math.max(1, Math.min(10, input.defaultSets ?? 3)),
+      defaultReps: (input.defaultReps || '10-12').trim().slice(0, 20),
+      restSeconds: 75,
+      animationKey: inferGymAnimationKey(cleanName, muscleGroup),
+      animationGifUrl: input.animationGifUrl?.trim() || null,
+      formCues:
+        'Keep steady tempo, brace core, and focus on controlled eccentric contraction.',
+    };
+
+    const customExercises = this.read<GymCatalogExercise[]>(
+      STORAGE_KEYS.GYM_CUSTOM_EXERCISES,
+      [],
+    );
+    customExercises.push(created);
+    this.write(STORAGE_KEYS.GYM_CUSTOM_EXERCISES, customExercises);
+
+    return created;
+  }
+
+  async getGymCommunityMessagesForOwner(params: {
+    businessId: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymCommunityMessage[]> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    return this.read<GymCommunityMessage[]>(
+      STORAGE_KEYS.GYM_COMMUNITY_MESSAGES,
+      [],
+    )
+      .filter((msg) => msg.businessId === cleanId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .slice(-60);
+  }
+
+  async ownerPostOrDeleteGymCommunityMessage(params: {
+    businessId: string;
+    action: 'post' | 'delete';
+    messageText?: string;
+    messageId?: string;
+    senderName?: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymCommunityMessage | { deletedId: string }> {
+    const idErr = validateBusinessId(params.businessId);
+    if (idErr) throw new Error(idErr);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business with ID "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    const messages = this.read<GymCommunityMessage[]>(
+      STORAGE_KEYS.GYM_COMMUNITY_MESSAGES,
+      [],
+    );
+
+    if (params.action === 'delete') {
+      if (!params.messageId) {
+        throw new Error('Message ID required to delete.');
+      }
+      const next = messages.filter(
+        (m) => !(m.id === params.messageId && m.businessId === cleanId),
+      );
+      this.write(STORAGE_KEYS.GYM_COMMUNITY_MESSAGES, next);
+      return { deletedId: params.messageId };
+    }
+
+    const cleanText = (params.messageText || '').trim().slice(0, 500);
+    if (!cleanText) {
+      throw new Error('Announcement message cannot be empty.');
+    }
+
+    const created: GymCommunityMessage = {
+      id: `gymmsg-${crypto.randomUUID()}`,
+      businessId: cleanId,
+      memberId: null,
+      senderName: (params.senderName || 'Head Coach').trim().slice(0, 80),
+      senderCode: 'COACH',
+      messageType: 'coach_announcement',
+      messageText: cleanText,
+      createdAt: new Date().toISOString(),
+    };
+    messages.push(created);
+    this.write(STORAGE_KEYS.GYM_COMMUNITY_MESSAGES, messages);
+    return created;
   }
 
   // ---------------------------------------------------------------------------

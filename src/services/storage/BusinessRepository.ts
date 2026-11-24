@@ -85,6 +85,8 @@ import type {
   GymCatalogExercise,
   GymCatalogExerciseInput,
   GymCoachPlan,
+  GymCommunityMessage,
+  GymCommunityMessageType,
   GymConfig,
   GymConfigInput,
   GymDailyCheckInResult,
@@ -95,6 +97,7 @@ import type {
   GymMember,
   GymMemberAthleteHubPayload,
   GymMemberProgressHistory,
+  GymMembersCommunityHubPayload,
   GymMemberWorkoutPlanPayload,
   GymMemberWorkoutSummaryPayload,
   GymOwnerDashboardPayload,
@@ -111,6 +114,7 @@ import type {
   GymWorkoutRoutine,
   GymWorkoutSession,
   LogGymWorkoutSessionInput,
+  MemberCreateCustomExerciseInput,
   PublicGymPortalPayload,
   SubmitGymRegistrationInput,
   UpsertGymCoachPlanInput,
@@ -1048,6 +1052,41 @@ export interface IBusinessRepository {
     businessSlug: string;
     memberId: string;
   }): Promise<GymMemberAthleteHubPayload | null>;
+
+  /** Members Directory (Live Floor status + streaks) and Community Chat messages scoped to this gym. */
+  getGymMembersCommunityHub(params: {
+    businessSlug: string;
+    requesterMemberId: string;
+  }): Promise<GymMembersCommunityHubPayload>;
+
+  /** Posts a member chat or celebration message into the gym-scoped community chat. */
+  sendGymCommunityMessage(params: {
+    businessSlug: string;
+    memberId: string;
+    messageText: string;
+    messageType?: GymCommunityMessageType;
+  }): Promise<GymCommunityMessage>;
+
+  /** Lets an active member or coach add a custom exercise with optional GIF URL to this gym's library. */
+  memberCreateCustomGymExercise(
+    input: MemberCreateCustomExerciseInput,
+  ): Promise<GymCatalogExercise>;
+
+  /** Owner fetches gym community messages for moderation or announcements. */
+  getGymCommunityMessagesForOwner(params: {
+    businessId: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymCommunityMessage[]>;
+
+  /** Owner posts a Coach Announcement or deletes an inappropriate message in the gym community chat. */
+  ownerPostOrDeleteGymCommunityMessage(params: {
+    businessId: string;
+    action: 'post' | 'delete';
+    messageText?: string;
+    messageId?: string;
+    senderName?: string;
+    options?: AIConfigAccessOptions;
+  }): Promise<GymCommunityMessage | { deletedId: string }>;
 
   // ---------------------------------------------------------------------------
   // Module 7: Dedicated CafeOS (Stamp Pass, Birthday Coffee, Inventory & Counter)

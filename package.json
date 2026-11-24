@@ -25,6 +25,7 @@
     "test:gym-flagship": "deno run --allow-read --allow-env tests/verify-gym-flagship-os.ts",
     "test:gym-workout": "deno run --allow-read --allow-env tests/verify-gym-workout-engine.ts",
     "test:gym-coach": "deno run --allow-read --allow-env tests/verify-gym-coach-nutrition-and-session.ts",
+    "test:gym-community": "deno run --allow-read --allow-env tests/verify-gym-members-chat-and-anatomical-ui.ts",
     "test:hospitality": "deno run --allow-read --allow-env tests/verify-complete-hospitality-os.ts",
     "test:cafe": "deno run --allow-read --allow-env tests/verify-cafe-os.ts",
     "preview": "vite preview"
