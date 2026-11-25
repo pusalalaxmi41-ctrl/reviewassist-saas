@@ -17,6 +17,7 @@ import {
   Upload,
   X,
   Star,
+  Stethoscope,
 } from 'lucide-react';
 import type { Business } from '../../types/business';
 import { copyText } from '../../utils/clipboard';
@@ -32,6 +33,7 @@ import {
 import { getGymPortalUrl, isGymCategory } from '../../utils/gymValidation';
 import { getCafeHubUrl, isCafeCategory } from '../../utils/cafeValidation';
 import { getLoyaltyPortalUrl, isLoyaltyCategory } from '../../utils/loyaltyValidation';
+import { getClinicPortalUrl, isClinicCategory } from '../../utils/clinicValidation';
 import {
   generatePrintablePdfBlobFromCanvas,
   getDefaultQRDesignSettings,
@@ -47,7 +49,14 @@ import { Button } from '../common/Button';
 
 interface Props {
   business: Business;
-  defaultMode?: 'review' | 'barber_queue' | 'gym' | 'cafe' | 'loyalty' | 'restaurant_menu';
+  defaultMode?:
+    | 'review'
+    | 'barber_queue'
+    | 'gym'
+    | 'cafe'
+    | 'loyalty'
+    | 'clinic'
+    | 'restaurant_menu';
 }
 
 export function QRCodeManager({ business, defaultMode }: Props) {
@@ -67,6 +76,7 @@ export function QRCodeManager({ business, defaultMode }: Props) {
   const supportsGymPortal = isGymCategory(business.category);
   const supportsCafeHub = isCafeCategory(business.category);
   const supportsLoyaltyPortal = isLoyaltyCategory(business.category);
+  const supportsClinicPortal = isClinicCategory(business.category);
   const supportsRestaurantMenu =
     business.category === 'restaurant' ||
     business.category === 'hotel' ||
@@ -77,20 +87,29 @@ export function QRCodeManager({ business, defaultMode }: Props) {
     | 'gym'
     | 'cafe'
     | 'loyalty'
+    | 'clinic'
     | 'restaurant_menu' =
     defaultMode ??
-    (supportsCafeHub
-      ? 'cafe'
-      : supportsGymPortal
-        ? 'gym'
-        : supportsBarberQueue
-          ? 'barber_queue'
-          : supportsLoyaltyPortal
-            ? 'loyalty'
-            : 'review');
+    (supportsClinicPortal
+      ? 'clinic'
+      : supportsCafeHub
+        ? 'cafe'
+        : supportsGymPortal
+          ? 'gym'
+          : supportsBarberQueue
+            ? 'barber_queue'
+            : supportsLoyaltyPortal
+              ? 'loyalty'
+              : 'review');
 
   const [qrMode, setQrMode] = useState<
-    'review' | 'barber_queue' | 'gym' | 'cafe' | 'loyalty' | 'restaurant_menu'
+    | 'review'
+    | 'barber_queue'
+    | 'gym'
+    | 'cafe'
+    | 'loyalty'
+    | 'clinic'
+    | 'restaurant_menu'
   >(resolvedDefault);
   const [queueHeading, setQueueHeading] = useState('Scan to Join the Live Queue');
   const [queueInstruction, setQueueInstruction] = useState(
@@ -112,6 +131,12 @@ export function QRCodeManager({ business, defaultMode }: Props) {
   const [loyaltyInstruction, setLoyaltyInstruction] = useState(
     'Collect visit stars on your digital wallet card & unlock exclusive rewards',
   );
+  const [clinicHeading, setClinicHeading] = useState(
+    'Scan for Live Queue Token & Digital Prescription Pass',
+  );
+  const [clinicInstruction, setClinicInstruction] = useState(
+    'Check live doctor wait times, claim your OPD token & access your Digital Rx',
+  );
   const [menuHeading, setMenuHeading] = useState('Scan for Digital Menu & Loyalty');
   const [menuInstruction, setMenuInstruction] = useState(
     'Browse our live menu, play table games & collect Loyalty Stars',
@@ -121,6 +146,7 @@ export function QRCodeManager({ business, defaultMode }: Props) {
   const isGymMode = supportsGymPortal && qrMode === 'gym';
   const isCafeMode = supportsCafeHub && qrMode === 'cafe';
   const isLoyaltyMode = supportsLoyaltyPortal && qrMode === 'loyalty';
+  const isClinicMode = supportsClinicPortal && qrMode === 'clinic';
   const isMenuMode = supportsRestaurantMenu && qrMode === 'restaurant_menu';
   const originHost =
     typeof window !== 'undefined'
@@ -128,76 +154,90 @@ export function QRCodeManager({ business, defaultMode }: Props) {
       : 'http://localhost:5173';
   const menuHubUrl = `${originHost}/r/${business.slug}/menu`;
 
-  const qrUrl = isCafeMode
-    ? getCafeHubUrl(business.slug)
-    : isGymMode
-      ? getGymPortalUrl(business.slug)
-      : isQueueMode
-        ? getBarberQueueUrl(business.slug)
-        : isLoyaltyMode
-          ? getLoyaltyPortalUrl(business.slug)
-          : isMenuMode
-            ? menuHubUrl
-            : getCustomerReviewUrl(business.slug, 'qr');
-  const directUrl = isCafeMode
-    ? getCafeHubUrl(business.slug)
-    : isGymMode
-      ? getGymPortalUrl(business.slug)
-      : isQueueMode
-        ? getBarberQueueUrl(business.slug)
-        : isLoyaltyMode
-          ? getLoyaltyPortalUrl(business.slug)
-          : isMenuMode
-            ? menuHubUrl
-            : getCustomerReviewUrl(business.slug, 'direct');
+  const qrUrl = isClinicMode
+    ? getClinicPortalUrl(business.slug)
+    : isCafeMode
+      ? getCafeHubUrl(business.slug)
+      : isGymMode
+        ? getGymPortalUrl(business.slug)
+        : isQueueMode
+          ? getBarberQueueUrl(business.slug)
+          : isLoyaltyMode
+            ? getLoyaltyPortalUrl(business.slug)
+            : isMenuMode
+              ? menuHubUrl
+              : getCustomerReviewUrl(business.slug, 'qr');
+  const directUrl = isClinicMode
+    ? getClinicPortalUrl(business.slug)
+    : isCafeMode
+      ? getCafeHubUrl(business.slug)
+      : isGymMode
+        ? getGymPortalUrl(business.slug)
+        : isQueueMode
+          ? getBarberQueueUrl(business.slug)
+          : isLoyaltyMode
+            ? getLoyaltyPortalUrl(business.slug)
+            : isMenuMode
+              ? menuHubUrl
+              : getCustomerReviewUrl(business.slug, 'direct');
   const whatsAppMsg = buildWhatsAppMessage(business);
   const whatsAppLink = getWhatsAppShareLink(business, customPhone);
 
   const effectivePosterSettings: QRDesignSettings = useMemo(
     () =>
-      isCafeMode
+      isClinicMode
         ? {
             ...settings,
             template: 'table_standee',
-            heading: cafeHeading,
-            instruction: cafeInstruction,
+            heading: clinicHeading,
+            instruction: clinicInstruction,
           }
-        : isGymMode
+        : isCafeMode
           ? {
               ...settings,
               template: 'table_standee',
-              heading: gymHeading,
-              instruction: gymInstruction,
+              heading: cafeHeading,
+              instruction: cafeInstruction,
             }
-          : isQueueMode
+          : isGymMode
             ? {
                 ...settings,
                 template: 'table_standee',
-                heading: queueHeading,
-                instruction: queueInstruction,
+                heading: gymHeading,
+                instruction: gymInstruction,
               }
-            : isLoyaltyMode
+            : isQueueMode
               ? {
                   ...settings,
                   template: 'table_standee',
-                  heading: loyaltyHeading,
-                  instruction: loyaltyInstruction,
+                  heading: queueHeading,
+                  instruction: queueInstruction,
                 }
-              : isMenuMode
+              : isLoyaltyMode
                 ? {
                     ...settings,
                     template: 'table_standee',
-                    heading: menuHeading,
-                    instruction: menuInstruction,
+                    heading: loyaltyHeading,
+                    instruction: loyaltyInstruction,
                   }
-                : settings,
+                : isMenuMode
+                  ? {
+                      ...settings,
+                      template: 'table_standee',
+                      heading: menuHeading,
+                      instruction: menuInstruction,
+                    }
+                  : settings,
     [
+      isClinicMode,
       isCafeMode,
       isGymMode,
       isQueueMode,
       isLoyaltyMode,
       isMenuMode,
       settings,
+      clinicHeading,
+      clinicInstruction,
       cafeHeading,
       cafeInstruction,
       gymHeading,
@@ -213,53 +253,70 @@ export function QRCodeManager({ business, defaultMode }: Props) {
 
   const effectiveRenderOptions = useMemo(
     () =>
-      isCafeMode
+      isClinicMode
         ? {
             targetUrl: qrUrl,
             customSteps: [
-              'Scan QR at the coffee counter',
-              'Save your Coffee Stamp Card to Home Screen',
-              'Collect stamps & unlock Birthday Free Coffee',
+              'Scan QR at clinic reception',
+              'Pick Doctor & get Live Queue Token (#C-01)',
+              'Track live ETA & open your Digital Rx Pass',
             ] as [string, string, string],
           }
-        : isGymMode
+        : isCafeMode
           ? {
               targetUrl: qrUrl,
               customSteps: [
-                'Scan QR at the gym desk',
-                'Pick plan or enter phone',
-                'Tap Daily Check-In & view days left',
+                'Scan QR at the coffee counter',
+                'Save your Coffee Stamp Card to Home Screen',
+                'Collect stamps & unlock Birthday Free Coffee',
               ] as [string, string, string],
             }
-          : isQueueMode
+          : isGymMode
             ? {
                 targetUrl: qrUrl,
                 customSteps: [
-                  'Scan QR with phone camera',
-                  'Check live wait & select service',
-                  'Get your Personal Token QR & walk in on time',
+                  'Scan QR at the gym desk',
+                  'Pick plan or enter phone',
+                  'Tap Daily Check-In & view days left',
                 ] as [string, string, string],
               }
-            : isLoyaltyMode
+            : isQueueMode
               ? {
                   targetUrl: qrUrl,
                   customSteps: [
-                    'Scan counter QR or tap NFC tag',
-                    'Collect today’s Loyalty Star on your mobile pass',
-                    'Show 4-digit reward code to cashier to redeem',
+                    'Scan QR with phone camera',
+                    'Check live wait & select service',
+                    'Get your Personal Token QR & walk in on time',
                   ] as [string, string, string],
                 }
-              : isMenuMode
+              : isLoyaltyMode
                 ? {
                     targetUrl: qrUrl,
                     customSteps: [
-                      'Scan QR with phone camera',
-                      'Explore dishes & table games',
-                      'Collect Loyalty Stars & rewards',
+                      'Scan counter QR or tap NFC tag',
+                      'Collect today’s Loyalty Star on your mobile pass',
+                      'Show 4-digit reward code to cashier to redeem',
                     ] as [string, string, string],
                   }
-                : undefined,
-    [isCafeMode, isGymMode, isQueueMode, isLoyaltyMode, isMenuMode, qrUrl],
+                : isMenuMode
+                  ? {
+                      targetUrl: qrUrl,
+                      customSteps: [
+                        'Scan QR with phone camera',
+                        'Explore dishes & table games',
+                        'Collect Loyalty Stars & rewards',
+                      ] as [string, string, string],
+                    }
+                  : undefined,
+    [
+      isClinicMode,
+      isCafeMode,
+      isGymMode,
+      isQueueMode,
+      isLoyaltyMode,
+      isMenuMode,
+      qrUrl,
+    ],
   );
 
   // Persist per-business settings & re-render high-resolution live preview canvas
@@ -334,6 +391,11 @@ export function QRCodeManager({ business, defaultMode }: Props) {
       setLoyaltyInstruction(
         'Collect visit stars on your digital wallet card & unlock exclusive rewards',
       );
+    } else if (isClinicMode) {
+      setClinicHeading('Scan for Live Queue Token & Digital Prescription Pass');
+      setClinicInstruction(
+        'Check live doctor wait times, claim your OPD token & access your Digital Rx',
+      );
     }
     setSettings(getDefaultQRDesignSettings(business));
   }
@@ -347,15 +409,17 @@ export function QRCodeManager({ business, defaultMode }: Props) {
       effectiveRenderOptions,
     );
     const pngUrl = canvasRef.current.toDataURL('image/png');
-    const filename = isCafeMode
-      ? `${business.slug}-cafe-stamp-qr.png`
-      : isGymMode
-        ? `${business.slug}-gym-pass-qr.png`
-        : isQueueMode
-          ? `${business.slug}-live-queue-qr.png`
-          : isLoyaltyMode
-            ? `${business.slug}-loyalty-standee-qr.png`
-            : `${business.slug}-${settings.template}-qr.png`;
+    const filename = isClinicMode
+      ? `${business.slug}-clinic-reception-qr.png`
+      : isCafeMode
+        ? `${business.slug}-cafe-stamp-qr.png`
+        : isGymMode
+          ? `${business.slug}-gym-pass-qr.png`
+          : isQueueMode
+            ? `${business.slug}-live-queue-qr.png`
+            : isLoyaltyMode
+              ? `${business.slug}-loyalty-standee-qr.png`
+              : `${business.slug}-${settings.template}-qr.png`;
     const link = document.createElement('a');
     link.download = filename;
     link.href = pngUrl;
@@ -375,15 +439,17 @@ export function QRCodeManager({ business, defaultMode }: Props) {
     );
     const pdfBlob = generatePrintablePdfBlobFromCanvas(canvasRef.current);
     const blobUrl = URL.createObjectURL(pdfBlob);
-    const filename = isCafeMode
-      ? `${business.slug}-cafe-stamp-qr.pdf`
-      : isGymMode
-        ? `${business.slug}-gym-pass-qr.pdf`
-        : isQueueMode
-          ? `${business.slug}-live-queue-qr.pdf`
-          : isLoyaltyMode
-            ? `${business.slug}-loyalty-standee-qr.pdf`
-            : `${business.slug}-${settings.template}-qr.pdf`;
+    const filename = isClinicMode
+      ? `${business.slug}-clinic-reception-qr.pdf`
+      : isCafeMode
+        ? `${business.slug}-cafe-stamp-qr.pdf`
+        : isGymMode
+          ? `${business.slug}-gym-pass-qr.pdf`
+          : isQueueMode
+            ? `${business.slug}-live-queue-qr.pdf`
+            : isLoyaltyMode
+              ? `${business.slug}-loyalty-standee-qr.pdf`
+              : `${business.slug}-${settings.template}-qr.pdf`;
     const link = document.createElement('a');
     link.download = filename;
     link.href = blobUrl;
@@ -421,8 +487,26 @@ export function QRCodeManager({ business, defaultMode }: Props) {
         supportsCafeHub ||
         supportsBarberQueue ||
         supportsGymPortal ||
-        supportsLoyaltyPortal) && (
+        supportsLoyaltyPortal ||
+        supportsClinicPortal) && (
         <div className="inline-flex flex-wrap items-center gap-1.5 rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-2 shadow-2xs">
+          {supportsClinicPortal && (
+            <button
+              type="button"
+              onClick={() => setQrMode('clinic')}
+              className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
+                isClinicMode
+                  ? 'bg-[#0F1115] text-[#C8F135] shadow-2xs'
+                  : 'text-[#626B65] hover:bg-[#F7F7F2] hover:text-[#252B29]'
+              }`}
+            >
+              <Stethoscope
+                className={`h-4 w-4 ${isClinicMode ? 'text-[#10B981]' : ''}`}
+                aria-hidden
+              />
+              <span>Live Queue Token &amp; Digital Rx Standee</span>
+            </button>
+          )}
           {supportsCafeHub && (
             <button
               type="button"
@@ -512,7 +596,12 @@ export function QRCodeManager({ business, defaultMode }: Props) {
             type="button"
             onClick={() => setQrMode('review')}
             className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
-              !isCafeMode && !isQueueMode && !isGymMode && !isLoyaltyMode && !isMenuMode
+              !isClinicMode &&
+              !isCafeMode &&
+              !isQueueMode &&
+              !isGymMode &&
+              !isLoyaltyMode &&
+              !isMenuMode
                 ? 'bg-[#1E1B4B] text-[#FFFFFF] shadow-2xs'
                 : 'text-[#626B65] hover:bg-[#F7F7F2] hover:text-[#252B29]'
             }`}
@@ -527,17 +616,19 @@ export function QRCodeManager({ business, defaultMode }: Props) {
       <div className="flex flex-col gap-4 rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-5 sm:flex-row sm:items-center sm:justify-between shadow-2xs">
         <div className="space-y-1">
           <p className="text-[12px] font-semibold uppercase tracking-wider text-[#626B65]">
-            {isCafeMode
-              ? 'Counter Coffee Stamp Card & Quick Menu URL (Encoded in QR)'
-              : isGymMode
-                ? 'Front-Desk Gym Membership & Check-In URL (Encoded in QR)'
-                : isQueueMode
-                  ? 'Live Queue & Wait-Time Standee URL (Encoded in QR)'
-                  : isLoyaltyMode
-                    ? 'Standalone Loyalty Wallet & NFC Standee URL (Encoded in QR)'
-                    : isMenuMode
-                      ? 'Digital Menu & Loyalty Hub URL (Encoded in QR)'
-                      : 'Business-Specific Customer Review URL (Encoded in QR)'}
+            {isClinicMode
+              ? 'Clinic Reception Live Queue & Digital Prescription URL (Encoded in QR)'
+              : isCafeMode
+                ? 'Counter Coffee Stamp Card & Quick Menu URL (Encoded in QR)'
+                : isGymMode
+                  ? 'Front-Desk Gym Membership & Check-In URL (Encoded in QR)'
+                  : isQueueMode
+                    ? 'Live Queue & Wait-Time Standee URL (Encoded in QR)'
+                    : isLoyaltyMode
+                      ? 'Standalone Loyalty Wallet & NFC Standee URL (Encoded in QR)'
+                      : isMenuMode
+                        ? 'Digital Menu & Loyalty Hub URL (Encoded in QR)'
+                        : 'Business-Specific Customer Review URL (Encoded in QR)'}
           </p>
           <p className="break-all font-mono text-[14px] font-medium text-[#244B40]">{qrUrl}</p>
         </div>
@@ -667,23 +758,31 @@ export function QRCodeManager({ business, defaultMode }: Props) {
                   type="text"
                   maxLength={70}
                   value={
-                    isCafeMode
-                      ? cafeHeading
-                      : isGymMode
-                        ? gymHeading
-                        : isQueueMode
-                          ? queueHeading
-                          : isMenuMode
-                            ? menuHeading
-                            : settings.heading
+                    isClinicMode
+                      ? clinicHeading
+                      : isCafeMode
+                        ? cafeHeading
+                        : isGymMode
+                          ? gymHeading
+                          : isQueueMode
+                            ? queueHeading
+                            : isLoyaltyMode
+                              ? loyaltyHeading
+                              : isMenuMode
+                                ? menuHeading
+                                : settings.heading
                   }
                   onChange={(e) => {
-                    if (isCafeMode) {
+                    if (isClinicMode) {
+                      setClinicHeading(e.target.value);
+                    } else if (isCafeMode) {
                       setCafeHeading(e.target.value);
                     } else if (isGymMode) {
                       setGymHeading(e.target.value);
                     } else if (isQueueMode) {
                       setQueueHeading(e.target.value);
+                    } else if (isLoyaltyMode) {
+                      setLoyaltyHeading(e.target.value);
                     } else if (isMenuMode) {
                       setMenuHeading(e.target.value);
                     } else {
@@ -709,23 +808,31 @@ export function QRCodeManager({ business, defaultMode }: Props) {
                   type="text"
                   maxLength={90}
                   value={
-                    isCafeMode
-                      ? cafeInstruction
-                      : isGymMode
-                        ? gymInstruction
-                        : isQueueMode
-                          ? queueInstruction
-                          : isMenuMode
-                            ? menuInstruction
-                            : settings.instruction
+                    isClinicMode
+                      ? clinicInstruction
+                      : isCafeMode
+                        ? cafeInstruction
+                        : isGymMode
+                          ? gymInstruction
+                          : isQueueMode
+                            ? queueInstruction
+                            : isLoyaltyMode
+                              ? loyaltyInstruction
+                              : isMenuMode
+                                ? menuInstruction
+                                : settings.instruction
                   }
                   onChange={(e) => {
-                    if (isCafeMode) {
+                    if (isClinicMode) {
+                      setClinicInstruction(e.target.value);
+                    } else if (isCafeMode) {
                       setCafeInstruction(e.target.value);
                     } else if (isGymMode) {
                       setGymInstruction(e.target.value);
                     } else if (isQueueMode) {
                       setQueueInstruction(e.target.value);
+                    } else if (isLoyaltyMode) {
+                      setLoyaltyInstruction(e.target.value);
                     } else if (isMenuMode) {
                       setMenuInstruction(e.target.value);
                     } else {

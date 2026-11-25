@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -16,6 +16,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Plus,
   RefreshCw,
   RotateCcw,
   Scissors,
@@ -25,6 +26,7 @@ import {
   ShieldAlert,
   ShieldOff,
   Star,
+  Stethoscope,
   Trash2,
   Users,
   UtensilsCrossed,
@@ -37,6 +39,10 @@ import {
   getAdminRepository,
   mockAdminRepository,
 } from '../../services/admin';
+import {
+  businessRepository,
+  PLACEHOLDER_GOOGLE_REVIEW_URL,
+} from '../../services/storage';
 import type {
   AdminAuditLogEntry,
   AdminClientCounts,
@@ -44,6 +50,7 @@ import type {
 } from '../../types/admin';
 import type {
   AccountLifecycleState,
+  BusinessCategory,
   BusinessStatus,
 } from '../../types/business';
 import {
@@ -99,6 +106,7 @@ type AdminNavSection =
   | 'cafes'
   | 'barbers'
   | 'gyms'
+  | 'clinics'
   | 'loyalty'
   | 'clients'
   | 'accounts'
@@ -156,8 +164,18 @@ export default function AdminPanelPage() {
   const [clientStatusTab, setClientStatusTab] =
     useState<ClientFilterTab>('all');
   const [clientIndustryFilter, setClientIndustryFilter] = useState<
-    'all' | 'restaurant' | 'cafe' | 'barber' | 'gym' | 'loyalty'
+    'all' | 'restaurant' | 'cafe' | 'barber' | 'gym' | 'clinic' | 'loyalty'
   >('all');
+
+  // Create-business modal state
+  const [createBizModalOpen, setCreateBizModalOpen] = useState(false);
+  const [newBizName, setNewBizName] = useState('');
+  const [newBizCategory, setNewBizCategory] =
+    useState<BusinessCategory>('clinic');
+  const [newBizCity, setNewBizCity] = useState('');
+  const [newBizSlug, setNewBizSlug] = useState('');
+  const [newBizEmail, setNewBizEmail] = useState('');
+  const [creatingBiz, setCreatingBiz] = useState(false);
 
   // Accounts filters
   const [accountSearch, setAccountSearch] = useState('');
@@ -266,6 +284,11 @@ export default function AdminPanelPage() {
       clients.filter((c) => getIndustryWorkspaceType(c.category) === 'loyalty'),
     [clients],
   );
+  const clinicClients = useMemo(
+    () =>
+      clients.filter((c) => getIndustryWorkspaceType(c.category) === 'clinic'),
+    [clients],
+  );
 
   const pendingRestaurantsCount = useMemo(
     () => restaurantClients.filter((c) => c.status === 'pending').length,
@@ -287,18 +310,24 @@ export default function AdminPanelPage() {
     () => loyaltyClients.filter((c) => c.status === 'pending').length,
     [loyaltyClients],
   );
+  const pendingClinicsCount = useMemo(
+    () => clinicClients.filter((c) => c.status === 'pending').length,
+    [clinicClients],
+  );
 
-  // Scoped list for the active directory tab ('restaurants' | 'cafes' | 'barbers' | 'gyms' | 'loyalty' | 'clients')
+  // Scoped list for the active directory tab ('restaurants' | 'cafes' | 'barbers' | 'gyms' | 'clinics' | 'loyalty' | 'clients')
   const scopedClientsForDirectory = useMemo(() => {
     if (activeNav === 'restaurants') return restaurantClients;
     if (activeNav === 'cafes') return cafeClients;
     if (activeNav === 'barbers') return barberClients;
     if (activeNav === 'gyms') return gymClients;
+    if (activeNav === 'clinics') return clinicClients;
     if (activeNav === 'loyalty') return loyaltyClients;
     if (clientIndustryFilter === 'restaurant') return restaurantClients;
     if (clientIndustryFilter === 'cafe') return cafeClients;
     if (clientIndustryFilter === 'barber') return barberClients;
     if (clientIndustryFilter === 'gym') return gymClients;
+    if (clientIndustryFilter === 'clinic') return clinicClients;
     if (clientIndustryFilter === 'loyalty') return loyaltyClients;
     return clients;
   }, [
@@ -309,6 +338,7 @@ export default function AdminPanelPage() {
     cafeClients,
     barberClients,
     gymClients,
+    clinicClients,
     loyaltyClients,
   ]);
 
@@ -540,6 +570,80 @@ export default function AdminPanelPage() {
     }
   }
 
+  async function handleCreateAdminBusiness(e: FormEvent) {
+    e.preventDefault();
+    const cleanName = newBizName.trim();
+    const cleanCity = newBizCity.trim();
+    const cleanSlug = (
+      newBizSlug.trim() ||
+      cleanName
+        .toLowerCase()
+        .replace(/[^\w\s-]/g, '')
+        .replace(/[\s_-]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+    ).slice(0, 80);
+    if (cleanName.length < 2 || cleanCity.length < 2 || cleanSlug.length < 3) {
+      pushToast(
+        'error',
+        'Please enter a valid business name, city, and URL slug.',
+      );
+      return;
+    }
+
+    setCreatingBiz(true);
+    try {
+      const created = await businessRepository.createBusiness({
+        name: cleanName,
+        category: newBizCategory,
+        city: cleanCity,
+        slug: cleanSlug,
+        googleReviewUrl: PLACEHOLDER_GOOGLE_REVIEW_URL,
+        googleReviewUrlIsPlaceholder: true,
+      });
+      const nowIso = new Date().toISOString();
+      mockAdminRepository.registerMockClient({
+        id: created.id,
+        ownerId: created.ownerId ?? user?.id ?? 'admin-created-owner',
+        ownerEmail: newBizEmail.trim() || user?.email || 'owner@reviewassist.app',
+        ownerCreatedAt: nowIso,
+        ownerLastSignInAt: nowIso,
+        slug: created.slug,
+        name: created.name,
+        category: created.category,
+        city: created.city,
+        googleReviewUrl: created.googleReviewUrl,
+        googleReviewUrlIsPlaceholder: true,
+        status: 'active',
+        statusChangedAt: nowIso,
+        statusChangedBy: user?.id ?? 'admin-root-01',
+        statusReason: 'Created & activated by Platform Admin',
+        accountState: 'active',
+        deletionRequestedAt: null,
+        deletionScheduledFor: null,
+        deletedReason: null,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      });
+      setCreateBizModalOpen(false);
+      setNewBizName('');
+      setNewBizCity('');
+      setNewBizSlug('');
+      setNewBizEmail('');
+      await loadAllAdminData();
+      pushToast(
+        'success',
+        `Created & activated "${created.name}" (${getIndustryBadgeMeta(created.category).moduleName}).`,
+      );
+    } catch (err) {
+      pushToast(
+        'error',
+        (err as Error).message || 'Failed to create business.',
+      );
+    } finally {
+      setCreatingBiz(false);
+    }
+  }
+
   async function handleSignOut() {
     await signOut();
     navigate('/login');
@@ -648,6 +752,12 @@ export default function AdminPanelPage() {
       label: 'Gyms & Fitness',
       icon: Dumbbell,
       badge: pendingGymsCount || undefined,
+    },
+    {
+      id: 'clinics',
+      label: 'ClinicOS / Medical & Dental',
+      icon: Stethoscope,
+      badge: pendingClinicsCount || undefined,
     },
     {
       id: 'loyalty',
@@ -832,12 +942,14 @@ export default function AdminPanelPage() {
                       ? '✂️ Barber & Salon Approvals (BarberOS)'
                       : activeNav === 'gyms'
                         ? '🏋️ Gym & Fitness Approvals (GymOS)'
-                        : activeNav === 'loyalty'
-                          ? '⭐ Loyalty & AI Reviews Approvals (LoyaltyOS)'
-                          : activeNav === 'clients'
-                          ? 'All Businesses'
-                          : activeNav.charAt(0).toUpperCase() +
-                            activeNav.slice(1)}
+                        : activeNav === 'clinics'
+                          ? '🏥 ClinicOS / Medical & Dental Approvals'
+                          : activeNav === 'loyalty'
+                            ? '⭐ Loyalty & AI Reviews Approvals (LoyaltyOS)'
+                            : activeNav === 'clients'
+                            ? 'All Businesses'
+                            : activeNav.charAt(0).toUpperCase() +
+                              activeNav.slice(1)}
             </h1>
             <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-medium text-slate-600">
               <span
@@ -852,6 +964,14 @@ export default function AdminPanelPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setCreateBizModalOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 cursor-pointer"
+            >
+              <Plus className="h-3.5 w-3.5 text-emerald-400" />
+              <span>+ Create Business</span>
+            </button>
             <button
               type="button"
               onClick={() => void loadAllAdminData()}
@@ -1090,6 +1210,7 @@ export default function AdminPanelPage() {
             activeNav === 'cafes' ||
             activeNav === 'barbers' ||
             activeNav === 'gyms' ||
+            activeNav === 'clinics' ||
             activeNav === 'loyalty') && (
             <div className="rounded-lg border border-slate-200 bg-white shadow-2xs">
               {/* Industry Filter Bar when viewing All Businesses */}
@@ -1121,6 +1242,11 @@ export default function AdminPanelPage() {
                           id: 'gym',
                           label: '🏋️ Gym & Fitness',
                           count: gymClients.length,
+                        },
+                        {
+                          id: 'clinic',
+                          label: '🏥 ClinicOS / Medical & Dental',
+                          count: clinicClients.length,
                         },
                         {
                           id: 'loyalty',
@@ -1163,9 +1289,11 @@ export default function AdminPanelPage() {
                           ? '☕ Cafe & Coffee Shop Approval Queue — Unlocks CafeOS (Wallet Stamp Card, Birthday Free Coffee, Counter Inventory & Quick Order)'
                           : activeNav === 'barbers'
                             ? '✂️ Barber & Salon Approval Queue — Unlocks BarberOS (Live Queue Timer, Broadcast Delays, Token QRs)'
-                            : activeNav === 'loyalty'
-                              ? '⭐ Loyalty & AI Reviews Approval Queue — Unlocks LoyaltyOS (Anti-Fraud Counter QR/NFC Star Wallet & 4-Digit Reward Lock)'
-                              : '🏋️ Gym & Fitness Approval Queue — Unlocks GymOS (Member Signup QR, 3-Day Renewal Radar, Daily Check-In)'}
+                            : activeNav === 'clinics'
+                              ? '🏥 ClinicOS / Medical & Dental Approval Queue — Unlocks Multi-Doctor Live Token Queue, Vitals, Digital Rx Vault, 3-Day Recalls & Doctor Commissions'
+                              : activeNav === 'loyalty'
+                                ? '⭐ Loyalty & AI Reviews Approval Queue — Unlocks LoyaltyOS (Anti-Fraud Counter QR/NFC Star Wallet & 4-Digit Reward Lock)'
+                                : '🏋️ Gym & Fitness Approval Queue — Unlocks GymOS (Member Signup QR, 3-Day Renewal Radar, Daily Check-In)'}
                     </p>
                   </div>
                   <span className="rounded-full bg-white border border-slate-200 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
@@ -1288,7 +1416,9 @@ export default function AdminPanelPage() {
                                 ? '/cafe'
                                 : badge.workspace === 'loyalty'
                                   ? '/loyalty'
-                                  : '/menu';
+                                  : badge.workspace === 'clinic'
+                                    ? '/clinic'
+                                    : '/menu';
                         return (
                           <tr
                             key={biz.id}
@@ -2181,6 +2311,136 @@ export default function AdminPanelPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {createBizModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[1px]"
+          onClick={() => setCreateBizModalOpen(false)}
+        >
+          <form
+            onSubmit={(e) => void handleCreateAdminBusiness(e)}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl space-y-4"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  Create &amp; Provision Tenant Workspace
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Choose an industry vertical (including ClinicOS) to provision immediately.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateBizModalOpen(false)}
+                className="rounded-md p-1 text-slate-400 hover:bg-slate-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-slate-700">
+                Industry OS / Category
+              </label>
+              <select
+                value={newBizCategory}
+                onChange={(e) =>
+                  setNewBizCategory(e.target.value as BusinessCategory)
+                }
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 focus:border-indigo-500 focus:outline-none"
+              >
+                <option value="clinic">
+                  🏥 ClinicOS / Medical &amp; Dental (OPD Queue, Vitals &amp; Digital Rx)
+                </option>
+                <option value="restaurant">
+                  🍽️ BistroOS / Restaurant &amp; Dining
+                </option>
+                <option value="hotel">🏨 BistroOS / Hotel &amp; Rooms</option>
+                <option value="cafe">☕ CafeOS / Cafe &amp; Coffee Shop</option>
+                <option value="barber">✂️ BarberOS / Barber &amp; Salon</option>
+                <option value="gym">🏋️ GymOS / Gym &amp; Fitness Studio</option>
+                <option value="loyalty">
+                  ⭐ LoyaltyOS / Standalone Retail &amp; Reviews
+                </option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-slate-700">
+                Business / Clinic Name
+              </label>
+              <input
+                type="text"
+                required
+                value={newBizName}
+                onChange={(e) => setNewBizName(e.target.value)}
+                placeholder="e.g. Apex Dental & Skin Clinic"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:border-indigo-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  City
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newBizCity}
+                  onChange={(e) => setNewBizCity(e.target.value)}
+                  placeholder="Hyderabad"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:border-indigo-500 focus:outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Custom Slug (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={newBizSlug}
+                  onChange={(e) => setNewBizSlug(e.target.value)}
+                  placeholder="apex-dental-clinic"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-slate-700">
+                Owner Email (Optional)
+              </label>
+              <input
+                type="email"
+                value={newBizEmail}
+                onChange={(e) => setNewBizEmail(e.target.value)}
+                placeholder="doctor@apexclinic.in"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setCreateBizModalOpen(false)}
+                className="rounded-lg border border-slate-200 px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={creatingBiz}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
+              >
+                {creatingBiz ? 'Provisioning…' : 'Create & Activate →'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

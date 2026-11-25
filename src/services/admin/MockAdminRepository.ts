@@ -260,6 +260,29 @@ const INITIAL_CLIENTS: AdminClientRecord[] = [
     createdAt: daysAgoIso(3),
     updatedAt: daysAgoIso(3),
   },
+  {
+    id: 'biz-aura-care-clinic-6',
+    ownerId: 'owner-aura-clinic-6',
+    ownerEmail: 'admin@auracareclinic.in',
+    ownerCreatedAt: daysAgoIso(2),
+    ownerLastSignInAt: daysAgoIso(0),
+    slug: 'aura-care-clinic',
+    name: 'Aura Care Dental & Multi-Specialty Clinic',
+    category: 'clinic',
+    city: 'Hyderabad',
+    googleReviewUrl: 'https://g.page/r/aura-care-clinic/review',
+    googleReviewUrlIsPlaceholder: false,
+    status: 'active',
+    statusChangedAt: daysAgoIso(1),
+    statusChangedBy: 'admin-root-01',
+    statusReason: 'Verified clinic registration & doctors roster',
+    accountState: 'active',
+    deletionRequestedAt: null,
+    deletionScheduledFor: null,
+    deletedReason: null,
+    createdAt: daysAgoIso(2),
+    updatedAt: daysAgoIso(1),
+  },
 ];
 
 const INITIAL_AUDIT_LOG: AdminAuditLogEntry[] = [
@@ -736,6 +759,16 @@ export class MockAdminRepository implements IAdminRepository {
     const offset = params?.offset ?? 0;
     const limit = params?.limit ?? 100;
     return logs.slice(offset, offset + limit);
+  }
+
+  registerMockClient(record: AdminClientRecord): void {
+    const clients = this.getClientsInternal();
+    const filtered = clients.filter(
+      (c) => c.id !== record.id && c.slug !== record.slug,
+    );
+    filtered.unshift(record);
+    this.saveClientsInternal(filtered);
+    this.syncOverlay(record);
   }
 
   resetMockData(): void {

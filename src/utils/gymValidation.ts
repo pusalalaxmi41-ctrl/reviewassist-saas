@@ -16,6 +16,7 @@ import type {
 import { validateBusinessId } from './aiConfigValidation';
 import { isBarberOrSalonCategory } from './barberQueueValidation';
 import { isCafeCategory } from './cafeValidation';
+import { isClinicCategory } from './clinicValidation';
 import { isLoyaltyCategory } from './loyaltyValidation';
 import { formatPriceFromPaise } from './restaurantValidation';
 
@@ -285,6 +286,7 @@ export function getIndustryWorkspaceType(
   if (isBarberOrSalonCategory(category)) return 'barber';
   if (isCafeCategory(category)) return 'cafe';
   if (isLoyaltyCategory(category)) return 'loyalty';
+  if (isClinicCategory(category)) return 'clinic';
   return 'restaurant';
 }
 
@@ -333,6 +335,15 @@ export function getIndustryBadgeMeta(
       badgeClass: 'bg-lime-100 text-slate-900 border-lime-400',
     };
   }
+  if (isClinicCategory(category)) {
+    return {
+      workspace: 'clinic',
+      emoji: '🏥',
+      label: 'Medical & Dental',
+      moduleName: 'ClinicOS',
+      badgeClass: 'bg-teal-50 text-teal-950 border-teal-300',
+    };
+  }
   return {
     workspace: 'restaurant',
     emoji: '🍽️',
@@ -377,6 +388,9 @@ export function getPrimaryCustomerQrUrlForBusiness(
   }
   if (isLoyaltyCategory(business.category)) {
     return `${host}/r/${slug}/loyalty`;
+  }
+  if (isClinicCategory(business.category)) {
+    return `${host}/r/${slug}/clinic`;
   }
   return `${host}/r/${slug}/menu`;
 }

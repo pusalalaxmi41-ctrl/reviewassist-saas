@@ -181,6 +181,31 @@ import {
   normalizeLoyaltyPhone,
   validateLoyaltyConfigInput,
 } from '../../utils/loyaltyValidation';
+import type {
+  AssignClinicPackageInput,
+  CheckinClinicTokenInput,
+  CheckinClinicTokenResult,
+  ClinicConfig,
+  ClinicConfigInput,
+  ClinicDoctor,
+  ClinicDoctorInput,
+  ClinicOwnerDashboardPayload,
+  ClinicPatient,
+  ClinicPaymentMethod,
+  ClinicVisitAndQueue,
+  ClinicVisitStatus,
+  ClinicVitals,
+  CompleteClinicConsultationInput,
+  CompleteClinicConsultationResult,
+  PublicClinicHubPayload,
+} from '../../types/clinic';
+import {
+  normalizeClinicPhone,
+  sanitizeClinicVitals,
+  sanitizePrescriptionItems,
+  validateClinicConfigInput,
+  validateClinicDoctorInput,
+} from '../../utils/clinicValidation';
 import {
   CAFE_INVENTORY_STARTER_PACK,
   createDefaultCafeConfig,
@@ -7304,5 +7329,412 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       throw new Error(error.message);
     }
     return mockBusinessRepository.requestLoyaltyRewardRedemption(params);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Module 9: ClinicOS (Healthcare, Dental, Skin, Physio & Diagnostic Clinic OS)
+  // ---------------------------------------------------------------------------
+
+  async getPublicClinicHub(
+    businessSlug: string,
+    phone?: string | null,
+  ): Promise<PublicClinicHubPayload | null> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('get_public_clinic_hub', {
+      p_slug: businessSlug.trim().toLowerCase(),
+      p_phone: phone ? normalizeClinicPhone(phone) : null,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as PublicClinicHubPayload;
+    }
+    if (!error && data === null) {
+      // Allow local demo fixture fallback for aura-care-clinic if not yet seeded in cloud
+      if (businessSlug.trim().toLowerCase() === 'aura-care-clinic') {
+        return mockBusinessRepository.getPublicClinicHub(businessSlug, phone);
+      }
+      return null;
+    }
+    return mockBusinessRepository.getPublicClinicHub(businessSlug, phone);
+  }
+
+  async checkinOrBookClinicToken(
+    input: CheckinClinicTokenInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CheckinClinicTokenResult> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('checkin_or_book_clinic_token', {
+      p_slug: input.businessSlug.trim().toLowerCase(),
+      p_full_name: input.fullName.trim().slice(0, 80),
+      p_phone: normalizeClinicPhone(input.phone),
+      p_doctor_id: input.doctorId || null,
+      p_visit_type: input.visitType ?? 'walk_in',
+      p_chief_complaint: input.chiefComplaint?.trim().slice(0, 240) || null,
+      p_age: input.age ?? null,
+      p_allergies: input.allergies?.trim().slice(0, 200) || null,
+      p_gender: input.gender ?? null,
+      p_blood_group: input.bloodGroup?.trim().slice(0, 12) || null,
+      p_scheduled_slot: input.scheduledSlot?.trim().slice(0, 40) || null,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as CheckinClinicTokenResult;
+    }
+    if (
+      error &&
+      (error.message.includes('Please enter') ||
+        error.message.includes('Age must') ||
+        error.message.includes('paused') ||
+        error.message.includes('unavailable') ||
+        error.message.includes('does not belong'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.checkinOrBookClinicToken(input, options);
+  }
+
+  async getClinicOwnerDashboard(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<ClinicOwnerDashboardPayload> {
+    const err = validateBusinessId(businessId);
+    if (err) throw new Error(err);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('get_clinic_owner_dashboard', {
+      p_business_id: cleanId,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as ClinicOwnerDashboardPayload;
+    }
+    if (error && error.message.includes('Unauthorized')) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.getClinicOwnerDashboard(cleanId, options);
+  }
+
+  async updateClinicBrandingConfig(
+    businessId: string,
+    input: ClinicConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<ClinicConfig> {
+    const cleanInput = validateClinicConfigInput(businessId, input);
+    const cleanId = cleanInput.businessId;
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('clinic_configs')
+      .upsert(
+        {
+          business_id: cleanId,
+          clinic_tagline: cleanInput.clinicTagline,
+          logo_url: cleanInput.logoUrl,
+          accent_color: cleanInput.accentColor,
+          is_queue_open: cleanInput.isQueueOpen,
+          recall_window_days: cleanInput.recallWindowDays,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'business_id' },
+      )
+      .select('*')
+      .single();
+
+    if (!error && data) {
+      const r = data as {
+        business_id: string;
+        clinic_tagline: string;
+        logo_url: string | null;
+        accent_color: string;
+        is_queue_open: boolean;
+        recall_window_days: number;
+        created_at: string;
+        updated_at: string;
+      };
+      return {
+        businessId: r.business_id,
+        clinicTagline: r.clinic_tagline,
+        logoUrl: r.logo_url,
+        accentColor: r.accent_color,
+        isQueueOpen: r.is_queue_open,
+        recallWindowDays: r.recall_window_days,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      };
+    }
+
+    return mockBusinessRepository.updateClinicBrandingConfig(
+      cleanId,
+      input,
+      options,
+    );
+  }
+
+  async upsertClinicDoctor(
+    businessId: string,
+    input: ClinicDoctorInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<ClinicDoctor> {
+    const clean = validateClinicDoctorInput(businessId, input);
+    const cleanId = clean.businessId;
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const payload: Record<string, unknown> = {
+      business_id: cleanId,
+      doctor_name: clean.doctorName,
+      specialty: clean.specialty,
+      cabin_label: clean.cabinLabel,
+      consultation_fee_paise: clean.consultationFeePaise,
+      avg_consult_minutes: clean.avgConsultMinutes,
+      commission_percent: clean.commissionPercent,
+      is_available: clean.isAvailable,
+    };
+    if (clean.id) {
+      payload.id = clean.id;
+    }
+
+    const query = clean.id
+      ? client
+          .from('clinic_doctors')
+          .update(payload)
+          .eq('id', clean.id)
+          .eq('business_id', cleanId)
+          .select('*')
+          .single()
+      : client.from('clinic_doctors').insert(payload).select('*').single();
+
+    const { data, error } = await query;
+    if (!error && data) {
+      const r = data as {
+        id: string;
+        business_id: string;
+        doctor_name: string;
+        specialty: string;
+        cabin_label: string;
+        consultation_fee_paise: number;
+        avg_consult_minutes: number;
+        extra_delay_minutes: number;
+        commission_percent: number | string;
+        is_available: boolean;
+        created_at: string;
+      };
+      return {
+        id: r.id,
+        businessId: r.business_id,
+        doctorName: r.doctor_name,
+        specialty: r.specialty,
+        cabinLabel: r.cabin_label,
+        consultationFeePaise: r.consultation_fee_paise,
+        avgConsultMinutes: r.avg_consult_minutes,
+        extraDelayMinutes: r.extra_delay_minutes,
+        commissionPercent: Number(r.commission_percent),
+        isAvailable: r.is_available,
+        createdAt: r.created_at,
+      };
+    }
+
+    return mockBusinessRepository.upsertClinicDoctor(cleanId, input, options);
+  }
+
+  async adjustClinicDoctorDelay(params: {
+    businessId: string;
+    doctorId: string;
+    deltaMinutes: number;
+    options?: AIConfigAccessOptions;
+  }): Promise<ClinicDoctor> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('adjust_clinic_doctor_delay', {
+      p_business_id: cleanId,
+      p_doctor_id: params.doctorId,
+      p_delta_minutes: Math.round(Number(params.deltaMinutes) || 0),
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as ClinicDoctor;
+    }
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('not found'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.adjustClinicDoctorDelay(params);
+  }
+
+  async updateClinicVisitVitalsAndStatus(params: {
+    businessId: string;
+    visitId: string;
+    status: ClinicVisitStatus;
+    vitalsJson?: ClinicVitals | null;
+    doctorId?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<ClinicVisitAndQueue> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc(
+      'update_clinic_visit_vitals_and_status',
+      {
+        p_business_id: cleanId,
+        p_visit_id: params.visitId,
+        p_status: params.status,
+        p_vitals_json: params.vitalsJson
+          ? sanitizeClinicVitals(params.vitalsJson)
+          : null,
+        p_doctor_id: params.doctorId ?? null,
+      },
+    );
+    if (!error && data && typeof data === 'object') {
+      return data as ClinicVisitAndQueue;
+    }
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('Invalid') ||
+        error.message.includes('not found'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.updateClinicVisitVitalsAndStatus(params);
+  }
+
+  async completeClinicConsultationAndRx(
+    input: CompleteClinicConsultationInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CompleteClinicConsultationResult> {
+    const err = validateBusinessId(input.businessId);
+    if (err) throw new Error(err);
+    const cleanId = input.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc(
+      'complete_clinic_consultation_and_rx',
+      {
+        p_business_id: cleanId,
+        p_visit_id: input.visitId,
+        p_diagnosis_notes: input.diagnosisNotes?.trim().slice(0, 2000) || null,
+        p_prescription_items: sanitizePrescriptionItems(input.prescriptionItems),
+        p_rx_attachment_url: input.rxAttachmentUrl?.trim() || null,
+        p_fee_charged_paise: Math.max(
+          0,
+          Math.round(Number(input.feeChargedPaise) || 0),
+        ),
+        p_amount_collected_paise: Math.max(
+          0,
+          Math.round(Number(input.amountCollectedPaise) || 0),
+        ),
+        p_payment_method: input.paymentMethod,
+        p_deduct_package_session: Boolean(input.deductPackageSession),
+        p_next_followup_date: input.nextFollowupDate?.trim() || null,
+        p_followup_reason: input.followupReason?.trim().slice(0, 160) || null,
+      },
+    );
+    if (!error && data && typeof data === 'object') {
+      return data as CompleteClinicConsultationResult;
+    }
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('not found'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.completeClinicConsultationAndRx(
+      input,
+      options,
+    );
+  }
+
+  async assignClinicTreatmentPackage(
+    input: AssignClinicPackageInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<ClinicPatient> {
+    const err = validateBusinessId(input.businessId);
+    if (err) throw new Error(err);
+    const cleanId = input.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc(
+      'assign_clinic_treatment_package',
+      {
+        p_business_id: cleanId,
+        p_patient_id: input.patientId,
+        p_package_name: input.packageName.trim().slice(0, 120),
+        p_sessions_total: Math.max(
+          1,
+          Math.min(100, Math.round(Number(input.sessionsTotal) || 1)),
+        ),
+        p_package_fee_paise: Math.max(
+          0,
+          Math.round(Number(input.packageFeePaise) || 0),
+        ),
+        p_amount_paid_now_paise: Math.max(
+          0,
+          Math.round(Number(input.amountPaidNowPaise) || 0),
+        ),
+        p_next_followup_date: input.nextFollowupDate?.trim() || null,
+        p_followup_reason: input.followupReason?.trim().slice(0, 160) || null,
+      },
+    );
+    if (!error && data && typeof data === 'object') {
+      return data as ClinicPatient;
+    }
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('valid') ||
+        error.message.includes('not found'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.assignClinicTreatmentPackage(input, options);
+  }
+
+  async collectClinicPatientBalance(params: {
+    businessId: string;
+    patientId: string;
+    amountCollectedPaise: number;
+    paymentMethod?: ClinicPaymentMethod;
+    options?: AIConfigAccessOptions;
+  }): Promise<ClinicPatient> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('collect_clinic_patient_balance', {
+      p_business_id: cleanId,
+      p_patient_id: params.patientId,
+      p_amount_collected_paise: Math.max(
+        0,
+        Math.round(Number(params.amountCollectedPaise) || 0),
+      ),
+      p_payment_method: params.paymentMethod ?? 'upi',
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as ClinicPatient;
+    }
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('greater than zero') ||
+        error.message.includes('no pending balance') ||
+        error.message.includes('not found'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.collectClinicPatientBalance(params);
   }
 }

@@ -147,6 +147,24 @@ import type {
   LoyaltySourceChannel,
   PublicLoyaltyHubPayload,
 } from '../../types/loyalty';
+import type {
+  AssignClinicPackageInput,
+  CheckinClinicTokenInput,
+  CheckinClinicTokenResult,
+  ClinicConfig,
+  ClinicConfigInput,
+  ClinicDoctor,
+  ClinicDoctorInput,
+  ClinicOwnerDashboardPayload,
+  ClinicPatient,
+  ClinicPaymentMethod,
+  ClinicVisitAndQueue,
+  ClinicVisitStatus,
+  ClinicVitals,
+  CompleteClinicConsultationInput,
+  CompleteClinicConsultationResult,
+  PublicClinicHubPayload,
+} from '../../types/clinic';
 
 export interface AIConfigAccessOptions {
   /** Optional explicit owner ID used to verify tenant isolation. */
@@ -1285,4 +1303,79 @@ export interface IBusinessRepository {
     businessSlug: string;
     phone: string;
   }): Promise<LoyaltyMemberCard>;
+
+  // ---------------------------------------------------------------------------
+  // Module 9: ClinicOS (Healthcare, Dental, Skin, Physio & Diagnostic Clinic OS)
+  // ---------------------------------------------------------------------------
+
+  /** Public Patient Health Pass & Live OPD Queue hub (/r/:businessSlug/clinic). */
+  getPublicClinicHub(
+    businessSlug: string,
+    phone?: string | null,
+  ): Promise<PublicClinicHubPayload | null>;
+
+  /** Public / reception check-in generating sequential daily token (#C-01...) & live ETA. */
+  checkinOrBookClinicToken(
+    input: CheckinClinicTokenInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CheckinClinicTokenResult>;
+
+  /** Owner Reception & Doctor Command Center payload (KPIs, cabins, queue, 3-day recalls, dues, Rx, commissions). */
+  getClinicOwnerDashboard(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<ClinicOwnerDashboardPayload>;
+
+  /** Owner updates white-label clinic branding (logo, tagline, accent color, queue toggle, recall window). */
+  updateClinicBrandingConfig(
+    businessId: string,
+    input: ClinicConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<ClinicConfig>;
+
+  /** Owner adds or edits a clinic doctor / specialist cabin. */
+  upsertClinicDoctor(
+    businessId: string,
+    input: ClinicDoctorInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<ClinicDoctor>;
+
+  /** Owner adjusts live doctor delay (-2m, +2m, +5m, +10m) updating patient ETAs in real time. */
+  adjustClinicDoctorDelay(params: {
+    businessId: string;
+    doctorId: string;
+    deltaMinutes: number;
+    options?: AIConfigAccessOptions;
+  }): Promise<ClinicDoctor>;
+
+  /** Reception / Nurse records vitals (BP, Pulse, Temp, Weight) and advances queue status. */
+  updateClinicVisitVitalsAndStatus(params: {
+    businessId: string;
+    visitId: string;
+    status: ClinicVisitStatus;
+    vitalsJson?: ClinicVitals | null;
+    doctorId?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<ClinicVisitAndQueue>;
+
+  /** Doctor completes consultation, saves Digital Rx & photo, computes commission, deducts package session & sets recall date. */
+  completeClinicConsultationAndRx(
+    input: CompleteClinicConsultationInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CompleteClinicConsultationResult>;
+
+  /** Owner assigns multi-session treatment package (e.g., 10-Session Ortho Physio) with full or installment payment. */
+  assignClinicTreatmentPackage(
+    input: AssignClinicPackageInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<ClinicPatient>;
+
+  /** Owner collects pending installment / procedure balance due from a patient. */
+  collectClinicPatientBalance(params: {
+    businessId: string;
+    patientId: string;
+    amountCollectedPaise: number;
+    paymentMethod?: ClinicPaymentMethod;
+    options?: AIConfigAccessOptions;
+  }): Promise<ClinicPatient>;
 }

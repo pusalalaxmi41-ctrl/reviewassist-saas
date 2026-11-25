@@ -1,6 +1,12 @@
 import type { BusinessCategory } from './business';
 
-export type IndustryWorkspaceType = 'restaurant' | 'cafe' | 'barber' | 'gym' | 'loyalty';
+export type IndustryWorkspaceType =
+  | 'restaurant'
+  | 'cafe'
+  | 'barber'
+  | 'gym'
+  | 'loyalty'
+  | 'clinic';
 
 export type GymMemberStatus =
   | 'pending_approval'

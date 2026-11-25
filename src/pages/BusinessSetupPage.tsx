@@ -7,6 +7,7 @@ import {
   Scissors,
   Dumbbell,
   Star,
+  Stethoscope,
   CheckCircle2,
   Clock,
   ExternalLink,
@@ -32,6 +33,7 @@ import { isBarberOrSalonCategory } from '../utils/barberQueueValidation';
 import { getIndustryWorkspaceType, isGymCategory } from '../utils/gymValidation';
 import { isCafeCategory } from '../utils/cafeValidation';
 import { isLoyaltyCategory } from '../utils/loyaltyValidation';
+import { isClinicCategory } from '../utils/clinicValidation';
 import { Button } from '../components/common/Button';
 import { TextField } from '../components/common/TextField';
 import { Alert } from '../components/common/Alert';
@@ -62,7 +64,9 @@ export default function BusinessSetupPage() {
           ? 'gym'
           : initialType === 'loyalty'
             ? 'loyalty'
-          : 'restaurant',
+            : initialType === 'clinic'
+              ? 'clinic'
+              : 'restaurant',
   );
   const [city, setCity] = useState('');
   const [slug, setSlug] = useState('');
@@ -260,7 +264,9 @@ export default function BusinessSetupPage() {
                       ? 'Open GymOS Studio'
                       : getIndustryWorkspaceType(createdBusiness.category) === 'loyalty'
                         ? 'Open LoyaltyOS Command Center'
-                        : 'Open Restaurant Workspace'}{' '}
+                        : getIndustryWorkspaceType(createdBusiness.category) === 'clinic'
+                          ? 'Open ClinicOS Command Center'
+                          : 'Open Restaurant Workspace'}{' '}
                 <ArrowRight className="h-4 w-4" aria-hidden />
               </Button>
             </div>
@@ -325,7 +331,9 @@ export default function BusinessSetupPage() {
                         ? `/r/${createdBusiness.slug}/queue`
                         : isLoyaltyCategory(createdBusiness.category)
                           ? `/r/${createdBusiness.slug}/loyalty`
-                          : `/r/${createdBusiness.slug}/menu`
+                          : isClinicCategory(createdBusiness.category)
+                            ? `/r/${createdBusiness.slug}/clinic`
+                            : `/r/${createdBusiness.slug}/menu`
                 }
                 target="_blank"
                 rel="noopener noreferrer"
@@ -340,7 +348,9 @@ export default function BusinessSetupPage() {
                       ? 'Open Live Queue'
                       : isLoyaltyCategory(createdBusiness.category)
                         ? 'Open Digital Loyalty Wallet'
-                        : 'Open Customer Menu'}
+                        : isClinicCategory(createdBusiness.category)
+                          ? 'Open Patient Health Pass'
+                          : 'Open Customer Menu'}
               </a>
               <Button
                 variant="primary"
@@ -377,8 +387,10 @@ export default function BusinessSetupPage() {
               ? 'bg-[#1E1B4B] text-[#D2DB76]'
               : selectedWorkspace === 'barber'
                 ? 'bg-[#111318] text-[#F3E3B8]'
-                : selectedWorkspace === 'gym' || selectedWorkspace === 'loyalty'
-                  ? 'bg-[#0F172A] text-[#C8F135]'
+                : selectedWorkspace === 'gym' ||
+                    selectedWorkspace === 'loyalty' ||
+                    selectedWorkspace === 'clinic'
+                  ? 'bg-[#0F1115] text-[#C8F135]'
                   : 'bg-[#1E1B4B] text-[#D2DB76]'
           }`}
         >
@@ -390,6 +402,8 @@ export default function BusinessSetupPage() {
             <Dumbbell className="h-5 w-5" aria-hidden />
           ) : selectedWorkspace === 'loyalty' ? (
             <Star className="h-5 w-5 fill-current" aria-hidden />
+          ) : selectedWorkspace === 'clinic' ? (
+            <Stethoscope className="h-5 w-5" aria-hidden />
           ) : (
             <UtensilsCrossed className="h-5 w-5" aria-hidden />
           )}
@@ -403,7 +417,9 @@ export default function BusinessSetupPage() {
                 ? 'Launch Your GymOS Membership Studio'
                 : selectedWorkspace === 'loyalty'
                   ? 'Launch Your LoyaltyOS Rewards Studio'
-                  : 'Set Up Your Business Workspace'}
+                  : selectedWorkspace === 'clinic'
+                    ? 'Launch Your ClinicOS OPD & Digital Rx Studio'
+                    : 'Set Up Your Business Workspace'}
         </h1>
         <p className="mt-1.5 text-[15px] text-[#6B7280]">
           {selectedWorkspace === 'cafe'
@@ -413,8 +429,10 @@ export default function BusinessSetupPage() {
               : selectedWorkspace === 'gym'
                 ? 'Replace paper gym registers with 10-second QR signups, 1-tap payment approvals, and 3-day expiry radar.'
                 : selectedWorkspace === 'loyalty'
-                  ? 'Turn any retail shop, clinic, boutique, or salon counter into an anti-fraud Digital Star Wallet + AI Google Review engine.'
-                  : 'Launch your digital table menu, waiter roster, guest loyalty stars, and Google review flow in under a minute.'}
+                  ? 'Turn any retail shop, boutique, or salon counter into an anti-fraud Digital Star Wallet + AI Google Review engine.'
+                  : selectedWorkspace === 'clinic'
+                    ? 'Multi-doctor live OPD queue tokens, nurse vitals, Digital Prescription (Rx) vault, multi-session packages, and 3-day patient recalls.'
+                    : 'Launch your digital table menu, waiter roster, guest loyalty stars, and Google review flow in under a minute.'}
         </p>
       </div>
 
@@ -456,7 +474,7 @@ export default function BusinessSetupPage() {
             <span className="block text-[12px] font-extrabold uppercase tracking-wider text-[#6B7280]">
               Choose Your Dedicated Industry System
             </span>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
               <button
                 type="button"
                 onClick={() => setCategory('restaurant')}
@@ -527,8 +545,25 @@ export default function BusinessSetupPage() {
 
               <button
                 type="button"
+                onClick={() => setCategory('clinic')}
+                className={`flex flex-col items-center gap-1 rounded-2xl border p-3 text-center transition-all cursor-pointer ${
+                  selectedWorkspace === 'clinic'
+                    ? 'border-2 border-[#0D9488] bg-[#0F1115] text-white shadow-sm'
+                    : 'border-[#1E1B4B]/15 bg-[#F8F9FA] text-[#111827] hover:border-[#0D9488]'
+                }`}
+              >
+                <Stethoscope
+                  className={`h-4.5 w-4.5 ${selectedWorkspace === 'clinic' ? 'text-[#C8F135]' : 'text-[#0D9488]'}`}
+                  aria-hidden
+                />
+                <span className="text-[12px] font-extrabold">ClinicOS</span>
+                <span className="text-[10px] opacity-75">Medical / Dental</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setCategory('loyalty')}
-                className={`col-span-2 sm:col-span-1 flex flex-col items-center gap-1 rounded-2xl border p-3 text-center transition-all cursor-pointer ${
+                className={`flex flex-col items-center gap-1 rounded-2xl border p-3 text-center transition-all cursor-pointer ${
                   selectedWorkspace === 'loyalty'
                     ? 'border-2 border-[#0F1115] bg-[#0F1115] text-white shadow-sm'
                     : 'border-[#1E1B4B]/15 bg-[#F8F9FA] text-[#111827] hover:border-[#0F1115]'
@@ -539,7 +574,7 @@ export default function BusinessSetupPage() {
                   aria-hidden
                 />
                 <span className="text-[12px] font-extrabold">LoyaltyOS</span>
-                <span className="text-[10px] opacity-75">Retail / Clinic</span>
+                <span className="text-[10px] opacity-75">Retail / Boutique</span>
               </button>
             </div>
           </div>
@@ -552,7 +587,9 @@ export default function BusinessSetupPage() {
                   ? 'Barber Shop / Salon Name'
                   : selectedWorkspace === 'gym'
                     ? 'Gym / Fitness Studio Name'
-                    : 'Restaurant / Business Name'
+                    : selectedWorkspace === 'clinic'
+                      ? 'Clinic / Dental / Healthcare Center Name'
+                      : 'Restaurant / Business Name'
             }
             placeholder={
               selectedWorkspace === 'cafe'
@@ -561,7 +598,9 @@ export default function BusinessSetupPage() {
                   ? 'e.g. Crown Cuts Barbershop, Blade & Fade'
                   : selectedWorkspace === 'gym'
                     ? 'e.g. Iron Pulse Fitness, Gold Core Gym'
-                    : 'e.g. The Urban Kitchen, Bistro Botanica'
+                    : selectedWorkspace === 'clinic'
+                      ? 'e.g. Aura Care Dental & Multi-Specialty Clinic'
+                      : 'e.g. The Urban Kitchen, Bistro Botanica'
             }
             value={name}
             onChange={(e) => handleNameChange(e.target.value)}
@@ -625,7 +664,9 @@ export default function BusinessSetupPage() {
                   ? 'Shop Live Queue URL: '
                   : selectedWorkspace === 'loyalty'
                     ? 'Customer Loyalty Wallet URL: '
-                    : 'Guest Menu URL: '}
+                    : selectedWorkspace === 'clinic'
+                      ? 'Patient Health Pass & Live Queue URL: '
+                      : 'Guest Menu URL: '}
               <span className="font-mono text-[#1E1B4B] font-semibold">
                 {host}/r/{slug || 'your-slug'}/
                 {selectedWorkspace === 'gym'
@@ -634,7 +675,9 @@ export default function BusinessSetupPage() {
                     ? 'queue'
                     : selectedWorkspace === 'loyalty'
                       ? 'loyalty'
-                      : 'menu'}
+                      : selectedWorkspace === 'clinic'
+                        ? 'clinic'
+                        : 'menu'}
               </span>
             </p>
           </div>

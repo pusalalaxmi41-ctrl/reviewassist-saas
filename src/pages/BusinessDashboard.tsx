@@ -44,9 +44,11 @@ import { BarberOwnerWorkspace } from '../components/barber/BarberOwnerWorkspace'
 import { GymOwnerWorkspace } from '../components/gym/GymOwnerWorkspace';
 import { CafeManagerView } from '../components/cafe/CafeManagerView';
 import { LoyaltyManagerView } from '../components/loyalty/LoyaltyManagerView';
+import { ClinicManagerView } from '../components/ClinicManagerView';
 import { getIndustryWorkspaceType } from '../utils/gymValidation';
 import { isCafeCategory } from '../utils/cafeValidation';
 import { isLoyaltyCategory } from '../utils/loyaltyValidation';
+import { isClinicCategory } from '../utils/clinicValidation';
 import {
   loadWorkspaceModules,
   saveWorkspaceModules,
@@ -303,6 +305,19 @@ export default function BusinessDashboard() {
         business={currentBusiness}
         loyaltyBusinesses={loyaltyOnly.length > 0 ? loyaltyOnly : [currentBusiness]}
         hasOtherBusinesses={businesses.some((b) => !isLoyaltyCategory(b.category))}
+        onSelectBusiness={handleSelectBusiness}
+        onBusinessUpdated={handleBusinessUpdated}
+      />
+    );
+  }
+  if (workspaceType === 'clinic') {
+    const clinicOnly = businesses.filter((b) => isClinicCategory(b.category));
+    return (
+      <ClinicManagerView
+        key={currentBusiness.id}
+        business={currentBusiness}
+        clinicBusinesses={clinicOnly.length > 0 ? clinicOnly : [currentBusiness]}
+        hasOtherBusinesses={businesses.some((b) => !isClinicCategory(b.category))}
         onSelectBusiness={handleSelectBusiness}
         onBusinessUpdated={handleBusinessUpdated}
       />

@@ -235,6 +235,40 @@ import {
   normalizeLoyaltyPhone,
   validateLoyaltyConfigInput,
 } from '../../utils/loyaltyValidation';
+import type {
+  AssignClinicPackageInput,
+  CheckinClinicTokenInput,
+  CheckinClinicTokenResult,
+  ClinicConfig,
+  ClinicConfigInput,
+  ClinicDoctor,
+  ClinicDoctorCommissionRow,
+  ClinicDoctorInput,
+  ClinicDoctorLiveCard,
+  ClinicOwnerDashboardPayload,
+  ClinicPatient,
+  ClinicPaymentMethod,
+  ClinicRecallEntry,
+  ClinicVisitAndQueue,
+  ClinicVisitStatus,
+  ClinicVitals,
+  CompleteClinicConsultationInput,
+  CompleteClinicConsultationResult,
+  PublicClinicHubPayload,
+} from '../../types/clinic';
+import {
+  calculateClinicEstimatedWaitMinutes,
+  calculateDoctorCommissionPaise,
+  createDefaultClinicConfig,
+  isValidClinicPaymentMethod,
+  isValidClinicVisitStatus,
+  isValidClinicVisitType,
+  normalizeClinicPhone,
+  sanitizeClinicVitals,
+  sanitizePrescriptionItems,
+  validateClinicConfigInput,
+  validateClinicDoctorInput,
+} from '../../utils/clinicValidation';
 import {
   CAFE_INVENTORY_STARTER_PACK,
   computeCafeCounterTokenSig,
@@ -329,6 +363,10 @@ const STORAGE_KEYS = {
   LOYALTY_CONFIGS: 'reviewassist_mock_loyalty_os_configs_v1',
   LOYALTY_CARDS: 'reviewassist_mock_loyalty_os_cards_v1',
   LOYALTY_EVENTS: 'reviewassist_mock_loyalty_os_events_v1',
+  CLINIC_CONFIGS: 'reviewassist_mock_clinic_os_configs_v1',
+  CLINIC_DOCTORS: 'reviewassist_mock_clinic_os_doctors_v1',
+  CLINIC_PATIENTS: 'reviewassist_mock_clinic_os_patients_v1',
+  CLINIC_VISITS: 'reviewassist_mock_clinic_os_visits_v1',
 };
 
 // Initial seed businesses for development & preview
@@ -397,6 +435,19 @@ const INITIAL_BUSINESSES: Business[] = [
     status: 'active',
     accountState: 'active',
     createdAt: '2026-11-05T10:00:00.000Z',
+  },
+  {
+    id: 'biz-aura-care-clinic-6',
+    ownerId: 'owner-aura-clinic-6',
+    slug: 'aura-care-clinic',
+    name: 'Aura Care Dental & Multi-Specialty Clinic',
+    category: 'clinic',
+    city: 'Hyderabad',
+    googleReviewUrl: PLACEHOLDER_GOOGLE_REVIEW_URL,
+    googleReviewUrlIsPlaceholder: true,
+    status: 'active',
+    accountState: 'active',
+    createdAt: '2026-11-06T09:00:00.000Z',
   },
 ];
 
@@ -535,15 +586,33 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     const newBiz: Business = {
       ...data,
       id: `biz-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      status: 'pending',
+      status: data.status ?? 'pending',
       statusChangedAt: now,
       statusReason: null,
-      accountState: 'active',
+      accountState: data.accountState ?? 'active',
       createdAt: now,
     };
     const updated = [newBiz, ...list];
     this.write(STORAGE_KEYS.BUSINESSES, updated);
     return newBiz;
+  }
+
+  async setMockBusinessStatus(
+    businessId: string,
+    status: NonNullable<Business['status']>,
+  ): Promise<Business> {
+    const list = await this.getBusinesses();
+    const index = list.findIndex((b) => b.id === businessId);
+    if (index === -1) {
+      throw new Error(`Business with ID ${businessId} not found.`);
+    }
+    list[index] = {
+      ...list[index],
+      status,
+      statusChangedAt: new Date().toISOString(),
+    };
+    this.write(STORAGE_KEYS.BUSINESSES, list);
+    return list[index];
   }
 
   async updateBusinessGoogleUrl(
@@ -10653,6 +10722,1250 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       this.write(STORAGE_KEYS.LOYALTY_CARDS, cards);
     }
     return cards[idx];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Module 9: ClinicOS (Healthcare, Dental, Skin, Physio & Diagnostic Clinic OS)
+  // ---------------------------------------------------------------------------
+
+  private getOrCreateClinicConfigRecord(businessId: string): ClinicConfig {
+    const configs = this.read<ClinicConfig[]>(STORAGE_KEYS.CLINIC_CONFIGS, []);
+    const existing = configs.find((c) => c.businessId === businessId);
+    if (existing) return existing;
+    const created = createDefaultClinicConfig(businessId);
+    configs.push(created);
+    this.write(STORAGE_KEYS.CLINIC_CONFIGS, configs);
+    return created;
+  }
+
+  private ensureDemoClinicSeeded(businessId: string): void {
+    if (businessId !== 'biz-aura-care-clinic-6') return;
+    const doctors = this.read<ClinicDoctor[]>(STORAGE_KEYS.CLINIC_DOCTORS, []);
+    if (doctors.some((d) => d.businessId === businessId)) return;
+
+    const today = getTodayIsoDateKey();
+    const nowIso = new Date().toISOString();
+
+    const doc1: ClinicDoctor = {
+      id: 'clinic-doc-aura-1',
+      businessId,
+      doctorName: 'Dr. Ananya Sharma',
+      specialty: 'Dental & Implantology',
+      cabinLabel: 'Room 1',
+      consultationFeePaise: 60000,
+      avgConsultMinutes: 15,
+      extraDelayMinutes: 0,
+      commissionPercent: 50,
+      isAvailable: true,
+      createdAt: '2026-11-06T09:05:00.000Z',
+    };
+    const doc2: ClinicDoctor = {
+      id: 'clinic-doc-aura-2',
+      businessId,
+      doctorName: 'Dr. Vikram Nair',
+      specialty: 'Orthopedics & Physiotherapy',
+      cabinLabel: 'Room 2',
+      consultationFeePaise: 50000,
+      avgConsultMinutes: 20,
+      extraDelayMinutes: 0,
+      commissionPercent: 45,
+      isAvailable: true,
+      createdAt: '2026-11-06T09:06:00.000Z',
+    };
+    const doc3: ClinicDoctor = {
+      id: 'clinic-doc-aura-3',
+      businessId,
+      doctorName: 'Dr. Meera Iyer',
+      specialty: 'Dermatology & Laser',
+      cabinLabel: 'Room 3',
+      consultationFeePaise: 70000,
+      avgConsultMinutes: 15,
+      extraDelayMinutes: 0,
+      commissionPercent: 55,
+      isAvailable: true,
+      createdAt: '2026-11-06T09:07:00.000Z',
+    };
+    doctors.push(doc1, doc2, doc3);
+    this.write(STORAGE_KEYS.CLINIC_DOCTORS, doctors);
+
+    const patients = this.read<ClinicPatient[]>(STORAGE_KEYS.CLINIC_PATIENTS, []);
+    const p1: ClinicPatient = {
+      id: 'clinic-pt-aura-1',
+      businessId,
+      patientCode: 'PT-001',
+      fullName: 'Rohan Deshmukh',
+      phone: '9849011223',
+      age: 34,
+      gender: 'male',
+      bloodGroup: 'O+',
+      allergies: 'Penicillin, Sulfa drugs',
+      activePackageName: 'Root Canal + Zirconia Crown (3 Visits)',
+      packageSessionsTotal: 3,
+      packageSessionsRemaining: 2,
+      totalBilledPaise: 1200000,
+      amountPaidPaise: 800000,
+      balanceDuePaise: 400000,
+      nextFollowupDate: addDaysToIsoDate(today, 2),
+      followupReason: 'Crown Trial & Final Cementation',
+      totalVisits: 1,
+      createdAt: '2026-11-18T10:00:00.000Z',
+      updatedAt: nowIso,
+    };
+    const p2: ClinicPatient = {
+      id: 'clinic-pt-aura-2',
+      businessId,
+      patientCode: 'PT-002',
+      fullName: 'Kavita Menon',
+      phone: '9849022334',
+      age: 42,
+      gender: 'female',
+      bloodGroup: 'B+',
+      allergies: null,
+      activePackageName: '10-Session Ortho Physio Pack',
+      packageSessionsTotal: 10,
+      packageSessionsRemaining: 7,
+      totalBilledPaise: 850000,
+      amountPaidPaise: 850000,
+      balanceDuePaise: 0,
+      nextFollowupDate: addDaysToIsoDate(today, 1),
+      followupReason: 'Session 4 of 10 — Lumbar Traction',
+      totalVisits: 3,
+      createdAt: '2026-11-15T11:30:00.000Z',
+      updatedAt: nowIso,
+    };
+    const p3: ClinicPatient = {
+      id: 'clinic-pt-aura-3',
+      businessId,
+      patientCode: 'PT-003',
+      fullName: 'Siddharth Rao',
+      phone: '9849033445',
+      age: 29,
+      gender: 'male',
+      bloodGroup: 'A+',
+      allergies: 'Ibuprofen / NSAIDs',
+      activePackageName: null,
+      packageSessionsTotal: 0,
+      packageSessionsRemaining: 0,
+      totalBilledPaise: 60000,
+      amountPaidPaise: 60000,
+      balanceDuePaise: 0,
+      nextFollowupDate: null,
+      followupReason: null,
+      totalVisits: 1,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    patients.push(p1, p2, p3);
+    this.write(STORAGE_KEYS.CLINIC_PATIENTS, patients);
+
+    const visits = this.read<ClinicVisitAndQueue[]>(STORAGE_KEYS.CLINIC_VISITS, []);
+    const completedVisit: ClinicVisitAndQueue = {
+      id: 'clinic-vis-aura-1',
+      businessId,
+      patientId: p3.id,
+      doctorId: doc1.id,
+      visitDate: today,
+      tokenNumber: '#C-01',
+      visitType: 'walk_in',
+      scheduledSlot: null,
+      chiefComplaint: 'Molar sensitivity to cold drinks',
+      status: 'completed',
+      vitalsJson: { bp: '118/78', pulse: '74', tempF: '98.4', weightKg: '71' },
+      diagnosisNotes: 'Early enamel wear on lower right molar (#46). Desensitizing varnish applied.',
+      prescriptionItems: [
+        {
+          medicineName: 'Sensodyne Repair & Protect Paste',
+          dosage: 'Twice Daily Topical',
+          days: 30,
+          instruction: 'Apply gently for 2 mins before brushing',
+        },
+        {
+          medicineName: 'Paracetamol 650mg (NSAID-Safe)',
+          dosage: 'SOS (When Needed)',
+          days: 3,
+          instruction: 'After food only if mild ache persists',
+        },
+      ],
+      rxAttachmentUrl: null,
+      feeChargedPaise: 60000,
+      amountCollectedPaise: 60000,
+      paymentMethod: 'upi',
+      doctorCommissionPaise: 30000,
+      checkedInAt: new Date(Date.now() - 50 * 60_000).toISOString(),
+      completedAt: new Date(Date.now() - 25 * 60_000).toISOString(),
+    };
+    const inConsultVisit: ClinicVisitAndQueue = {
+      id: 'clinic-vis-aura-2',
+      businessId,
+      patientId: p1.id,
+      doctorId: doc1.id,
+      visitDate: today,
+      tokenNumber: '#C-02',
+      visitType: 'followup',
+      scheduledSlot: '11:00 AM',
+      chiefComplaint: 'Root canal post-prep check & bite adjustment',
+      status: 'in_consultation',
+      vitalsJson: { bp: '122/80', pulse: '78', tempF: '98.6', weightKg: '76' },
+      diagnosisNotes: null,
+      prescriptionItems: [],
+      rxAttachmentUrl: null,
+      feeChargedPaise: 0,
+      amountCollectedPaise: 0,
+      paymentMethod: null,
+      doctorCommissionPaise: 0,
+      checkedInAt: new Date(Date.now() - 18 * 60_000).toISOString(),
+      completedAt: null,
+    };
+    const waitingVisit: ClinicVisitAndQueue = {
+      id: 'clinic-vis-aura-3',
+      businessId,
+      patientId: p2.id,
+      doctorId: doc2.id,
+      visitDate: today,
+      tokenNumber: '#C-03',
+      visitType: 'package_session',
+      scheduledSlot: null,
+      chiefComplaint: 'Lower back stiffness — Session 4 of 10',
+      status: 'vitals_done',
+      vitalsJson: { bp: '120/78', pulse: '72', tempF: '98.4', weightKg: '63' },
+      diagnosisNotes: null,
+      prescriptionItems: [],
+      rxAttachmentUrl: null,
+      feeChargedPaise: 0,
+      amountCollectedPaise: 0,
+      paymentMethod: null,
+      doctorCommissionPaise: 0,
+      checkedInAt: new Date(Date.now() - 8 * 60_000).toISOString(),
+      completedAt: null,
+    };
+    visits.push(completedVisit, inConsultVisit, waitingVisit);
+    this.write(STORAGE_KEYS.CLINIC_VISITS, visits);
+  }
+
+  private hydrateClinicVisitRow(
+    visit: ClinicVisitAndQueue,
+    patients: ClinicPatient[],
+    doctors: ClinicDoctor[],
+  ): ClinicVisitAndQueue {
+    const pt = patients.find((p) => p.id === visit.patientId);
+    const doc = visit.doctorId
+      ? doctors.find((d) => d.id === visit.doctorId)
+      : undefined;
+    return {
+      ...visit,
+      patientCode: pt?.patientCode ?? visit.patientCode,
+      patientName: pt?.fullName ?? visit.patientName,
+      patientPhone: pt?.phone ?? visit.patientPhone,
+      patientAge: pt?.age ?? visit.patientAge ?? null,
+      patientGender: pt?.gender ?? visit.patientGender ?? null,
+      patientAllergies: pt?.allergies ?? visit.patientAllergies ?? null,
+      patientPackageName: pt?.activePackageName ?? visit.patientPackageName ?? null,
+      patientPackageRemaining:
+        pt?.packageSessionsRemaining ?? visit.patientPackageRemaining ?? 0,
+      patientPackageTotal:
+        pt?.packageSessionsTotal ?? visit.patientPackageTotal ?? 0,
+      doctorName: doc?.doctorName ?? visit.doctorName ?? null,
+      doctorSpecialty: doc?.specialty ?? visit.doctorSpecialty ?? null,
+      cabinLabel: doc?.cabinLabel ?? visit.cabinLabel ?? null,
+    };
+  }
+
+  private buildDoctorLiveCards(
+    businessId: string,
+    today: string,
+    doctors: ClinicDoctor[],
+    visits: ClinicVisitAndQueue[],
+    patients: ClinicPatient[],
+  ): ClinicDoctorLiveCard[] {
+    const bizDoctors = doctors
+      .filter((d) => d.businessId === businessId)
+      .sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      );
+
+    return bizDoctors.map((doc) => {
+      const todayDocVisits = visits
+        .filter(
+          (v) =>
+            v.businessId === businessId &&
+            v.visitDate === today &&
+            v.doctorId === doc.id &&
+            (v.status === 'waiting' ||
+              v.status === 'vitals_done' ||
+              v.status === 'in_consultation'),
+        )
+        .sort(
+          (a, b) =>
+            new Date(a.checkedInAt).getTime() - new Date(b.checkedInAt).getTime(),
+        );
+      const inConsult = todayDocVisits.find((v) => v.status === 'in_consultation');
+      const inConsultPt = inConsult
+        ? patients.find((p) => p.id === inConsult.patientId)
+        : undefined;
+      const waitingCount = todayDocVisits.length;
+      const estimatedWaitMinutes = calculateClinicEstimatedWaitMinutes({
+        patientsAhead: waitingCount,
+        avgConsultMinutes: doc.avgConsultMinutes,
+        extraDelayMinutes: doc.extraDelayMinutes,
+      });
+
+      return {
+        ...doc,
+        waitingCount,
+        inConsultationTokenNumber: inConsult?.tokenNumber ?? null,
+        inConsultationPatientName: inConsultPt?.fullName ?? null,
+        estimatedWaitMinutes,
+      };
+    });
+  }
+
+  async getPublicClinicHub(
+    businessSlug: string,
+    phone?: string | null,
+  ): Promise<PublicClinicHubPayload | null> {
+    const business = await this.getBusinessBySlug(businessSlug);
+    if (
+      !business ||
+      (business.status ?? 'active') !== 'active' ||
+      (business.accountState ?? 'active') !== 'active'
+    ) {
+      return null;
+    }
+
+    this.ensureDemoClinicSeeded(business.id);
+    const config = this.getOrCreateClinicConfigRecord(business.id);
+    const doctors = this.read<ClinicDoctor[]>(STORAGE_KEYS.CLINIC_DOCTORS, []);
+    const patients = this.read<ClinicPatient[]>(STORAGE_KEYS.CLINIC_PATIENTS, []);
+    const visits = this.read<ClinicVisitAndQueue[]>(STORAGE_KEYS.CLINIC_VISITS, []);
+    const today = getTodayIsoDateKey();
+
+    const doctorCards = this.buildDoctorLiveCards(
+      business.id,
+      today,
+      doctors,
+      visits,
+      patients,
+    );
+
+    const cleanPhone = normalizeClinicPhone(phone);
+    let patient: ClinicPatient | null = null;
+    let activeVisit:
+      | (ClinicVisitAndQueue & {
+          patientsAhead: number;
+          estimatedWaitMinutes: number;
+        })
+      | null = null;
+    let visitHistory: ClinicVisitAndQueue[] = [];
+
+    if (cleanPhone.length >= 7) {
+      patient =
+        patients.find(
+          (p) => p.businessId === business.id && p.phone === cleanPhone,
+        ) ?? null;
+
+      if (patient) {
+        const ptVisits = visits
+          .filter(
+            (v) => v.businessId === business.id && v.patientId === patient!.id,
+          )
+          .sort(
+            (a, b) =>
+              new Date(b.checkedInAt).getTime() -
+              new Date(a.checkedInAt).getTime(),
+          )
+          .map((v) => this.hydrateClinicVisitRow(v, patients, doctors));
+
+        visitHistory = ptVisits.slice(0, 25);
+
+        const currentActive = ptVisits
+          .filter(
+            (v) =>
+              v.visitDate === today &&
+              (v.status === 'waiting' ||
+                v.status === 'vitals_done' ||
+                v.status === 'in_consultation'),
+          )
+          .sort((a, b) => {
+            if (a.status === 'in_consultation' && b.status !== 'in_consultation') {
+              return -1;
+            }
+            if (b.status === 'in_consultation' && a.status !== 'in_consultation') {
+              return 1;
+            }
+            return (
+              new Date(b.checkedInAt).getTime() -
+              new Date(a.checkedInAt).getTime()
+            );
+          })[0];
+
+        if (currentActive) {
+          const doc = currentActive.doctorId
+            ? doctors.find((d) => d.id === currentActive.doctorId)
+            : undefined;
+          const myCheckinMs = new Date(currentActive.checkedInAt).getTime();
+          const ahead =
+            currentActive.status === 'in_consultation'
+              ? 0
+              : visits.filter(
+                  (va) =>
+                    va.businessId === business.id &&
+                    va.visitDate === today &&
+                    va.id !== currentActive.id &&
+                    ((currentActive.doctorId === null && va.doctorId === null) ||
+                      va.doctorId === currentActive.doctorId) &&
+                    (va.status === 'waiting' ||
+                      va.status === 'vitals_done' ||
+                      va.status === 'in_consultation') &&
+                    (va.status === 'in_consultation' ||
+                      new Date(va.checkedInAt).getTime() < myCheckinMs),
+                ).length;
+
+          const eta = calculateClinicEstimatedWaitMinutes({
+            patientsAhead: ahead,
+            avgConsultMinutes: doc?.avgConsultMinutes ?? 15,
+            extraDelayMinutes: doc?.extraDelayMinutes ?? 0,
+            status: currentActive.status,
+          });
+
+          activeVisit = {
+            ...currentActive,
+            patientsAhead: ahead,
+            estimatedWaitMinutes: eta,
+          };
+        }
+      }
+    }
+
+    return {
+      business: {
+        id: business.id,
+        name: business.name,
+        slug: business.slug,
+        city: business.city,
+        category: business.category,
+        googleReviewUrl: business.googleReviewUrl,
+      },
+      config,
+      doctors: doctorCards,
+      patient,
+      activeVisit,
+      visitHistory,
+    };
+  }
+
+  async checkinOrBookClinicToken(
+    input: CheckinClinicTokenInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CheckinClinicTokenResult> {
+    const cleanName = (input.fullName ?? '').trim().slice(0, 80);
+    if (cleanName.length < 2) {
+      throw new Error('Please enter patient full name (at least 2 characters).');
+    }
+    const cleanPhone = normalizeClinicPhone(input.phone);
+    if (cleanPhone.length < 7) {
+      throw new Error('Please enter a valid 10-digit mobile number.');
+    }
+    if (
+      input.age !== undefined &&
+      input.age !== null &&
+      (input.age < 0 || input.age > 130)
+    ) {
+      throw new Error('Age must be between 0 and 130.');
+    }
+
+    const allBusinesses = await this.getBusinesses();
+    const cleanSlug = (input.businessSlug ?? '').trim().toLowerCase();
+    const business =
+      allBusinesses.find((b) => b.slug.toLowerCase() === cleanSlug) ?? null;
+    if (!business) {
+      throw new Error('Clinic not found or currently inactive.');
+    }
+    const isOwnerBypass = Boolean(
+      options?.actorOwnerId && business.ownerId === options.actorOwnerId,
+    );
+    if (
+      !isOwnerBypass &&
+      ((business.status ?? 'active') !== 'active' ||
+        (business.accountState ?? 'active') !== 'active')
+    ) {
+      throw new Error('Clinic not found or currently inactive.');
+    }
+
+    this.ensureDemoClinicSeeded(business.id);
+    const cfg = this.getOrCreateClinicConfigRecord(business.id);
+    if (!cfg.isQueueOpen && !isOwnerBypass) {
+      throw new Error(
+        'Live OPD queue check-in is temporarily paused by reception.',
+      );
+    }
+
+    const doctors = this.read<ClinicDoctor[]>(STORAGE_KEYS.CLINIC_DOCTORS, []);
+    let chosenDoctor: ClinicDoctor | undefined;
+    if (input.doctorId) {
+      chosenDoctor = doctors.find(
+        (d) => d.id === input.doctorId && d.businessId === business.id,
+      );
+      if (!chosenDoctor) {
+        throw new Error('Selected doctor does not belong to this clinic.');
+      }
+      if (!chosenDoctor.isAvailable && !isOwnerBypass) {
+        throw new Error(
+          'Selected doctor is currently unavailable for queue check-ins.',
+        );
+      }
+    } else {
+      chosenDoctor = doctors
+        .filter((d) => d.businessId === business.id && d.isAvailable)
+        .sort(
+          (a, b) =>
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        )[0];
+    }
+
+    const patients = this.read<ClinicPatient[]>(STORAGE_KEYS.CLINIC_PATIENTS, []);
+    const visits = this.read<ClinicVisitAndQueue[]>(STORAGE_KEYS.CLINIC_VISITS, []);
+    const today = getTodayIsoDateKey();
+    const nowIso = new Date().toISOString();
+
+    let ptIdx = patients.findIndex(
+      (p) => p.businessId === business.id && p.phone === cleanPhone,
+    );
+    let patient: ClinicPatient;
+    const cleanAllergies = input.allergies?.trim().slice(0, 200) || null;
+    const cleanBlood = input.bloodGroup?.trim().slice(0, 12) || null;
+    const cleanGender =
+      input.gender === 'male' ||
+      input.gender === 'female' ||
+      input.gender === 'other'
+        ? input.gender
+        : null;
+
+    if (ptIdx === -1) {
+      const bizPtCount = patients.filter(
+        (p) => p.businessId === business.id,
+      ).length;
+      patient = {
+        id: `clinic-pt-${crypto.randomUUID()}`,
+        businessId: business.id,
+        patientCode: `PT-${String(bizPtCount + 1).padStart(3, '0')}`,
+        fullName: cleanName,
+        phone: cleanPhone,
+        age: input.age ?? null,
+        gender: cleanGender,
+        bloodGroup: cleanBlood,
+        allergies: cleanAllergies,
+        activePackageName: null,
+        packageSessionsTotal: 0,
+        packageSessionsRemaining: 0,
+        totalBilledPaise: 0,
+        amountPaidPaise: 0,
+        balanceDuePaise: 0,
+        nextFollowupDate: null,
+        followupReason: null,
+        totalVisits: 0,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      patients.push(patient);
+      ptIdx = patients.length - 1;
+    } else {
+      patient = {
+        ...patients[ptIdx],
+        fullName: cleanName,
+        age: input.age ?? patients[ptIdx].age,
+        gender: cleanGender ?? patients[ptIdx].gender,
+        bloodGroup: cleanBlood ?? patients[ptIdx].bloodGroup,
+        allergies: cleanAllergies ?? patients[ptIdx].allergies,
+        updatedAt: nowIso,
+      };
+      patients[ptIdx] = patient;
+    }
+    this.write(STORAGE_KEYS.CLINIC_PATIENTS, patients);
+
+    // Return existing active token if already checked in today and still waiting/in_consultation
+    const existingActive = visits.find(
+      (v) =>
+        v.businessId === business.id &&
+        v.patientId === patient.id &&
+        v.visitDate === today &&
+        (v.status === 'waiting' ||
+          v.status === 'vitals_done' ||
+          v.status === 'in_consultation'),
+    );
+    if (existingActive) {
+      const exDoc = existingActive.doctorId
+        ? doctors.find((d) => d.id === existingActive.doctorId)
+        : undefined;
+      const exCheckinMs = new Date(existingActive.checkedInAt).getTime();
+      const ahead =
+        existingActive.status === 'in_consultation'
+          ? 0
+          : visits.filter(
+              (va) =>
+                va.businessId === business.id &&
+                va.visitDate === today &&
+                va.id !== existingActive.id &&
+                ((existingActive.doctorId === null && va.doctorId === null) ||
+                  va.doctorId === existingActive.doctorId) &&
+                (va.status === 'waiting' ||
+                  va.status === 'vitals_done' ||
+                  va.status === 'in_consultation') &&
+                (va.status === 'in_consultation' ||
+                  new Date(va.checkedInAt).getTime() < exCheckinMs),
+            ).length;
+      const eta = calculateClinicEstimatedWaitMinutes({
+        patientsAhead: ahead,
+        avgConsultMinutes: exDoc?.avgConsultMinutes ?? 15,
+        extraDelayMinutes: exDoc?.extraDelayMinutes ?? 0,
+        status: existingActive.status,
+      });
+      return {
+        tokenNumber: existingActive.tokenNumber,
+        patientsAhead: ahead,
+        estimatedWaitMinutes: eta,
+        visitId: existingActive.id,
+        patientId: patient.id,
+        patientCode: patient.patientCode,
+        doctorName: exDoc?.doctorName ?? null,
+        cabinLabel: exDoc?.cabinLabel ?? null,
+        status: existingActive.status,
+      };
+    }
+
+    const doctorId = chosenDoctor?.id ?? null;
+    const patientsAhead = visits.filter(
+      (va) =>
+        va.businessId === business.id &&
+        va.visitDate === today &&
+        ((doctorId === null && va.doctorId === null) || va.doctorId === doctorId) &&
+        (va.status === 'waiting' ||
+          va.status === 'vitals_done' ||
+          va.status === 'in_consultation'),
+    ).length;
+
+    const dailySeq = visits.filter(
+      (v) => v.businessId === business.id && v.visitDate === today,
+    ).length;
+    const tokenNumber = `#C-${String(dailySeq + 1).padStart(2, '0')}`;
+    const visitType = isValidClinicVisitType(input.visitType)
+      ? input.visitType
+      : 'walk_in';
+
+    const estimatedWaitMinutes = calculateClinicEstimatedWaitMinutes({
+      patientsAhead,
+      avgConsultMinutes: chosenDoctor?.avgConsultMinutes ?? 15,
+      extraDelayMinutes: chosenDoctor?.extraDelayMinutes ?? 0,
+      status: 'waiting',
+    });
+
+    const newVisit: ClinicVisitAndQueue = {
+      id: `clinic-vis-${crypto.randomUUID()}`,
+      businessId: business.id,
+      patientId: patient.id,
+      doctorId,
+      visitDate: today,
+      tokenNumber,
+      visitType,
+      scheduledSlot: input.scheduledSlot?.trim().slice(0, 40) || null,
+      chiefComplaint: input.chiefComplaint?.trim().slice(0, 240) || null,
+      status: 'waiting',
+      vitalsJson: {},
+      diagnosisNotes: null,
+      prescriptionItems: [],
+      rxAttachmentUrl: null,
+      feeChargedPaise:
+        visitType === 'package_session'
+          ? 0
+          : (chosenDoctor?.consultationFeePaise ?? 50000),
+      amountCollectedPaise: 0,
+      paymentMethod: null,
+      doctorCommissionPaise: 0,
+      checkedInAt: nowIso,
+      completedAt: null,
+    };
+
+    visits.push(newVisit);
+    this.write(STORAGE_KEYS.CLINIC_VISITS, visits);
+
+    return {
+      tokenNumber,
+      patientsAhead,
+      estimatedWaitMinutes,
+      visitId: newVisit.id,
+      patientId: patient.id,
+      patientCode: patient.patientCode,
+      doctorName: chosenDoctor?.doctorName ?? null,
+      cabinLabel: chosenDoctor?.cabinLabel ?? null,
+      status: 'waiting',
+    };
+  }
+
+  async getClinicOwnerDashboard(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<ClinicOwnerDashboardPayload> {
+    const err = validateBusinessId(businessId);
+    if (err) throw new Error(err);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    this.ensureDemoClinicSeeded(cleanId);
+    const config = this.getOrCreateClinicConfigRecord(cleanId);
+    const doctors = this.read<ClinicDoctor[]>(STORAGE_KEYS.CLINIC_DOCTORS, []);
+    const allPatients = this.read<ClinicPatient[]>(
+      STORAGE_KEYS.CLINIC_PATIENTS,
+      [],
+    );
+    const allVisits = this.read<ClinicVisitAndQueue[]>(
+      STORAGE_KEYS.CLINIC_VISITS,
+      [],
+    );
+
+    const today = getTodayIsoDateKey();
+    const monthPrefix = today.slice(0, 7);
+
+    const bizPatients = allPatients
+      .filter((p) => p.businessId === cleanId)
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      );
+    const bizVisits = allVisits.filter((v) => v.businessId === cleanId);
+    const todayVisits = bizVisits.filter((v) => v.visitDate === today);
+
+    const doctorCards = this.buildDoctorLiveCards(
+      cleanId,
+      today,
+      doctors,
+      allVisits,
+      allPatients,
+    );
+
+    const rankStatus = (s: ClinicVisitStatus): number =>
+      s === 'in_consultation' ? 0 : s === 'vitals_done' ? 1 : 2;
+
+    const activeQueue = todayVisits
+      .filter(
+        (v) =>
+          v.status === 'waiting' ||
+          v.status === 'vitals_done' ||
+          v.status === 'in_consultation',
+      )
+      .sort((a, b) => {
+        const diff = rankStatus(a.status) - rankStatus(b.status);
+        if (diff !== 0) return diff;
+        return (
+          new Date(a.checkedInAt).getTime() - new Date(b.checkedInAt).getTime()
+        );
+      })
+      .map((v) => this.hydrateClinicVisitRow(v, allPatients, doctors));
+
+    const todayCompletedVisits = todayVisits
+      .filter((v) => v.status === 'completed' || v.status === 'no_show')
+      .sort(
+        (a, b) =>
+          new Date(b.completedAt ?? b.checkedInAt).getTime() -
+          new Date(a.completedAt ?? a.checkedInAt).getTime(),
+      )
+      .map((v) => this.hydrateClinicVisitRow(v, allPatients, doctors));
+
+    const completedTodayOnly = todayVisits.filter(
+      (v) => v.status === 'completed',
+    );
+    const todayRevenuePaise = completedTodayOnly.reduce(
+      (sum, v) => sum + (v.amountCollectedPaise || 0),
+      0,
+    );
+    const todayConsultationRevenuePaise = completedTodayOnly
+      .filter(
+        (v) =>
+          (v.visitType === 'walk_in' ||
+            v.visitType === 'appointment' ||
+            v.visitType === 'followup') &&
+          v.feeChargedPaise <= 100000,
+      )
+      .reduce((sum, v) => sum + (v.amountCollectedPaise || 0), 0);
+    const todayProceduresRevenuePaise = Math.max(
+      0,
+      todayRevenuePaise - todayConsultationRevenuePaise,
+    );
+    const totalDoctorCommissionsTodayPaise = completedTodayOnly.reduce(
+      (sum, v) => sum + (v.doctorCommissionPaise || 0),
+      0,
+    );
+
+    const recallRadarPatients: ClinicRecallEntry[] = bizPatients
+      .filter((p) => Boolean(p.nextFollowupDate))
+      .map((p) => ({
+        ...p,
+        daysUntilFollowup: diffDaysBetweenIsoDates(p.nextFollowupDate!, today),
+      }))
+      .filter((p) => p.daysUntilFollowup <= config.recallWindowDays)
+      .sort((a, b) => a.daysUntilFollowup - b.daysUntilFollowup);
+
+    const balanceDuePatients = bizPatients
+      .filter((p) => p.balanceDuePaise > 0)
+      .sort((a, b) => b.balanceDuePaise - a.balanceDuePaise);
+
+    const pendingBalanceDuePaise = bizPatients.reduce(
+      (sum, p) => sum + (p.balanceDuePaise || 0),
+      0,
+    );
+
+    const recentPrescriptions = bizVisits
+      .filter((v) => v.status === 'completed')
+      .sort(
+        (a, b) =>
+          new Date(b.completedAt ?? b.checkedInAt).getTime() -
+          new Date(a.completedAt ?? a.checkedInAt).getTime(),
+      )
+      .slice(0, 80)
+      .map((v) => this.hydrateClinicVisitRow(v, allPatients, doctors));
+
+    const doctorCommissionSummary: ClinicDoctorCommissionRow[] = doctorCards
+      .map((doc) => {
+        const docCompleted = bizVisits.filter(
+          (v) => v.doctorId === doc.id && v.status === 'completed',
+        );
+        const docToday = docCompleted.filter((v) => v.visitDate === today);
+        const docMonth = docCompleted.filter((v) =>
+          v.visitDate.startsWith(monthPrefix),
+        );
+        return {
+          doctorId: doc.id,
+          doctorName: doc.doctorName,
+          specialty: doc.specialty,
+          cabinLabel: doc.cabinLabel,
+          commissionPercent: doc.commissionPercent,
+          consultationsToday: docToday.length,
+          grossFeesTodayPaise: docToday.reduce(
+            (s, v) => s + (v.feeChargedPaise || 0),
+            0,
+          ),
+          commissionTodayPaise: docToday.reduce(
+            (s, v) => s + (v.doctorCommissionPaise || 0),
+            0,
+          ),
+          consultationsThisMonth: docMonth.length,
+          grossFeesThisMonthPaise: docMonth.reduce(
+            (s, v) => s + (v.feeChargedPaise || 0),
+            0,
+          ),
+          commissionThisMonthPaise: docMonth.reduce(
+            (s, v) => s + (v.doctorCommissionPaise || 0),
+            0,
+          ),
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.commissionThisMonthPaise - a.commissionThisMonthPaise ||
+          a.doctorName.localeCompare(b.doctorName),
+      );
+
+    return {
+      config,
+      kpis: {
+        patientsInQueueNow: activeQueue.length,
+        patientsTodayTotal: todayVisits.filter((v) => v.status !== 'no_show')
+          .length,
+        completedTodayCount: completedTodayOnly.length,
+        todayRevenuePaise,
+        todayConsultationRevenuePaise,
+        todayProceduresRevenuePaise,
+        recallsDueCount: recallRadarPatients.length,
+        pendingBalanceDuePaise,
+        totalDoctorCommissionsTodayPaise,
+      },
+      doctors: doctorCards,
+      activeQueue,
+      todayCompletedVisits,
+      recallRadarPatients,
+      balanceDuePatients,
+      patients: bizPatients,
+      recentPrescriptions,
+      doctorCommissionSummary,
+    };
+  }
+
+  async updateClinicBrandingConfig(
+    businessId: string,
+    input: ClinicConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<ClinicConfig> {
+    const cleanInput = validateClinicConfigInput(businessId, input);
+    const business = await this.getBusinessById(cleanInput.businessId);
+    if (!business) throw new Error(`Business "${cleanInput.businessId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const configs = this.read<ClinicConfig[]>(STORAGE_KEYS.CLINIC_CONFIGS, []);
+    const idx = configs.findIndex(
+      (c) => c.businessId === cleanInput.businessId,
+    );
+    const saved: ClinicConfig = {
+      ...cleanInput,
+      createdAt: idx !== -1 ? configs[idx].createdAt : new Date().toISOString(),
+    };
+    if (idx !== -1) {
+      configs[idx] = saved;
+    } else {
+      configs.push(saved);
+    }
+    this.write(STORAGE_KEYS.CLINIC_CONFIGS, configs);
+    return saved;
+  }
+
+  async upsertClinicDoctor(
+    businessId: string,
+    input: ClinicDoctorInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<ClinicDoctor> {
+    const clean = validateClinicDoctorInput(businessId, input);
+    const business = await this.getBusinessById(clean.businessId);
+    if (!business) throw new Error(`Business "${clean.businessId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    this.ensureDemoClinicSeeded(clean.businessId);
+    const doctors = this.read<ClinicDoctor[]>(STORAGE_KEYS.CLINIC_DOCTORS, []);
+    let saved: ClinicDoctor;
+
+    if (clean.id) {
+      const idx = doctors.findIndex(
+        (d) => d.id === clean.id && d.businessId === clean.businessId,
+      );
+      if (idx === -1) throw new Error('Clinic doctor not found.');
+      saved = {
+        ...doctors[idx],
+        doctorName: clean.doctorName,
+        specialty: clean.specialty,
+        cabinLabel: clean.cabinLabel,
+        consultationFeePaise: clean.consultationFeePaise,
+        avgConsultMinutes: clean.avgConsultMinutes,
+        commissionPercent: clean.commissionPercent,
+        isAvailable: clean.isAvailable,
+      };
+      doctors[idx] = saved;
+    } else {
+      saved = {
+        id: `clinic-doc-${crypto.randomUUID()}`,
+        businessId: clean.businessId,
+        doctorName: clean.doctorName,
+        specialty: clean.specialty,
+        cabinLabel: clean.cabinLabel,
+        consultationFeePaise: clean.consultationFeePaise,
+        avgConsultMinutes: clean.avgConsultMinutes,
+        extraDelayMinutes: 0,
+        commissionPercent: clean.commissionPercent,
+        isAvailable: clean.isAvailable,
+        createdAt: new Date().toISOString(),
+      };
+      doctors.push(saved);
+    }
+
+    this.write(STORAGE_KEYS.CLINIC_DOCTORS, doctors);
+    return saved;
+  }
+
+  async adjustClinicDoctorDelay(params: {
+    businessId: string;
+    doctorId: string;
+    deltaMinutes: number;
+    options?: AIConfigAccessOptions;
+  }): Promise<ClinicDoctor> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    this.ensureDemoClinicSeeded(cleanId);
+    const doctors = this.read<ClinicDoctor[]>(STORAGE_KEYS.CLINIC_DOCTORS, []);
+    const idx = doctors.findIndex(
+      (d) => d.id === params.doctorId && d.businessId === cleanId,
+    );
+    if (idx === -1) throw new Error('Clinic doctor not found.');
+
+    const delta = Math.round(Number(params.deltaMinutes) || 0);
+    doctors[idx] = {
+      ...doctors[idx],
+      extraDelayMinutes: Math.min(
+        180,
+        Math.max(-15, doctors[idx].extraDelayMinutes + delta),
+      ),
+    };
+    this.write(STORAGE_KEYS.CLINIC_DOCTORS, doctors);
+    return doctors[idx];
+  }
+
+  async updateClinicVisitVitalsAndStatus(params: {
+    businessId: string;
+    visitId: string;
+    status: ClinicVisitStatus;
+    vitalsJson?: ClinicVitals | null;
+    doctorId?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<ClinicVisitAndQueue> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    if (!isValidClinicVisitStatus(params.status)) {
+      throw new Error('Invalid clinic visit status.');
+    }
+
+    this.ensureDemoClinicSeeded(cleanId);
+    const visits = this.read<ClinicVisitAndQueue[]>(
+      STORAGE_KEYS.CLINIC_VISITS,
+      [],
+    );
+    const idx = visits.findIndex(
+      (v) => v.id === params.visitId && v.businessId === cleanId,
+    );
+    if (idx === -1) throw new Error('Clinic visit record not found.');
+
+    const mergedVitals = params.vitalsJson
+      ? {
+          ...visits[idx].vitalsJson,
+          ...sanitizeClinicVitals(params.vitalsJson),
+        }
+      : visits[idx].vitalsJson;
+
+    visits[idx] = {
+      ...visits[idx],
+      status: params.status,
+      vitalsJson: mergedVitals,
+      doctorId:
+        params.doctorId !== undefined ? params.doctorId : visits[idx].doctorId,
+      completedAt:
+        params.status === 'completed' || params.status === 'no_show'
+          ? (visits[idx].completedAt ?? new Date().toISOString())
+          : visits[idx].completedAt,
+    };
+    this.write(STORAGE_KEYS.CLINIC_VISITS, visits);
+
+    const patients = this.read<ClinicPatient[]>(
+      STORAGE_KEYS.CLINIC_PATIENTS,
+      [],
+    );
+    const doctors = this.read<ClinicDoctor[]>(STORAGE_KEYS.CLINIC_DOCTORS, []);
+    return this.hydrateClinicVisitRow(visits[idx], patients, doctors);
+  }
+
+  async completeClinicConsultationAndRx(
+    input: CompleteClinicConsultationInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CompleteClinicConsultationResult> {
+    const err = validateBusinessId(input.businessId);
+    if (err) throw new Error(err);
+    const cleanId = input.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    this.ensureDemoClinicSeeded(cleanId);
+    const visits = this.read<ClinicVisitAndQueue[]>(
+      STORAGE_KEYS.CLINIC_VISITS,
+      [],
+    );
+    const vIdx = visits.findIndex(
+      (v) => v.id === input.visitId && v.businessId === cleanId,
+    );
+    if (vIdx === -1) throw new Error('Clinic visit record not found.');
+
+    const patients = this.read<ClinicPatient[]>(
+      STORAGE_KEYS.CLINIC_PATIENTS,
+      [],
+    );
+    const pIdx = patients.findIndex(
+      (p) => p.id === visits[vIdx].patientId && p.businessId === cleanId,
+    );
+    if (pIdx === -1) throw new Error('Patient record not found.');
+
+    const doctors = this.read<ClinicDoctor[]>(STORAGE_KEYS.CLINIC_DOCTORS, []);
+    const doc = visits[vIdx].doctorId
+      ? doctors.find(
+          (d) => d.id === visits[vIdx].doctorId && d.businessId === cleanId,
+        )
+      : undefined;
+
+    const feeChargedPaise = Math.max(
+      0,
+      Math.round(Number(input.feeChargedPaise) || 0),
+    );
+    const amountCollectedPaise = Math.max(
+      0,
+      Math.round(Number(input.amountCollectedPaise) || 0),
+    );
+    const paymentMethod: ClinicPaymentMethod = isValidClinicPaymentMethod(
+      input.paymentMethod,
+    )
+      ? input.paymentMethod
+      : 'upi';
+
+    const doctorCommissionPaise = doc
+      ? calculateDoctorCommissionPaise(feeChargedPaise, doc.commissionPercent)
+      : 0;
+    const nowIso = new Date().toISOString();
+
+    visits[vIdx] = {
+      ...visits[vIdx],
+      status: 'completed',
+      diagnosisNotes: input.diagnosisNotes?.trim().slice(0, 2000) || null,
+      prescriptionItems: sanitizePrescriptionItems(input.prescriptionItems),
+      rxAttachmentUrl: input.rxAttachmentUrl?.trim() || null,
+      feeChargedPaise,
+      amountCollectedPaise,
+      paymentMethod,
+      doctorCommissionPaise,
+      completedAt: nowIso,
+    };
+
+    const currentPt = patients[pIdx];
+    const nextPkgRemaining =
+      input.deductPackageSession && currentPt.packageSessionsRemaining > 0
+        ? currentPt.packageSessionsRemaining - 1
+        : currentPt.packageSessionsRemaining;
+
+    patients[pIdx] = {
+      ...currentPt,
+      packageSessionsRemaining: nextPkgRemaining,
+      totalBilledPaise: currentPt.totalBilledPaise + feeChargedPaise,
+      amountPaidPaise: currentPt.amountPaidPaise + amountCollectedPaise,
+      balanceDuePaise: Math.max(
+        0,
+        currentPt.balanceDuePaise + (feeChargedPaise - amountCollectedPaise),
+      ),
+      nextFollowupDate:
+        input.nextFollowupDate && input.nextFollowupDate.trim()
+          ? input.nextFollowupDate.trim()
+          : currentPt.nextFollowupDate,
+      followupReason:
+        input.followupReason && input.followupReason.trim()
+          ? input.followupReason.trim().slice(0, 160)
+          : currentPt.followupReason,
+      totalVisits: currentPt.totalVisits + 1,
+      updatedAt: nowIso,
+    };
+
+    this.write(STORAGE_KEYS.CLINIC_VISITS, visits);
+    this.write(STORAGE_KEYS.CLINIC_PATIENTS, patients);
+
+    return {
+      visit: this.hydrateClinicVisitRow(visits[vIdx], patients, doctors),
+      patient: patients[pIdx],
+    };
+  }
+
+  async assignClinicTreatmentPackage(
+    input: AssignClinicPackageInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<ClinicPatient> {
+    const err = validateBusinessId(input.businessId);
+    if (err) throw new Error(err);
+    const cleanId = input.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const cleanPkg = (input.packageName ?? '').trim().slice(0, 120);
+    if (cleanPkg.length < 2) {
+      throw new Error('Please provide a valid treatment package name.');
+    }
+
+    this.ensureDemoClinicSeeded(cleanId);
+    const patients = this.read<ClinicPatient[]>(
+      STORAGE_KEYS.CLINIC_PATIENTS,
+      [],
+    );
+    const idx = patients.findIndex(
+      (p) => p.id === input.patientId && p.businessId === cleanId,
+    );
+    if (idx === -1) throw new Error('Clinic patient not found.');
+
+    const sessions = Math.max(
+      1,
+      Math.min(100, Math.round(Number(input.sessionsTotal) || 1)),
+    );
+    const fee = Math.max(0, Math.round(Number(input.packageFeePaise) || 0));
+    const paid = Math.max(0, Math.round(Number(input.amountPaidNowPaise) || 0));
+
+    patients[idx] = {
+      ...patients[idx],
+      activePackageName: cleanPkg,
+      packageSessionsTotal: sessions,
+      packageSessionsRemaining: sessions,
+      totalBilledPaise: patients[idx].totalBilledPaise + fee,
+      amountPaidPaise: patients[idx].amountPaidPaise + paid,
+      balanceDuePaise: Math.max(
+        0,
+        patients[idx].balanceDuePaise + (fee - paid),
+      ),
+      nextFollowupDate:
+        input.nextFollowupDate && input.nextFollowupDate.trim()
+          ? input.nextFollowupDate.trim()
+          : patients[idx].nextFollowupDate,
+      followupReason:
+        input.followupReason && input.followupReason.trim()
+          ? input.followupReason.trim().slice(0, 160)
+          : patients[idx].followupReason,
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.write(STORAGE_KEYS.CLINIC_PATIENTS, patients);
+    return patients[idx];
+  }
+
+  async collectClinicPatientBalance(params: {
+    businessId: string;
+    patientId: string;
+    amountCollectedPaise: number;
+    paymentMethod?: ClinicPaymentMethod;
+    options?: AIConfigAccessOptions;
+  }): Promise<ClinicPatient> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    const collect = Math.max(
+      0,
+      Math.round(Number(params.amountCollectedPaise) || 0),
+    );
+    if (collect <= 0) {
+      throw new Error('Collection amount must be greater than zero.');
+    }
+
+    this.ensureDemoClinicSeeded(cleanId);
+    const patients = this.read<ClinicPatient[]>(
+      STORAGE_KEYS.CLINIC_PATIENTS,
+      [],
+    );
+    const idx = patients.findIndex(
+      (p) => p.id === params.patientId && p.businessId === cleanId,
+    );
+    if (idx === -1) throw new Error('Clinic patient not found.');
+    if (patients[idx].balanceDuePaise <= 0) {
+      throw new Error('This patient has no pending balance due.');
+    }
+
+    const applied = Math.min(patients[idx].balanceDuePaise, collect);
+    patients[idx] = {
+      ...patients[idx],
+      amountPaidPaise: patients[idx].amountPaidPaise + applied,
+      balanceDuePaise: Math.max(0, patients[idx].balanceDuePaise - applied),
+      updatedAt: new Date().toISOString(),
+    };
+    this.write(STORAGE_KEYS.CLINIC_PATIENTS, patients);
+    return patients[idx];
   }
 }
 
