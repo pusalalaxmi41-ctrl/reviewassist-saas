@@ -20,6 +20,7 @@ import {
   Users,
   Package,
   TrendingUp,
+  Star,
 } from 'lucide-react';
 import type {
   Business,
@@ -61,6 +62,7 @@ type PrimaryDestination =
   | 'menu'
   | 'tables'
   | 'ai_reviews'
+  | 'loyalty_stars'
   | 'staff'
   | 'inventory'
   | 'games_loyalty'
@@ -87,6 +89,9 @@ function parseDestinationFromParam(param: string | null): {
       return { destination: 'games_loyalty' };
     case 'settings':
       return { destination: 'settings' };
+    case 'loyalty_stars':
+    case 'loyalty':
+      return { destination: 'loyalty_stars' };
     case 'ai_reviews':
     case 'drafts':
       return { destination: 'ai_reviews', aiSubTab: 'drafts' };
@@ -118,6 +123,8 @@ export default function BusinessDashboard() {
     initialParsed.aiSubTab ?? 'drafts',
   );
   const [loading, setLoading] = useState(true);
+  const [togglingLoyalty, setTogglingLoyalty] = useState(false);
+  const [loyaltyToast, setLoyaltyToast] = useState<string | null>(null);
   const [moduleOverrides, setModuleOverrides] = useState<
     Record<string, WorkspaceModuleVisibility>
   >({});
@@ -215,6 +222,30 @@ export default function BusinessDashboard() {
     );
   }
 
+  async function handleToggleLoyaltyEnabled(nextEnabled: boolean) {
+    if (!currentBusiness || togglingLoyalty) return;
+    setTogglingLoyalty(true);
+    try {
+      const updated = await businessRepository.setBusinessLoyaltyEnabled(
+        currentBusiness.id,
+        nextEnabled,
+      );
+      handleBusinessUpdated(updated);
+      if (!nextEnabled && destination === 'loyalty_stars') {
+        handleDestinationChange('ai_reviews');
+      }
+      const msg = nextEnabled
+        ? 'Loyalty & Star Rewards enabled! Customers can now collect stars alongside Google Reviews.'
+        : 'Loyalty & Star Rewards turned OFF — workspace is now focused purely on AI Google Reviews.';
+      setLoyaltyToast(msg);
+      window.setTimeout(() => {
+        setLoyaltyToast((prev) => (prev === msg ? null : prev));
+      }, 4000);
+    } finally {
+      setTogglingLoyalty(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="py-20 text-center" role="status" aria-live="polite">
@@ -297,19 +328,6 @@ export default function BusinessDashboard() {
       />
     );
   }
-  if (workspaceType === 'loyalty') {
-    const loyaltyOnly = businesses.filter((b) => isLoyaltyCategory(b.category));
-    return (
-      <LoyaltyManagerView
-        key={currentBusiness.id}
-        business={currentBusiness}
-        loyaltyBusinesses={loyaltyOnly.length > 0 ? loyaltyOnly : [currentBusiness]}
-        hasOtherBusinesses={businesses.some((b) => !isLoyaltyCategory(b.category))}
-        onSelectBusiness={handleSelectBusiness}
-        onBusinessUpdated={handleBusinessUpdated}
-      />
-    );
-  }
   if (workspaceType === 'clinic') {
     const clinicOnly = businesses.filter((b) => isClinicCategory(b.category));
     return (
@@ -323,6 +341,24 @@ export default function BusinessDashboard() {
       />
     );
   }
+
+  const isCoreReviewOnlyCategory =
+    isLoyaltyCategory(currentBusiness.category) ||
+    currentBusiness.category === 'retail' ||
+    currentBusiness.category === 'services';
+
+  const isLoyaltyEnabled = Boolean(
+    currentBusiness.loyaltyEnabled ??
+      isLoyaltyCategory(currentBusiness.category),
+  );
+
+  const effectiveDestination: PrimaryDestination = isCoreReviewOnlyCategory
+    ? destination === 'loyalty_stars' && isLoyaltyEnabled
+      ? 'loyalty_stars'
+      : 'ai_reviews'
+    : destination === 'loyalty_stars' && !isLoyaltyEnabled
+      ? 'ai_reviews'
+      : destination;
 
   const currentStatus = currentBusiness.status ?? 'pending';
   const currentAccountState = currentBusiness.accountState ?? 'active';
@@ -367,89 +403,123 @@ export default function BusinessDashboard() {
     visible?: boolean;
   };
 
-  const navGroups: Array<{ groupLabel: string; items: NavItem[] }> = [
-    {
-      groupLabel: 'Operations',
-      items: [
-        {
-          id: 'overview',
-          label: 'Live Desk',
-          shortLabel: 'Live',
-          Icon: LayoutDashboard,
-          visible: true,
-        },
-        {
-          id: 'analytics',
-          label: 'Analytics',
-          shortLabel: 'Stats',
-          Icon: TrendingUp,
-          visible: true,
-        },
-        {
-          id: 'menu',
-          label: 'Digital Menu',
-          shortLabel: 'Menu',
-          Icon: UtensilsCrossed,
-          visible: true,
-        },
-        {
-          id: 'tables',
-          label: 'Tables & Rooms',
-          shortLabel: 'Tables',
-          Icon: QrCode,
-          visible: true,
-        },
-      ],
-    },
-    {
-      groupLabel: 'Growth & Team',
-      items: [
-        {
-          id: 'ai_reviews',
-          label: 'AI Reviews',
-          shortLabel: 'Reviews',
-          Icon: Sparkles,
-          badge: drafts.length > 0 ? drafts.length : undefined,
-          visible: moduleVisibility.aiReviews,
-        },
-        {
-          id: 'staff',
-          label: 'Staff & Waiters',
-          shortLabel: 'Staff',
-          Icon: Users,
-          visible: moduleVisibility.staff,
-        },
-        {
-          id: 'inventory',
-          label: 'Stock & Expenses',
-          shortLabel: 'Stock',
-          Icon: Package,
-          visible: moduleVisibility.inventory,
-        },
-        {
-          id: 'games_loyalty',
-          label: 'Games & Loyalty',
-          shortLabel: 'Loyalty',
-          Icon: Gamepad2,
-          visible: moduleVisibility.gamesLoyalty,
-        },
-      ],
-    },
-    {
-      groupLabel: 'System',
-      items: [
-        {
-          id: 'settings',
-          label: 'Settings',
-          shortLabel: 'Settings',
-          Icon: Settings,
-          visible: true,
-        },
-      ],
-    },
-  ];
+  const navGroups: Array<{ groupLabel: string; items: NavItem[] }> =
+    isCoreReviewOnlyCategory
+      ? [
+          {
+            groupLabel: 'Reputation & Growth',
+            items: [
+              {
+                id: 'ai_reviews',
+                label: 'AI Google Reviews',
+                shortLabel: 'AI Reviews',
+                Icon: Sparkles,
+                badge: drafts.length > 0 ? drafts.length : undefined,
+                visible: true,
+              },
+              {
+                id: 'loyalty_stars',
+                label: 'Loyalty & Stars',
+                shortLabel: 'Loyalty',
+                Icon: Star,
+                visible: isLoyaltyEnabled,
+              },
+            ],
+          },
+        ]
+      : [
+          {
+            groupLabel: 'Operations',
+            items: [
+              {
+                id: 'overview',
+                label: 'Live Desk',
+                shortLabel: 'Live',
+                Icon: LayoutDashboard,
+                visible: true,
+              },
+              {
+                id: 'analytics',
+                label: 'Analytics',
+                shortLabel: 'Stats',
+                Icon: TrendingUp,
+                visible: true,
+              },
+              {
+                id: 'menu',
+                label: 'Digital Menu',
+                shortLabel: 'Menu',
+                Icon: UtensilsCrossed,
+                visible: true,
+              },
+              {
+                id: 'tables',
+                label: 'Tables & Rooms',
+                shortLabel: 'Tables',
+                Icon: QrCode,
+                visible: true,
+              },
+            ],
+          },
+          {
+            groupLabel: 'Growth & Team',
+            items: [
+              {
+                id: 'ai_reviews',
+                label: 'AI Reviews',
+                shortLabel: 'Reviews',
+                Icon: Sparkles,
+                badge: drafts.length > 0 ? drafts.length : undefined,
+                visible: moduleVisibility.aiReviews,
+              },
+              {
+                id: 'loyalty_stars',
+                label: 'Loyalty & Stars',
+                shortLabel: 'Loyalty',
+                Icon: Star,
+                visible: isLoyaltyEnabled,
+              },
+              {
+                id: 'staff',
+                label: 'Staff & Waiters',
+                shortLabel: 'Staff',
+                Icon: Users,
+                visible: moduleVisibility.staff,
+              },
+              {
+                id: 'inventory',
+                label: 'Stock & Expenses',
+                shortLabel: 'Stock',
+                Icon: Package,
+                visible: moduleVisibility.inventory,
+              },
+              {
+                id: 'games_loyalty',
+                label: 'Games & Loyalty',
+                shortLabel: 'Games',
+                Icon: Gamepad2,
+                visible: moduleVisibility.gamesLoyalty,
+              },
+            ],
+          },
+          {
+            groupLabel: 'System',
+            items: [
+              {
+                id: 'settings',
+                label: 'Settings',
+                shortLabel: 'Settings',
+                Icon: Settings,
+                visible: true,
+              },
+            ],
+          },
+        ];
 
-  const isRestaurantDestination = destination !== 'ai_reviews';
+  const isRestaurantDestination =
+    !isCoreReviewOnlyCategory &&
+    effectiveDestination !== 'ai_reviews' &&
+    effectiveDestination !== 'loyalty_stars';
 
   return (
     <div className="flex min-h-[calc(100vh-52px)] w-full flex-col lg:flex-row">
@@ -510,7 +580,7 @@ export default function BusinessDashboard() {
                   </p>
                   {visibleItems.map(
                     ({ id, label, shortLabel, Icon, badge }) => {
-                      const isActive = destination === id;
+                      const isActive = effectiveDestination === id;
                       return (
                         <button
                           key={id}
@@ -582,11 +652,16 @@ export default function BusinessDashboard() {
             </span>
             {isBusinessLive && (
               <Link
-                to={`/r/${currentBusiness.slug}/menu`}
+                to={
+                  isCoreReviewOnlyCategory
+                    ? `/r/${currentBusiness.slug}`
+                    : `/r/${currentBusiness.slug}/menu`
+                }
                 target="_blank"
                 className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-[#1E1B4B] hover:underline"
               >
-                Guest Hub <ExternalLink className="h-3 w-3" aria-hidden />
+                {isCoreReviewOnlyCategory ? 'Review Page' : 'Guest Hub'}{' '}
+                <ExternalLink className="h-3 w-3" aria-hidden />
               </Link>
             )}
           </div>
@@ -595,6 +670,16 @@ export default function BusinessDashboard() {
 
       {/* MAIN WORKSPACE CANVAS — 100% REMAINING WIDTH, ZERO WASTED MARGINS */}
       <div className="flex-1 min-w-0 bg-[#F8F9FA] px-4 py-4 sm:px-6 sm:py-5 space-y-4">
+        {loyaltyToast && (
+          <div
+            role="status"
+            className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-[13px] font-semibold text-emerald-900"
+          >
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-700" aria-hidden />
+            <span>{loyaltyToast}</span>
+          </div>
+        )}
+
         {!isBusinessLive && (
           <div
             role="status"
@@ -604,7 +689,7 @@ export default function BusinessDashboard() {
               <StatusIcon className="h-4 w-4 text-amber-700" aria-hidden />
               <p className="text-[13px] font-semibold text-amber-950">
                 {currentBusiness.status === 'pending'
-                  ? 'Preview Mode — Awaiting Platform Approval. You can set up Menu, Tables & Settings now.'
+                  ? 'Preview Mode — Awaiting Platform Approval. You can configure AI Reviews & Settings now.'
                   : 'Public links are currently paused.'}
               </p>
             </div>
@@ -617,15 +702,62 @@ export default function BusinessDashboard() {
             key={`restaurant-mgmt-${currentBusiness.id}`}
             business={currentBusiness}
             isBusinessLive={isBusinessLive}
-            activeSection={destination as RestaurantWorkspaceSection}
+            activeSection={effectiveDestination as RestaurantWorkspaceSection}
             onSectionChange={(sec) => handleDestinationChange(sec)}
             moduleVisibility={moduleVisibility}
             onModuleVisibilityChange={handleUpdateModules}
           />
         )}
 
-        {/* DEDICATED TOP-LEVEL AI REVIEWS SECTION (RESTORED!) */}
-        {destination === 'ai_reviews' && (
+        {/* MODULAR LOYALTY & STAR REWARDS TAB (SURFACED ONLY WHEN loyaltyEnabled === true) */}
+        {effectiveDestination === 'loyalty_stars' && isLoyaltyEnabled && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3.5">
+              <div>
+                <h1 className="text-[22px] font-bold tracking-tight text-[#111827] flex items-center gap-2">
+                  <Star className="h-5 w-5 fill-amber-400 text-amber-500" aria-hidden />
+                  Loyalty &amp; Star Rewards
+                </h1>
+                <p className="mt-0.5 text-[13px] text-slate-500">
+                  Manage digital star cards, anti-fraud counter codes, pending approvals, and in-store reward redemptions.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDestinationChange('ai_reviews')}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[12.5px] font-semibold text-[#1E1B4B] hover:bg-slate-50 cursor-pointer"
+                >
+                  <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                  Core AI Reviews
+                </button>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isLoyaltyEnabled}
+                  disabled={togglingLoyalty}
+                  onClick={() => void handleToggleLoyaltyEnabled(false)}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-lime-400 bg-lime-100 px-3 text-[12px] font-bold text-slate-900 hover:bg-lime-200/80 cursor-pointer disabled:opacity-50"
+                >
+                  <span>Loyalty &amp; Stars: ON</span>
+                </button>
+              </div>
+            </div>
+
+            <LoyaltyManagerView
+              key={`loyalty-embedded-${currentBusiness.id}`}
+              business={currentBusiness}
+              loyaltyBusinesses={businesses}
+              hasOtherBusinesses={false}
+              embedded
+              onSelectBusiness={handleSelectBusiness}
+              onBusinessUpdated={handleBusinessUpdated}
+            />
+          </div>
+        )}
+
+        {/* CORE AI GOOGLE REVIEW DASHBOARD (PRIMARY CENTERPIECE!) */}
+        {effectiveDestination === 'ai_reviews' && (
           <div className="space-y-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-4">
               <div>
@@ -636,16 +768,115 @@ export default function BusinessDashboard() {
                   Manage customer review drafts, printable Google Review QR standees, funnel stats, and AI reply voice.
                 </p>
               </div>
-              {isBusinessLive && (
-                <Link
-                  to={`/r/${currentBusiness.slug}`}
-                  target="_blank"
-                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 text-[12.5px] font-semibold text-[#1E1B4B] hover:bg-slate-50"
-                >
-                  Open Review Page{' '}
-                  <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-                </Link>
-              )}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Sleek Loyalty & Star Rewards Toggle Switch in Header Strip */}
+                <div className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3">
+                  <Star
+                    className={`h-3.5 w-3.5 ${
+                      isLoyaltyEnabled
+                        ? 'fill-amber-400 text-amber-500'
+                        : 'text-slate-400'
+                    }`}
+                    aria-hidden
+                  />
+                  <span className="text-[12px] font-semibold text-slate-700">
+                    Loyalty &amp; Star Rewards
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-label="Toggle Loyalty & Star Rewards"
+                    aria-checked={isLoyaltyEnabled}
+                    disabled={togglingLoyalty}
+                    onClick={() =>
+                      void handleToggleLoyaltyEnabled(!isLoyaltyEnabled)
+                    }
+                    className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer disabled:opacity-50 ${
+                      isLoyaltyEnabled ? 'bg-emerald-600' : 'bg-slate-300'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                        isLoyaltyEnabled ? 'translate-x-4.5' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {isLoyaltyEnabled && (
+                  <button
+                    type="button"
+                    onClick={() => handleDestinationChange('loyalty_stars')}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#1E1B4B] px-3.5 text-[12.5px] font-semibold text-[#D2DB76] hover:bg-[#2E2A6E] cursor-pointer"
+                  >
+                    <Star className="h-3.5 w-3.5 fill-current" aria-hidden />
+                    Loyalty &amp; Stars →
+                  </button>
+                )}
+
+                {isBusinessLive && (
+                  <Link
+                    to={`/r/${currentBusiness.slug}`}
+                    target="_blank"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 text-[12.5px] font-semibold text-[#1E1B4B] hover:bg-slate-50"
+                  >
+                    Open Review Page{' '}
+                    <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                  </Link>
+                )}
+              </div>
+            </div>
+
+            {/* 4 Core AI Review KPI Cards */}
+            <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                  <QrCode className="h-3.5 w-3.5 text-[#1E1B4B]" aria-hidden />
+                  QR &amp; Link Scans
+                </p>
+                <p className="mt-1 text-[26px] font-bold text-[#111827] tabular-nums">
+                  {metrics.qrScans.toLocaleString()}
+                </p>
+                <p className="text-[11.5px] text-slate-500">
+                  Total customer review page visits
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                  <MessageSquare className="h-3.5 w-3.5 text-[#1E1B4B]" aria-hidden />
+                  Feedback Submitted
+                </p>
+                <p className="mt-1 text-[26px] font-bold text-[#111827] tabular-nums">
+                  {metrics.feedbackSubmissions.toLocaleString()}
+                </p>
+                <p className="text-[11.5px] text-slate-500">
+                  Experience highlights shared
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-emerald-600" aria-hidden />
+                  AI Drafts Generated
+                </p>
+                <p className="mt-1 text-[26px] font-bold text-[#111827] tabular-nums">
+                  {metrics.aiGenerations.toLocaleString()}
+                </p>
+                <p className="text-[11.5px] text-slate-500">
+                  {drafts.length} saved in 90-day studio
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                  <ExternalLink className="h-3.5 w-3.5 text-[#1E1B4B]" aria-hidden />
+                  Google Review Clicks
+                </p>
+                <p className="mt-1 text-[26px] font-bold text-[#111827] tabular-nums">
+                  {metrics.googleRedirectClicks.toLocaleString()}
+                </p>
+                <p className="text-[11.5px] text-slate-500">
+                  Copied &amp; opened Google Maps
+                </p>
+              </div>
             </div>
 
             {/* Clean Underline Sub-Tabs (No Bubbly Pills) */}
@@ -736,6 +967,46 @@ export default function BusinessDashboard() {
 
             {aiSubTab === 'settings' && (
               <div className="space-y-5">
+                {/* Modular Loyalty & Star Rewards Settings Switch */}
+                <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-5">
+                  <div className="space-y-1 max-w-xl">
+                    <h3 className="text-[15px] font-bold text-[#111827] flex items-center gap-2">
+                      <Star
+                        className={`h-4 w-4 ${
+                          isLoyaltyEnabled
+                            ? 'fill-amber-400 text-amber-500'
+                            : 'text-slate-400'
+                        }`}
+                        aria-hidden
+                      />
+                      Enable Loyalty &amp; Star Rewards
+                    </h3>
+                    <p className="text-[12.5px] text-slate-500 leading-relaxed">
+                      When OFF, customers see a distraction-free single-screen Google Review page. When ON, customers can also claim +1 Loyalty Star and collect rewards in their phone wallet (<code className="font-mono text-[#1E1B4B]">/r/{currentBusiness.slug}/loyalty</code>).
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={isLoyaltyEnabled}
+                    disabled={togglingLoyalty}
+                    onClick={() =>
+                      void handleToggleLoyaltyEnabled(!isLoyaltyEnabled)
+                    }
+                    className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3.5 text-[12.5px] font-semibold transition-colors cursor-pointer disabled:opacity-50 ${
+                      isLoyaltyEnabled
+                        ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                        : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>
+                      {isLoyaltyEnabled
+                        ? 'Loyalty Stars: Enabled ✓'
+                        : 'Enable Loyalty Stars'}
+                    </span>
+                  </button>
+                </div>
+
                 <BusinessCategorySettings
                   key={`biz-category-${currentBusiness.id}`}
                   business={currentBusiness}

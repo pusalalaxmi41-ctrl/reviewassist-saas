@@ -551,16 +551,22 @@ export class MockLocalStorageRepository implements IBusinessRepository {
   }
 
   async getBusinesses(): Promise<Business[]> {
-    const list = this.read<Business[]>(STORAGE_KEYS.BUSINESSES, []);
-    if (list.length === 0) {
-      this.write(STORAGE_KEYS.BUSINESSES, INITIAL_BUSINESSES);
-      return INITIAL_BUSINESSES;
-    }
-    return list.map((b) => ({
+    const normalizeBiz = (b: Business): Business => ({
       ...b,
+      loyaltyEnabled:
+        typeof b.loyaltyEnabled === 'boolean'
+          ? b.loyaltyEnabled
+          : b.category === 'loyalty',
       status: b.status ?? 'active',
       accountState: b.accountState ?? 'active',
-    }));
+    });
+    const list = this.read<Business[]>(STORAGE_KEYS.BUSINESSES, []);
+    if (list.length === 0) {
+      const seeded = INITIAL_BUSINESSES.map(normalizeBiz);
+      this.write(STORAGE_KEYS.BUSINESSES, seeded);
+      return seeded;
+    }
+    return list.map(normalizeBiz);
   }
 
   async getBusinessById(id: string): Promise<Business | null> {
@@ -586,6 +592,10 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     const newBiz: Business = {
       ...data,
       id: `biz-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      loyaltyEnabled:
+        typeof data.loyaltyEnabled === 'boolean'
+          ? data.loyaltyEnabled
+          : data.category === 'loyalty',
       status: data.status ?? 'pending',
       statusChangedAt: now,
       statusReason: null,
@@ -672,6 +682,50 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       reviewFont,
     };
 
+    list[index] = updatedBiz;
+    this.write(STORAGE_KEYS.BUSINESSES, list);
+    return updatedBiz;
+  }
+
+  async setBusinessLoyaltyEnabled(
+    businessId: string,
+    enabled: boolean,
+    options?: AIConfigAccessOptions,
+  ): Promise<Business> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const cleanId = businessId.trim();
+    const list = await this.getBusinesses();
+    const index = list.findIndex((b) => b.id === cleanId);
+    if (index === -1) {
+      throw new Error(`Business with ID "${cleanId}" not found.`);
+    }
+
+    this.assertOwnerAccess(list[index], options);
+
+    const updatedBiz: Business = {
+      ...list[index],
+      loyaltyEnabled: Boolean(enabled),
+    };
+
+    list[index] = updatedBiz;
+    this.write(STORAGE_KEYS.BUSINESSES, list);
+    return updatedBiz;
+  }
+
+  async setMockBusinessLoyaltyEnabledAdmin(
+    businessId: string,
+    enabled: boolean,
+  ): Promise<Business | null> {
+    const list = await this.getBusinesses();
+    const index = list.findIndex((b) => b.id === businessId);
+    if (index === -1) return null;
+    const updatedBiz: Business = {
+      ...list[index],
+      loyaltyEnabled: Boolean(enabled),
+    };
     list[index] = updatedBiz;
     this.write(STORAGE_KEYS.BUSINESSES, list);
     return updatedBiz;
@@ -10424,7 +10478,11 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     let card: LoyaltyMemberCard | null = null;
     let recentEvents: LoyaltyStarEvent[] = [];
 
-    if (cleanPhone.length >= 7) {
+    const loyaltyActive = Boolean(
+      business.loyaltyEnabled ?? business.category === 'loyalty',
+    );
+
+    if (loyaltyActive && cleanPhone.length >= 7) {
       card =
         this.read<LoyaltyMemberCard[]>(STORAGE_KEYS.LOYALTY_CARDS, []).find(
           (c) => c.businessId === business.id && c.phone === cleanPhone,
@@ -10448,6 +10506,7 @@ export class MockLocalStorageRepository implements IBusinessRepository {
         city: business.city,
         category: business.category,
         googleReviewUrl: business.googleReviewUrl,
+        loyaltyEnabled: loyaltyActive,
       },
       config: publicConfig,
       card,
@@ -10479,6 +10538,9 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       (business.accountState ?? 'active') !== 'active'
     ) {
       throw new Error('Business not found or inactive.');
+    }
+    if (business.loyaltyEnabled === false) {
+      throw new Error('Loyalty rewards are currently paused for this business.');
     }
 
     const cfg = this.getOrCreateLoyaltyConfigRecord(business.id);
@@ -10626,6 +10688,9 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     ) {
       throw new Error('Business not found or inactive.');
     }
+    if (business.loyaltyEnabled === false) {
+      throw new Error('Loyalty rewards are currently paused for this business.');
+    }
     const cfg = this.getOrCreateLoyaltyConfigRecord(business.id);
     if (!cfg.googleReviewBonusEnabled) {
       throw new Error('Google review bonus stars are currently disabled for this store.');
@@ -10697,6 +10762,9 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       (business.accountState ?? 'active') !== 'active'
     ) {
       throw new Error('Business not found or inactive.');
+    }
+    if (business.loyaltyEnabled === false) {
+      throw new Error('Loyalty rewards are currently paused for this business.');
     }
 
     const cards = this.read<LoyaltyMemberCard[]>(STORAGE_KEYS.LOYALTY_CARDS, []);

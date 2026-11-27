@@ -377,20 +377,50 @@ export default function CustomerLoyaltyHubPage() {
 
   if (!hub) {
     return (
-      <div className="mx-auto max-w-md rounded-3xl border border-[#2D323B] bg-[#0F1115] p-8 text-center text-[#F8F9FA] space-y-4">
+      <div className="mx-auto max-w-md rounded-3xl border border-[#2D323B] bg-[#0F1115] p-8 text-center font-sans antialiased text-[#F8F9FA] space-y-4">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#171A20] border border-[#2D323B] text-[#C8F135]">
           <SearchX className="h-6 w-6" aria-hidden />
         </div>
-        <h1 className="text-[20px] font-extrabold">Loyalty Portal Not Found</h1>
-        <p className="text-[13px] text-[#A0A6B1]">
+        <h1 className="text-xl font-bold tracking-tight">Loyalty Portal Not Found</h1>
+        <p className="text-sm text-[#A0A6B1]">
           No active store matched{' '}
-          <span className="font-mono text-[#F8F9FA]">{businessSlug}</span>.
+          <span className="font-semibold text-[#F8F9FA]">{businessSlug}</span>.
         </p>
         <Link
           to="/r/glow-boutique-rewards/loyalty"
-          className="inline-flex h-11 items-center justify-center rounded-xl bg-[#C8F135] px-5 text-[13px] font-extrabold text-[#0F1115]"
+          className="inline-flex h-11 items-center justify-center rounded-xl bg-[#C8F135] px-5 text-sm font-semibold tracking-normal text-[#0F1115]"
         >
           Preview Glow Boutique Loyalty Wallet →
+        </Link>
+      </div>
+    );
+  }
+
+  if (hub.business.loyaltyEnabled === false) {
+    return (
+      <div
+        role="status"
+        className="mx-auto max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center font-sans antialiased shadow-xs space-y-4"
+      >
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-600">
+          <Star className="h-6 w-6" aria-hidden />
+        </div>
+        <div className="space-y-1.5">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
+            {hub.business.name}
+          </h1>
+          <p className="text-sm font-medium text-slate-700 leading-relaxed">
+            Loyalty rewards are currently paused for this business
+          </p>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            You can still leave a quick Google Review for {hub.business.name} in one tap below.
+          </p>
+        </div>
+        <Link
+          to={`/r/${hub.business.slug}`}
+          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 text-sm font-semibold tracking-normal text-white hover:bg-slate-800 transition-colors"
+        >
+          <span>Leave a Google Review →</span>
         </Link>
       </div>
     );
@@ -413,7 +443,7 @@ export default function CustomerLoyaltyHubPage() {
     hub.business.googleReviewUrl !== PLACEHOLDER_GOOGLE_REVIEW_URL;
 
   return (
-    <div className="mx-auto w-full max-w-md rounded-[28px] border border-[#2D323B] bg-[#0F1115] p-4 sm:p-5 text-[#F8F9FA] shadow-2xl space-y-4">
+    <div className="mx-auto w-full max-w-md rounded-[28px] border border-[#2D323B] bg-[#0F1115] p-4 sm:p-5 font-sans antialiased text-[#F8F9FA] shadow-2xl space-y-4">
       {/* 01 · COMPACT HEADER */}
       <header className="flex items-center justify-between gap-3 px-1">
         <div className="flex items-center gap-3 min-w-0">
@@ -944,7 +974,7 @@ export default function CustomerLoyaltyHubPage() {
                   rows={3}
                   value={generatedDraft}
                   onChange={(e) => setGeneratedDraft(e.target.value)}
-                  className="w-full rounded-xl border border-[#2D323B] bg-[#0F1115] p-3 text-[12.5px] text-[#F8F9FA] focus:border-[#C8F135] focus:outline-none"
+                  className="w-full rounded-xl border border-[#2D323B] bg-[#0F1115] p-3 font-sans antialiased text-[15px] leading-relaxed font-normal text-[#F8F9FA] focus:border-[#C8F135] focus:outline-none"
                 />
                 <div className="grid grid-cols-2 gap-2">
                   <button

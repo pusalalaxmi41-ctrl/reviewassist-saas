@@ -77,6 +77,7 @@ interface PublicBusinessRow {
   google_review_url: string;
   google_review_url_is_placeholder: boolean;
   review_font?: string | null;
+  loyalty_enabled?: boolean | null;
   created_at: string;
 }
 
@@ -314,6 +315,7 @@ async function handleRequest(req: Request, info: Deno.ServeHandlerInfo): Promise
         googleReviewUrl: row.google_review_url,
         googleReviewUrlIsPlaceholder: row.google_review_url_is_placeholder,
         reviewFont: row.review_font ?? 'classic',
+        loyaltyEnabled: Boolean(row.loyalty_enabled ?? row.category === 'loyalty'),
         createdAt: row.created_at,
       },
     },

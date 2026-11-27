@@ -32,6 +32,7 @@ export interface AdminClientRecord {
   city: string;
   googleReviewUrl: string;
   googleReviewUrlIsPlaceholder: boolean;
+  loyaltyEnabled?: boolean;
   status: BusinessStatus;
   statusChangedAt: string;
   statusChangedBy: string | null;

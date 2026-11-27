@@ -24,6 +24,7 @@ interface RpcClientRow {
   city: string;
   google_review_url: string;
   google_review_url_is_placeholder: boolean;
+  loyalty_enabled?: boolean;
   status: BusinessStatus;
   status_changed_at: string;
   status_changed_by: string | null;
@@ -64,6 +65,10 @@ function mapRpcClientRow(row: RpcClientRow): AdminClientRecord {
     city: row.city,
     googleReviewUrl: row.google_review_url,
     googleReviewUrlIsPlaceholder: row.google_review_url_is_placeholder,
+    loyaltyEnabled:
+      typeof row.loyalty_enabled === 'boolean'
+        ? row.loyalty_enabled
+        : row.category === 'loyalty',
     status: row.status,
     statusChangedAt: row.status_changed_at,
     statusChangedBy: row.status_changed_by,
@@ -214,6 +219,26 @@ export class SupabaseAdminRepository implements IAdminRepository {
       p_business_id: input.businessId,
       p_new_status: input.status,
       p_reason: input.reason?.trim() || null,
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return this.fetchSingleClientRecord(input.businessId);
+  }
+
+  async setBusinessLoyaltyEnabled(input: {
+    businessId: string;
+    enabled: boolean;
+  }): Promise<AdminClientRecord> {
+    if (!supabase) {
+      throw new Error('Supabase client is not initialized.');
+    }
+
+    const { error } = await supabase.rpc('set_business_loyalty_enabled', {
+      p_business_id: input.businessId,
+      p_enabled: Boolean(input.enabled),
     });
 
     if (error) {

@@ -203,6 +203,13 @@ export interface IBusinessRepository {
     reviewFont: ReviewFontStyle,
   ): Promise<Business>;
 
+  /** Enables or disables the modular Loyalty & Star Rewards system for a specific business. */
+  setBusinessLoyaltyEnabled(
+    businessId: string,
+    enabled: boolean,
+    options?: AIConfigAccessOptions,
+  ): Promise<Business>;
+
   /** Records an analytics interaction event (QR scan, feedback, AI generation, Google redirect). */
   trackEvent(event: {
     businessId: string;

@@ -75,7 +75,9 @@ export function QRCodeManager({ business, defaultMode }: Props) {
   const supportsBarberQueue = isBarberOrSalonCategory(business.category);
   const supportsGymPortal = isGymCategory(business.category);
   const supportsCafeHub = isCafeCategory(business.category);
-  const supportsLoyaltyPortal = isLoyaltyCategory(business.category);
+  const supportsLoyaltyPortal = Boolean(
+    business.loyaltyEnabled ?? isLoyaltyCategory(business.category),
+  );
   const supportsClinicPortal = isClinicCategory(business.category);
   const supportsRestaurantMenu =
     business.category === 'restaurant' ||

@@ -7,8 +7,14 @@ import type {
   DailySignupPoint,
 } from '../../types/admin';
 import type { BusinessStatus } from '../../types/business';
-import { PLACEHOLDER_GOOGLE_REVIEW_URL } from '../storage/MockLocalStorageRepository';
-import { writeLocalStatusOverlay } from '../storage/SupabaseBusinessRepository';
+import {
+  PLACEHOLDER_GOOGLE_REVIEW_URL,
+  businessRepository as mockBusinessRepository,
+} from '../storage/MockLocalStorageRepository';
+import {
+  writeLocalLoyaltyEnabledOverlay,
+  writeLocalStatusOverlay,
+} from '../storage/SupabaseBusinessRepository';
 import type { IAdminRepository } from './AdminRepository';
 
 const STORAGE_KEYS = {
@@ -431,6 +437,11 @@ export class MockAdminRepository implements IAdminRepository {
   }
 
   private syncOverlay(record: AdminClientRecord): void {
+    const resolvedLoyalty =
+      typeof record.loyaltyEnabled === 'boolean'
+        ? record.loyaltyEnabled
+        : record.category === 'loyalty';
+    writeLocalLoyaltyEnabledOverlay(record.id, resolvedLoyalty);
     writeLocalStatusOverlay(record.id, {
       status: record.status,
       statusChangedAt: record.statusChangedAt,
@@ -439,6 +450,7 @@ export class MockAdminRepository implements IAdminRepository {
       deletionRequestedAt: record.deletionRequestedAt,
       deletionScheduledFor: record.deletionScheduledFor,
       deletedReason: record.deletedReason,
+      loyaltyEnabled: resolvedLoyalty,
     });
   }
 
@@ -509,9 +521,45 @@ export class MockAdminRepository implements IAdminRepository {
     const offset = params.offset ?? 0;
     const limit = params.limit ?? 50;
     return {
-      items: filtered.slice(offset, offset + limit),
+      items: filtered.slice(offset, offset + limit).map((item) => ({
+        ...item,
+        loyaltyEnabled:
+          typeof item.loyaltyEnabled === 'boolean'
+            ? item.loyaltyEnabled
+            : item.category === 'loyalty',
+      })),
       total: filtered.length,
     };
+  }
+
+  async setBusinessLoyaltyEnabled(input: {
+    businessId: string;
+    enabled: boolean;
+  }): Promise<AdminClientRecord> {
+    const clients = this.getClientsInternal();
+    const idx = clients.findIndex((c) => c.id === input.businessId);
+    if (idx === -1) throw new Error('Business not found.');
+
+    const now = new Date().toISOString();
+    const updated: AdminClientRecord = {
+      ...clients[idx],
+      loyaltyEnabled: Boolean(input.enabled),
+      updatedAt: now,
+    };
+    clients[idx] = updated;
+    this.saveClientsInternal(clients);
+    this.syncOverlay(updated);
+    const existingBiz = await mockBusinessRepository.getBusinessById(
+      input.businessId,
+    );
+    if (existingBiz) {
+      await mockBusinessRepository.setBusinessLoyaltyEnabled(
+        input.businessId,
+        Boolean(input.enabled),
+        { actorOwnerId: existingBiz.ownerId },
+      );
+    }
+    return updated;
   }
 
   async setBusinessStatus(input: {

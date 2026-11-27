@@ -42,6 +42,8 @@ export interface Business {
   googleReviewUrlIsPlaceholder?: boolean;
   /** Font shown to customers while their review is being written. Defaults to 'classic'. */
   reviewFont?: ReviewFontStyle;
+  /** Modular switch controlling whether Loyalty & Star Rewards are active for this business. */
+  loyaltyEnabled?: boolean;
   /** Platform approval status. Defaults to 'pending' on new signups. */
   status?: BusinessStatus;
   statusChangedAt?: string;

@@ -99,12 +99,22 @@
   }
 }
 
+html,
 body {
   font-family: var(--font-sans);
   background-color: var(--brand-bg);
   color: var(--brand-text);
   font-size: 15px;
   line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+input,
+textarea,
+select,
+button {
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

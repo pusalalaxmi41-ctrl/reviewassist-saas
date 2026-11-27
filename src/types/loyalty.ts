@@ -77,7 +77,13 @@ export interface LoyaltyStarEvent {
 export interface PublicLoyaltyHubPayload {
   business: Pick<
     Business,
-    'id' | 'name' | 'slug' | 'city' | 'category' | 'googleReviewUrl'
+    | 'id'
+    | 'name'
+    | 'slug'
+    | 'city'
+    | 'category'
+    | 'googleReviewUrl'
+    | 'loyaltyEnabled'
   >;
   config: Omit<LoyaltyProgramConfig, 'counterSecretPin'>;
   card: LoyaltyMemberCard | null;

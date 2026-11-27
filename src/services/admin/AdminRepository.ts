@@ -25,6 +25,12 @@ export interface IAdminRepository {
     reason?: string;
   }): Promise<AdminClientRecord>;
 
+  /** Toggles the modular Loyalty System ON or OFF for a client business. */
+  setBusinessLoyaltyEnabled(input: {
+    businessId: string;
+    enabled: boolean;
+  }): Promise<AdminClientRecord>;
+
   /** Disables or re-enables an owner account (blocking/unblocking login and suspending/activating business). */
   setAccountState(input: {
     businessId: string;

@@ -172,6 +172,7 @@ export default function AdminPanelPage() {
   const [newBizName, setNewBizName] = useState('');
   const [newBizCategory, setNewBizCategory] =
     useState<BusinessCategory>('clinic');
+  const [newBizLoyaltyEnabled, setNewBizLoyaltyEnabled] = useState(false);
   const [newBizCity, setNewBizCity] = useState('');
   const [newBizSlug, setNewBizSlug] = useState('');
   const [newBizEmail, setNewBizEmail] = useState('');
@@ -570,6 +571,36 @@ export default function AdminPanelPage() {
     }
   }
 
+  async function handleToggleClientLoyalty(record: AdminClientRecord) {
+    const currentEnabled = Boolean(
+      record.loyaltyEnabled ?? record.category === 'loyalty',
+    );
+    const nextEnabled = !currentEnabled;
+    setActionBusy(true);
+    try {
+      const updated = await repo.setBusinessLoyaltyEnabled({
+        businessId: record.id,
+        enabled: nextEnabled,
+      });
+      setClients((prev) =>
+        prev.map((c) => (c.id === record.id ? updated : c)),
+      );
+      pushToast(
+        'success',
+        nextEnabled
+          ? `Loyalty System turned ON for "${record.name}" (+1 Star & Digital Wallet enabled).`
+          : `Loyalty System turned OFF for "${record.name}" (Pure AI Google Review mode).`,
+      );
+    } catch (err) {
+      pushToast(
+        'error',
+        (err as Error).message || 'Failed to update Loyalty System toggle.',
+      );
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
   async function handleCreateAdminBusiness(e: FormEvent) {
     e.preventDefault();
     const cleanName = newBizName.trim();
@@ -599,6 +630,7 @@ export default function AdminPanelPage() {
         slug: cleanSlug,
         googleReviewUrl: PLACEHOLDER_GOOGLE_REVIEW_URL,
         googleReviewUrlIsPlaceholder: true,
+        loyaltyEnabled: newBizLoyaltyEnabled,
       });
       const nowIso = new Date().toISOString();
       mockAdminRepository.registerMockClient({
@@ -613,6 +645,7 @@ export default function AdminPanelPage() {
         city: created.city,
         googleReviewUrl: created.googleReviewUrl,
         googleReviewUrlIsPlaceholder: true,
+        loyaltyEnabled: newBizLoyaltyEnabled,
         status: 'active',
         statusChangedAt: nowIso,
         statusChangedBy: user?.id ?? 'admin-root-01',
@@ -629,10 +662,11 @@ export default function AdminPanelPage() {
       setNewBizCity('');
       setNewBizSlug('');
       setNewBizEmail('');
+      setNewBizLoyaltyEnabled(newBizCategory === 'loyalty');
       await loadAllAdminData();
       pushToast(
         'success',
-        `Created & activated "${created.name}" (${getIndustryBadgeMeta(created.category).moduleName}).`,
+        `Created & activated "${created.name}" (${getIndustryBadgeMeta(created.category).moduleName} · Loyalty ${newBizLoyaltyEnabled ? 'ON' : 'OFF'}).`,
       );
     } catch (err) {
       pushToast(
@@ -1398,6 +1432,7 @@ export default function AdminPanelPage() {
                       <tr className="border-b border-slate-200 bg-slate-50/60 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                         <th className="px-5 py-3">Business &amp; Customer Route</th>
                         <th className="px-4 py-3">Industry Module</th>
+                        <th className="px-4 py-3">Loyalty System</th>
                         <th className="px-4 py-3">City</th>
                         <th className="px-4 py-3">Status</th>
                         <th className="px-4 py-3">Owner email</th>
@@ -1407,18 +1442,25 @@ export default function AdminPanelPage() {
                     <tbody className="divide-y divide-slate-100 text-xs">
                       {filteredClients.map((biz) => {
                         const badge = getIndustryBadgeMeta(biz.category);
+                        const isLoyaltyOn = Boolean(
+                          biz.loyaltyEnabled ?? biz.category === 'loyalty',
+                        );
                         const routeSuffix =
-                          badge.workspace === 'gym'
-                            ? '/gym'
-                            : badge.workspace === 'barber'
-                              ? '/queue'
-                              : badge.workspace === 'cafe'
-                                ? '/cafe'
-                                : badge.workspace === 'loyalty'
-                                  ? '/loyalty'
-                                  : badge.workspace === 'clinic'
-                                    ? '/clinic'
-                                    : '/menu';
+                          biz.category === 'retail' || biz.category === 'services'
+                            ? ''
+                            : badge.workspace === 'gym'
+                              ? '/gym'
+                              : badge.workspace === 'barber'
+                                ? '/queue'
+                                : badge.workspace === 'cafe'
+                                  ? '/cafe'
+                                  : badge.workspace === 'loyalty'
+                                    ? isLoyaltyOn
+                                      ? '/loyalty'
+                                      : ''
+                                    : badge.workspace === 'clinic'
+                                      ? '/clinic'
+                                      : '/menu';
                         return (
                           <tr
                             key={biz.id}
@@ -1449,9 +1491,42 @@ export default function AdminPanelPage() {
                               >
                                 <span>{badge.emoji}</span>
                                 <span>
-                                  {CATEGORY_LABELS[biz.category]} · {badge.moduleName}
+                                  {CATEGORY_LABELS[biz.category]} ·{' '}
+                                  {biz.category === 'retail' ||
+                                  biz.category === 'services'
+                                    ? 'AI Reviews'
+                                    : badge.moduleName}
                                 </span>
                               </span>
+                            </td>
+                            <td
+                              className="px-4 py-3.5 whitespace-nowrap"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={isLoyaltyOn}
+                                disabled={actionBusy}
+                                onClick={() => void handleToggleClientLoyalty(biz)}
+                                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-50 ${
+                                  isLoyaltyOn
+                                    ? 'border-lime-400 bg-lime-100 text-slate-900 hover:bg-lime-200/80'
+                                    : 'border-slate-200 bg-slate-100 text-slate-500 hover:bg-slate-200/70'
+                                }`}
+                              >
+                                <Star
+                                  className={`h-3 w-3 ${
+                                    isLoyaltyOn
+                                      ? 'fill-amber-500 text-amber-600'
+                                      : 'text-slate-400'
+                                  }`}
+                                  aria-hidden
+                                />
+                                <span>
+                                  Loyalty System: {isLoyaltyOn ? 'ON' : 'OFF'}
+                                </span>
+                              </button>
                             </td>
                             <td className="px-4 py-3.5 text-slate-600">
                               {biz.city}
@@ -1997,7 +2072,42 @@ export default function AdminPanelPage() {
 
               {/* Context 1: Business Approval & Status Actions */}
               {drawerContext === 'clients' && (
-                <div className="space-y-3">
+                <div className="space-y-4">
+                  {/* Modular Loyalty System ON / OFF Switch */}
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3.5">
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                        <Star className="h-3.5 w-3.5 fill-amber-500 text-amber-600" aria-hidden />
+                        Loyalty &amp; Star Rewards System
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        Toggle customer Digital Star Wallet &amp; +1 Review Star card ON or OFF alongside Core AI Reviews.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={Boolean(
+                        selectedRecord.loyaltyEnabled ??
+                          selectedRecord.category === 'loyalty',
+                      )}
+                      disabled={actionBusy}
+                      onClick={() => void handleToggleClientLoyalty(selectedRecord)}
+                      className={`shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer disabled:opacity-50 ${
+                        (selectedRecord.loyaltyEnabled ??
+                        selectedRecord.category === 'loyalty')
+                          ? 'border-lime-400 bg-lime-100 text-slate-900'
+                          : 'border-slate-200 bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      Loyalty System:{' '}
+                      {(selectedRecord.loyaltyEnabled ??
+                      selectedRecord.category === 'loyalty')
+                        ? 'ON'
+                        : 'OFF'}
+                    </button>
+                  </div>
+
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                     Business Status Actions
                   </h3>
@@ -2348,11 +2458,22 @@ export default function AdminPanelPage() {
               </label>
               <select
                 value={newBizCategory}
-                onChange={(e) =>
-                  setNewBizCategory(e.target.value as BusinessCategory)
-                }
+                onChange={(e) => {
+                  const cat = e.target.value as BusinessCategory;
+                  setNewBizCategory(cat);
+                  setNewBizLoyaltyEnabled(cat === 'loyalty');
+                }}
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 focus:border-indigo-500 focus:outline-none"
               >
+                <option value="retail">
+                  🛍️ Retail / Boutique — Pure AI Google Reviews
+                </option>
+                <option value="services">
+                  🛠️ Local Services — Pure AI Google Reviews
+                </option>
+                <option value="loyalty">
+                  ⭐ LoyaltyOS / AI Reviews + Star Rewards
+                </option>
                 <option value="clinic">
                   🏥 ClinicOS / Medical &amp; Dental (OPD Queue, Vitals &amp; Digital Rx)
                 </option>
@@ -2363,10 +2484,42 @@ export default function AdminPanelPage() {
                 <option value="cafe">☕ CafeOS / Cafe &amp; Coffee Shop</option>
                 <option value="barber">✂️ BarberOS / Barber &amp; Salon</option>
                 <option value="gym">🏋️ GymOS / Gym &amp; Fitness Studio</option>
-                <option value="loyalty">
-                  ⭐ LoyaltyOS / Standalone Retail &amp; Reviews
-                </option>
               </select>
+            </div>
+
+            {/* Modular Loyalty System Toggle Pill in Create Business Modal */}
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5">
+              <div>
+                <p className="text-xs font-bold text-slate-900">
+                  Loyalty &amp; Star Rewards Add-On
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  {newBizLoyaltyEnabled
+                    ? 'Enabled: AI Google Reviews + Digital Star Wallet'
+                    : 'Disabled: Pure AI Google Review System only'}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={newBizLoyaltyEnabled}
+                onClick={() => setNewBizLoyaltyEnabled((v) => !v)}
+                className={`shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold transition-colors cursor-pointer ${
+                  newBizLoyaltyEnabled
+                    ? 'border-lime-400 bg-lime-100 text-slate-900'
+                    : 'border-slate-200 bg-white text-slate-600'
+                }`}
+              >
+                <Star
+                  className={`h-3 w-3 ${
+                    newBizLoyaltyEnabled
+                      ? 'fill-amber-500 text-amber-600'
+                      : 'text-slate-400'
+                  }`}
+                  aria-hidden
+                />
+                <span>Loyalty System: {newBizLoyaltyEnabled ? 'ON' : 'OFF'}</span>
+              </button>
             </div>
 
             <div className="space-y-1">

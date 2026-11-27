@@ -286,6 +286,7 @@ interface DbBusinessRow {
   google_review_url: string;
   google_review_url_is_placeholder: boolean;
   review_font?: ReviewFontStyle;
+  loyalty_enabled?: boolean;
   status?: BusinessStatus;
   status_changed_at?: string;
   status_reason?: string | null;
@@ -438,6 +439,8 @@ function writeLocalAIConfigOverlay(
 }
 
 const LOCAL_STATUS_OVERLAY_KEY = 'reviewassist_status_overlay_v1';
+const LOCAL_LOYALTY_ENABLED_OVERLAY_KEY =
+  'reviewassist_loyalty_enabled_overlay_v1';
 
 interface StatusOverlayEntry {
   status: BusinessStatus;
@@ -447,6 +450,37 @@ interface StatusOverlayEntry {
   deletionRequestedAt: string | null;
   deletionScheduledFor: string | null;
   deletedReason: string | null;
+  loyaltyEnabled?: boolean;
+}
+
+export function readLocalLoyaltyEnabledOverlay(): Record<string, boolean> {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = window.localStorage.getItem(LOCAL_LOYALTY_ENABLED_OVERLAY_KEY);
+      if (raw) return JSON.parse(raw) as Record<string, boolean>;
+    }
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+export function writeLocalLoyaltyEnabledOverlay(
+  businessId: string,
+  enabled: boolean,
+): void {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const current = readLocalLoyaltyEnabledOverlay();
+      current[businessId] = enabled;
+      window.localStorage.setItem(
+        LOCAL_LOYALTY_ENABLED_OVERLAY_KEY,
+        JSON.stringify(current),
+      );
+    }
+  } catch {
+    // ignore
+  }
 }
 
 export function readLocalStatusOverlay(): Record<string, StatusOverlayEntry> {
@@ -478,6 +512,15 @@ export function writeLocalStatusOverlay(
 
 function mapBusinessRow(row: DbBusinessRow): Business {
   const overlay = readLocalStatusOverlay()[row.id];
+  const loyaltyOverlay = readLocalLoyaltyEnabledOverlay();
+  const resolvedLoyaltyEnabled =
+    typeof row.loyalty_enabled === 'boolean'
+      ? row.loyalty_enabled
+      : typeof overlay?.loyaltyEnabled === 'boolean'
+        ? overlay.loyaltyEnabled
+        : typeof loyaltyOverlay[row.id] === 'boolean'
+          ? loyaltyOverlay[row.id]
+          : row.category === 'loyalty';
   return {
     id: row.id,
     ownerId: row.owner_id,
@@ -488,6 +531,7 @@ function mapBusinessRow(row: DbBusinessRow): Business {
     googleReviewUrl: row.google_review_url,
     googleReviewUrlIsPlaceholder: row.google_review_url_is_placeholder,
     reviewFont: row.review_font ?? 'classic',
+    loyaltyEnabled: resolvedLoyaltyEnabled,
     status: row.status ?? overlay?.status ?? 'active',
     statusChangedAt: row.status_changed_at ?? overlay?.statusChangedAt ?? row.created_at,
     statusReason:
@@ -560,6 +604,47 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     const cleanSlug = slug.trim().toLowerCase();
     if (!cleanSlug) return null;
 
+    // Fast Path: Direct hardened PostgreSQL RPC lookup (returns loyalty_enabled & avoids Edge cold-start/rate-limit)
+    if (/^[a-z0-9-]{3,80}$/.test(cleanSlug)) {
+      try {
+        const { data: rpcRows, error: rpcErr } = await client.rpc(
+          'get_public_business_by_slug',
+          { p_slug: cleanSlug },
+        );
+        if (!rpcErr && Array.isArray(rpcRows)) {
+          const row = rpcRows[0] as DbBusinessRow | undefined;
+          if (!row) {
+            const demoFallback = await mockBusinessRepository.getBusinessBySlug(
+              cleanSlug,
+            );
+            return demoFallback ? this.rememberBusiness(demoFallback) : null;
+          }
+          const loyaltyOverlay = readLocalLoyaltyEnabledOverlay();
+          return this.rememberBusiness({
+            id: row.id,
+            slug: row.slug,
+            name: row.name,
+            category: row.category,
+            city: row.city,
+            googleReviewUrl: row.google_review_url,
+            googleReviewUrlIsPlaceholder: Boolean(
+              row.google_review_url_is_placeholder,
+            ),
+            reviewFont: row.review_font ?? 'classic',
+            loyaltyEnabled:
+              typeof row.loyalty_enabled === 'boolean'
+                ? row.loyalty_enabled
+                : (loyaltyOverlay[row.id] ?? row.category === 'loyalty'),
+            status: 'active',
+            accountState: 'active',
+            createdAt: row.created_at,
+          });
+        }
+      } catch {
+        // fall through to Edge Function lookup
+      }
+    }
+
     const { data, error } = await client.functions.invoke<{ business?: Business }>(
       'public-business-lookup',
       { body: { slug: cleanSlug } },
@@ -580,6 +665,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
             'business' in (queuePayload as Record<string, unknown>)
           ) {
             const b = (queuePayload as PublicBarberQueueStatusPayload).business;
+            const loyaltyOverlay = readLocalLoyaltyEnabledOverlay();
             return this.rememberBusiness({
               id: b.id,
               slug: b.slug,
@@ -588,6 +674,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
               city: b.city,
               googleReviewUrl: b.googleReviewUrl,
               googleReviewUrlIsPlaceholder: false,
+              loyaltyEnabled: loyaltyOverlay[b.id] ?? b.category === 'loyalty',
               status: 'active',
               accountState: 'active',
               createdAt: new Date().toISOString(),
@@ -607,6 +694,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
 
     const biz = data.business;
     const overlay = readLocalStatusOverlay()[biz.id];
+    const loyaltyOverlay = readLocalLoyaltyEnabledOverlay();
     const effectiveStatus = biz.status ?? overlay?.status ?? 'active';
     const effectiveAccountState = biz.accountState ?? overlay?.accountState ?? 'active';
 
@@ -617,6 +705,10 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
 
     return this.rememberBusiness({
       ...biz,
+      loyaltyEnabled:
+        typeof biz.loyaltyEnabled === 'boolean'
+          ? biz.loyaltyEnabled
+          : (loyaltyOverlay[biz.id] ?? biz.category === 'loyalty'),
       status: effectiveStatus,
       accountState: effectiveAccountState,
     });
@@ -632,7 +724,12 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       throw new Error('Please sign in as a business owner before registering a business.');
     }
 
-    const { data: inserted, error } = await client
+    const initialLoyaltyEnabled =
+      typeof data.loyaltyEnabled === 'boolean'
+        ? data.loyaltyEnabled
+        : data.category === 'loyalty';
+
+    let { data: inserted, error } = await client
       .from('businesses')
       .insert({
         owner_id: user.id,
@@ -642,9 +739,28 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
         city: data.city.trim(),
         google_review_url: data.googleReviewUrl.trim(),
         google_review_url_is_placeholder: Boolean(data.googleReviewUrlIsPlaceholder),
+        loyalty_enabled: initialLoyaltyEnabled,
       })
       .select('*')
       .single();
+
+    if (error && error.message?.includes('loyalty_enabled')) {
+      const retry = await client
+        .from('businesses')
+        .insert({
+          owner_id: user.id,
+          slug: data.slug.trim().toLowerCase(),
+          name: data.name.trim(),
+          category: data.category,
+          city: data.city.trim(),
+          google_review_url: data.googleReviewUrl.trim(),
+          google_review_url_is_placeholder: Boolean(data.googleReviewUrlIsPlaceholder),
+        })
+        .select('*')
+        .single();
+      inserted = retry.data;
+      error = retry.error;
+    }
 
     if (error || !inserted) {
       if (error?.code === '23505') {
@@ -657,6 +773,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
 
     const row = inserted as DbBusinessRow;
     const now = new Date().toISOString();
+    writeLocalLoyaltyEnabledOverlay(row.id, initialLoyaltyEnabled);
     writeLocalStatusOverlay(row.id, {
       status: row.status ?? 'pending',
       statusChangedAt: row.status_changed_at ?? now,
@@ -665,6 +782,7 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       deletionRequestedAt: null,
       deletionScheduledFor: null,
       deletedReason: null,
+      loyaltyEnabled: initialLoyaltyEnabled,
     });
 
     return this.rememberBusiness(mapBusinessRow(row));
@@ -729,6 +847,63 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     }
 
     return this.rememberBusiness(mapBusinessRow(updated as DbBusinessRow));
+  }
+
+  async setBusinessLoyaltyEnabled(
+    businessId: string,
+    enabled: boolean,
+    options?: AIConfigAccessOptions,
+  ): Promise<Business> {
+    const idErr = validateBusinessId(businessId);
+    if (idErr) {
+      throw new Error(idErr);
+    }
+    const cleanId = businessId.trim();
+    const nextEnabled = Boolean(enabled);
+
+    if (options?.actorOwnerId) {
+      await this.verifyBusinessOwnership(cleanId, options);
+    }
+
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('set_business_loyalty_enabled', {
+      p_business_id: cleanId,
+      p_enabled: nextEnabled,
+    });
+
+    if (!error && data && typeof data === 'object') {
+      writeLocalLoyaltyEnabledOverlay(cleanId, nextEnabled);
+      return this.rememberBusiness(data as Business);
+    }
+
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('Forbidden') ||
+        error.message.includes('Business not found'))
+    ) {
+      throw new Error(error.message);
+    }
+
+    const { data: updated, error: updateErr } = await client
+      .from('businesses')
+      .update({ loyalty_enabled: nextEnabled })
+      .eq('id', cleanId)
+      .select('*')
+      .maybeSingle();
+
+    if (!updateErr && updated) {
+      writeLocalLoyaltyEnabledOverlay(cleanId, nextEnabled);
+      return this.rememberBusiness(mapBusinessRow(updated as DbBusinessRow));
+    }
+
+    const fallbackBiz = await mockBusinessRepository.setBusinessLoyaltyEnabled(
+      cleanId,
+      nextEnabled,
+      options,
+    );
+    writeLocalLoyaltyEnabledOverlay(cleanId, nextEnabled);
+    return this.rememberBusiness(fallbackBiz);
   }
 
   async trackEvent(event: {
