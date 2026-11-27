@@ -1,28 +1,36 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import {
   AlertTriangle,
+  Ban,
   BarChart3,
   Building2,
   Cake,
   CheckCircle2,
+  Clock,
   Coffee,
   Copy,
   ExternalLink,
+  Gamepad2,
   Gift,
   History,
+  LayoutDashboard,
   MessageSquare,
   Minus,
   Package,
   Plus,
   QrCode,
+  Receipt,
   RefreshCw,
   Search,
   Settings,
+  ShieldAlert,
   Sparkles,
   Trash2,
+  TrendingUp,
+  Users,
   UtensilsCrossed,
   X,
 } from 'lucide-react';
@@ -46,6 +54,7 @@ import type {
   RestaurantMenuItem,
 } from '../../types/restaurant';
 import { businessRepository } from '../../services/storage';
+import { categoryLabels } from '../../services/business/mockBusinesses';
 import {
   ALLOWED_CAFE_INVENTORY_CATEGORIES,
   ALLOWED_CAFE_INVENTORY_UNITS,
@@ -59,8 +68,17 @@ import {
   formatPriceFromPaise,
   parseMajorCurrencyToPaise,
 } from '../../utils/restaurantValidation';
+import {
+  loadWorkspaceModules,
+  saveWorkspaceModules,
+  type WorkspaceModuleVisibility,
+} from '../../utils/workspaceModules';
 import { copyText } from '../../utils/clipboard';
 import { Button } from '../common/Button';
+import {
+  RestaurantManagerView,
+  type RestaurantWorkspaceSection,
+} from '../dashboard/RestaurantManagerView';
 import { CustomerDraftsView } from '../dashboard/CustomerDraftsView';
 import { QRCodeManager } from '../dashboard/QRCodeManager';
 import { AnalyticsView } from '../dashboard/AnalyticsView';
@@ -69,8 +87,51 @@ import { BusinessKnowledgeSettings } from '../dashboard/BusinessKnowledgeSetting
 import { GoogleUrlSettings } from '../dashboard/GoogleUrlSettings';
 import { BusinessCategorySettings } from '../dashboard/BusinessCategorySettings';
 
-type CafeTab = 'counter' | 'inventory' | 'menu_rules' | 'reviews';
+type CafeTab =
+  | 'overview'
+  | 'counter'
+  | 'analytics'
+  | 'menu'
+  | 'tables'
+  | 'reviews'
+  | 'staff'
+  | 'inventory'
+  | 'games_loyalty'
+  | 'settings';
+
 type CafeReviewSubTab = 'drafts' | 'qr' | 'analytics' | 'settings';
+type CafeStockSubTab = 'ingredients' | 'expenses';
+type CafeLoyaltySubTab = 'table_games' | 'stamp_pass';
+
+function parseCafeTabFromParam(param: string | null): CafeTab {
+  switch (param) {
+    case 'counter':
+      return 'counter';
+    case 'analytics':
+      return 'analytics';
+    case 'menu':
+      return 'menu';
+    case 'tables':
+      return 'tables';
+    case 'reviews':
+    case 'ai_reviews':
+    case 'drafts':
+    case 'qr':
+      return 'reviews';
+    case 'staff':
+      return 'staff';
+    case 'inventory':
+      return 'inventory';
+    case 'games_loyalty':
+    case 'menu_rules':
+      return 'games_loyalty';
+    case 'settings':
+      return 'settings';
+    case 'overview':
+    default:
+      return 'overview';
+  }
+}
 
 interface Props {
   business: Business;
@@ -86,8 +147,21 @@ export function CafeManagerView({
   onSelectBusiness,
   onBusinessUpdated,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<CafeTab>('counter');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<CafeTab>(() =>
+    parseCafeTabFromParam(searchParams.get('tab')),
+  );
   const [reviewSubTab, setReviewSubTab] = useState<CafeReviewSubTab>('drafts');
+  const [stockSubTab, setStockSubTab] =
+    useState<CafeStockSubTab>('ingredients');
+  const [loyaltySubTab, setLoyaltySubTab] =
+    useState<CafeLoyaltySubTab>('table_games');
+  const [moduleVisibility, setModuleVisibility] =
+    useState<WorkspaceModuleVisibility>(() =>
+      loadWorkspaceModules(business.id),
+    );
+  const [restaurantMountSeed, setRestaurantMountSeed] = useState(0);
+
   const [loading, setLoading] = useState(true);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -121,9 +195,9 @@ export function CafeManagerView({
   const [redeemingKey, setRedeemingKey] = useState<string | null>(null);
 
   // Inventory filter & modals
-  const [invCatFilter, setInvCatFilter] = useState<'all' | CafeInventoryCategory>(
-    'all',
-  );
+  const [invCatFilter, setInvCatFilter] = useState<
+    'all' | CafeInventoryCategory
+  >('all');
   const [showAddInvModal, setShowAddInvModal] = useState(false);
   const [newItemName, setNewItemName] = useState('');
   const [newItemCat, setNewItemCat] = useState<CafeInventoryCategory>('beans');
@@ -153,17 +227,41 @@ export function CafeManagerView({
   );
   const [upiId, setUpiId] = useState('');
   const [savingConfig, setSavingConfig] = useState(false);
+  const [seedingCafeMenu, setSeedingCafeMenu] = useState(false);
 
-  // Quick Add Cafe Drink form state
-  const [newDrinkName, setNewDrinkName] = useState('');
-  const [newDrinkCategoryId, setNewDrinkCategoryId] = useState('');
-  const [newDrinkPrice, setNewDrinkPrice] = useState('180');
-  const [newDrinkDesc, setNewDrinkDesc] = useState('');
-  const [addingDrink, setAddingDrink] = useState(false);
-
+  const currentStatus = business.status ?? 'active';
+  const currentAccountState = business.accountState ?? 'active';
   const isBusinessLive =
-    (business.status ?? 'active') === 'active' &&
-    (business.accountState ?? 'active') === 'active';
+    currentStatus === 'active' && currentAccountState === 'active';
+
+  const statusPillConfig: Record<
+    NonNullable<Business['status']>,
+    { label: string; className: string; Icon: typeof CheckCircle2 }
+  > = {
+    pending: {
+      label: 'Awaiting Approval',
+      className: 'bg-amber-50 text-amber-800 border-amber-200',
+      Icon: Clock,
+    },
+    active: {
+      label: 'Active',
+      className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      Icon: CheckCircle2,
+    },
+    rejected: {
+      label: 'Rejected',
+      className: 'bg-red-50 text-red-800 border-red-200',
+      Icon: Ban,
+    },
+    suspended: {
+      label: 'Suspended',
+      className: 'bg-slate-100 text-slate-700 border-slate-200',
+      Icon: ShieldAlert,
+    },
+  };
+
+  const currentPill = statusPillConfig[currentStatus];
+  const StatusIcon = currentPill.Icon;
 
   function notify(msg: string) {
     setErrorMsg(null);
@@ -171,6 +269,22 @@ export function CafeManagerView({
     window.setTimeout(() => {
       setStatusMsg((prev) => (prev === msg ? null : prev));
     }, 4000);
+  }
+
+  function handleTabChange(nextTab: CafeTab) {
+    setActiveTab(nextTab);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('slug', business.slug);
+    if (nextTab === 'overview') {
+      nextParams.delete('tab');
+    } else {
+      nextParams.set('tab', nextTab);
+    }
+    setSearchParams(nextParams, { replace: true });
+  }
+
+  function handleUpdateModules(next: WorkspaceModuleVisibility) {
+    setModuleVisibility(saveWorkspaceModules(business.id, next));
   }
 
   const refreshCafeData = useCallback(async () => {
@@ -194,9 +308,6 @@ export function CafeManagerView({
       setBirthdayEnabled(dash.config.birthdayFreeCoffeeEnabled);
       setBirthdayDrinkName(dash.config.birthdayDrinkName);
       setUpiId(dash.config.upiId ?? '');
-      if (cats.length > 0) {
-        setNewDrinkCategoryId((prev) => prev || cats[0].id);
-      }
     } catch (err) {
       setErrorMsg((err as Error).message);
     } finally {
@@ -444,7 +555,7 @@ export function CafeManagerView({
   }
 
   async function handleSeedPopularCafeDrinks() {
-    setAddingDrink(true);
+    setSeedingCafeMenu(true);
     try {
       const catByName = new Map(
         categories.map((c) => [c.name.toLowerCase(), c]),
@@ -479,6 +590,7 @@ export function CafeManagerView({
         added++;
       }
       await refreshCafeData();
+      setRestaurantMountSeed((n) => n + 1);
       notify(
         added > 0
           ? `Added ${added} signature cafe drinks & bakery items ✓`
@@ -487,60 +599,22 @@ export function CafeManagerView({
     } catch (err) {
       setErrorMsg((err as Error).message);
     } finally {
-      setAddingDrink(false);
+      setSeedingCafeMenu(false);
     }
   }
 
-  async function handleAddCafeDrink(e: React.FormEvent) {
-    e.preventDefault();
-    const priceRes = parseMajorCurrencyToPaise(newDrinkPrice);
-    if (!priceRes.ok) {
-      setErrorMsg(priceRes.error);
-      return;
-    }
-    setAddingDrink(true);
-    try {
-      let targetCatId = newDrinkCategoryId;
-      if (!targetCatId) {
-        const createdCat = await businessRepository.createRestaurantMenuCategory(
-          business.id,
-          { name: 'Coffee & Drinks', isActive: true },
-        );
-        targetCatId = createdCat.id;
-      }
-      await businessRepository.createRestaurantMenuItem(business.id, {
-        categoryId: targetCatId,
-        name: newDrinkName.trim(),
-        description: newDrinkDesc.trim() || null,
-        pricePaise: priceRes.pricePaise,
-        dietaryTag: 'veg',
-        isAvailable: true,
-        isFeatured: false,
-      });
-      setNewDrinkName('');
-      setNewDrinkDesc('');
-      setNewDrinkPrice('180');
-      await refreshCafeData();
-      notify('Added item to Cafe Menu ✓');
-    } catch (err) {
-      setErrorMsg((err as Error).message);
-    } finally {
-      setAddingDrink(false);
-    }
-  }
-
-  const passes = useMemo(() => dashboard?.passes ?? [], [dashboard?.passes]);
+  const passes = useMemo(() => dashboard?.passes ?? [], [dashboard]);
   const inventoryItems = useMemo(
     () => dashboard?.inventoryItems ?? [],
-    [dashboard?.inventoryItems],
+    [dashboard],
   );
   const inventoryLogs = useMemo(
     () => dashboard?.inventoryLogs ?? [],
-    [dashboard?.inventoryLogs],
+    [dashboard],
   );
   const counterOrders = useMemo(
     () => dashboard?.counterOrders ?? [],
-    [dashboard?.counterOrders],
+    [dashboard],
   );
 
   const lowStockItems = useMemo(
@@ -597,16 +671,146 @@ export function CafeManagerView({
     birthdaysTodayCount: 0,
   };
 
+  const selectableBusinesses =
+    cafeBusinesses.length > 0 ? cafeBusinesses : [business];
+
+  type CafeNavItem = {
+    id: CafeTab;
+    label: string;
+    shortLabel: string;
+    Icon: typeof LayoutDashboard;
+    badge?: number;
+    danger?: boolean;
+    visible?: boolean;
+  };
+
+  const navGroups: Array<{ groupLabel: string; items: CafeNavItem[] }> = [
+    {
+      groupLabel: 'Operations',
+      items: [
+        {
+          id: 'overview',
+          label: 'Live Desk',
+          shortLabel: 'Live',
+          Icon: LayoutDashboard,
+          visible: true,
+        },
+        {
+          id: 'counter',
+          label: 'Counter & Stamp Pass',
+          shortLabel: 'Counter',
+          Icon: Coffee,
+          badge:
+            activePickupOrders.length > 0
+              ? activePickupOrders.length
+              : undefined,
+          visible: true,
+        },
+        {
+          id: 'analytics',
+          label: 'Analytics',
+          shortLabel: 'Stats',
+          Icon: TrendingUp,
+          visible: true,
+        },
+        {
+          id: 'menu',
+          label: 'Digital Menu',
+          shortLabel: 'Menu',
+          Icon: UtensilsCrossed,
+          visible: true,
+        },
+        {
+          id: 'tables',
+          label: 'Tables & QRs',
+          shortLabel: 'Tables',
+          Icon: QrCode,
+          visible: true,
+        },
+      ],
+    },
+    {
+      groupLabel: 'Growth & Team',
+      items: [
+        {
+          id: 'reviews',
+          label: 'AI Reviews',
+          shortLabel: 'Reviews',
+          Icon: Sparkles,
+          badge: drafts.length > 0 ? drafts.length : undefined,
+          visible: moduleVisibility.aiReviews,
+        },
+        {
+          id: 'staff',
+          label: 'Staff & Waiters',
+          shortLabel: 'Staff',
+          Icon: Users,
+          visible: moduleVisibility.staff,
+        },
+        {
+          id: 'inventory',
+          label: 'Stock & Expenses',
+          shortLabel: 'Stock',
+          Icon: Package,
+          badge: stats.lowStockCount > 0 ? stats.lowStockCount : undefined,
+          danger: stats.lowStockCount > 0,
+          visible: moduleVisibility.inventory,
+        },
+        {
+          id: 'games_loyalty',
+          label: 'Games & Loyalty',
+          shortLabel: 'Loyalty',
+          Icon: Gamepad2,
+          visible: moduleVisibility.gamesLoyalty,
+        },
+      ],
+    },
+    {
+      groupLabel: 'System',
+      items: [
+        {
+          id: 'settings',
+          label: 'Settings',
+          shortLabel: 'Settings',
+          Icon: Settings,
+          visible: true,
+        },
+      ],
+    },
+  ];
+
+  // Map active CafeOS tab -> RestaurantManagerView section (Strictly Tables ONLY — Zero Hotel Rooms!)
+  const restaurantSection: RestaurantWorkspaceSection | null =
+    activeTab === 'overview'
+      ? 'overview'
+      : activeTab === 'analytics'
+        ? 'analytics'
+        : activeTab === 'menu'
+          ? 'menu'
+          : activeTab === 'tables'
+            ? 'tables'
+            : activeTab === 'staff'
+              ? 'staff'
+              : activeTab === 'inventory' && stockSubTab === 'expenses'
+                ? 'inventory'
+                : activeTab === 'games_loyalty' &&
+                    loyaltySubTab === 'table_games'
+                  ? 'games_loyalty'
+                  : activeTab === 'settings'
+                    ? 'settings'
+                    : null;
+
   return (
     <div className="flex min-h-[calc(100vh-52px)] w-full flex-col lg:flex-row">
-      {/* DOCKED LEFT SIDEBAR RAIL — DEDICATED CAFE OS */}
+      {/* FULL-BLEED DOCKED LEFT SIDEBAR RAIL — UNIFIED CAFE OS */}
       <aside
-        aria-label="CafeOS Navigation"
-        className="w-full lg:w-[230px] lg:shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 bg-white flex flex-col justify-between lg:sticky lg:top-[52px] lg:h-[calc(100vh-52px)] lg:overflow-y-auto"
+        aria-label="CafeOS Workspace Navigation"
+        className="w-full lg:w-[224px] lg:shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 bg-white flex flex-col justify-between lg:sticky lg:top-[52px] lg:h-[calc(100vh-52px)] lg:overflow-y-auto"
       >
         <div className="p-3 space-y-4">
+          {/* Active Cafe Property Selector */}
           <div className="space-y-1.5 border-b border-slate-100 pb-3">
-            <div className="flex items-center justify-between px-1">
+            <div className="flex items-center justify-between gap-2 px-1">
               <span className="inline-flex items-center gap-1 text-[10.5px] font-bold uppercase tracking-wider text-amber-800">
                 <Coffee className="h-3 w-3" aria-hidden /> CafeOS
               </span>
@@ -617,16 +821,20 @@ export function CafeManagerView({
                 <Plus className="h-3 w-3" aria-hidden /> New
               </Link>
             </div>
-            {cafeBusinesses.length > 1 && onSelectBusiness ? (
+
+            {onSelectBusiness ? (
               <div className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5">
-                <Building2 className="h-3.5 w-3.5 shrink-0 text-[#1E1B4B]" aria-hidden />
+                <Building2
+                  className="h-3.5 w-3.5 shrink-0 text-[#1E1B4B]"
+                  aria-hidden
+                />
                 <select
                   aria-label="Select cafe property"
                   value={business.slug}
                   onChange={(e) => onSelectBusiness(e.target.value)}
                   className="w-full min-w-0 truncate bg-transparent text-[13px] font-semibold text-[#111827] focus:outline-none cursor-pointer"
                 >
-                  {cafeBusinesses.map((b) => (
+                  {selectableBusinesses.map((b) => (
                     <option key={b.id} value={b.slug}>
                       {b.name} ({b.city})
                     </option>
@@ -645,107 +853,134 @@ export function CafeManagerView({
             )}
           </div>
 
-          <nav className="flex overflow-x-auto lg:overflow-x-visible lg:flex-col gap-1">
-            {(
-              [
-                {
-                  id: 'counter',
-                  label: 'Counter & Stamp Pass',
-                  short: 'Counter',
-                  Icon: Coffee,
-                  badge:
-                    activePickupOrders.length > 0
-                      ? activePickupOrders.length
-                      : undefined,
-                },
-                {
-                  id: 'inventory',
-                  label: 'Inventory & Stock',
-                  short: 'Stock',
-                  Icon: Package,
-                  badge:
-                    stats.lowStockCount > 0 ? stats.lowStockCount : undefined,
-                  danger: stats.lowStockCount > 0,
-                },
-                {
-                  id: 'menu_rules',
-                  label: 'Menu & Stamp Rules',
-                  short: 'Menu',
-                  Icon: UtensilsCrossed,
-                  badge: undefined,
-                },
-                {
-                  id: 'reviews',
-                  label: 'AI Reviews & QR',
-                  short: 'Reviews',
-                  Icon: Sparkles,
-                  badge: drafts.length > 0 ? drafts.length : undefined,
-                },
-              ] as const
-            ).map((item) => {
-              const active = activeTab === item.id;
-              const Icon = item.Icon;
+          {/* Grouped Operations / Growth & Team / System Navigation */}
+          <nav className="flex overflow-x-auto lg:overflow-x-visible lg:flex-col gap-3">
+            {navGroups.map((group) => {
+              const visibleItems = group.items.filter(
+                (i) => i.visible !== false,
+              );
+              if (visibleItems.length === 0) return null;
               return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setActiveTab(item.id)}
-                  className={`flex h-9.5 shrink-0 lg:shrink lg:w-full items-center justify-between gap-2 rounded-lg px-2.5 text-[13px] font-medium transition-colors cursor-pointer ${
-                    active
-                      ? 'bg-[#1E1B4B] text-white font-semibold'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                  }`}
+                <div
+                  key={group.groupLabel}
+                  className="flex lg:flex-col gap-0.5 shrink-0 lg:shrink"
                 >
-                  <span className="flex items-center gap-2.5 min-w-0">
-                    <Icon
-                      className={`h-4 w-4 shrink-0 ${
-                        active ? 'text-[#D2DB76]' : 'text-slate-500'
-                      }`}
-                      aria-hidden
-                    />
-                    <span className="hidden sm:inline truncate">
-                      {item.label}
-                    </span>
-                    <span className="sm:hidden">{item.short}</span>
-                  </span>
-                  {item.badge !== undefined && (
-                    <span
-                      className={`rounded-md px-1.5 py-0.5 text-[10.5px] font-bold tabular-nums ${
-                        'danger' in item && item.danger
-                          ? 'bg-rose-600 text-white'
-                          : active
-                            ? 'bg-[#D2DB76] text-[#1E1B4B]'
-                            : 'bg-slate-100 text-slate-700'
-                      }`}
-                    >
-                      {item.badge}
-                    </span>
+                  <p className="hidden lg:block px-2.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    {group.groupLabel}
+                  </p>
+                  {visibleItems.map(
+                    ({ id, label, shortLabel, Icon, badge, danger }) => {
+                      const isActive = activeTab === id;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => handleTabChange(id)}
+                          aria-current={isActive ? 'page' : undefined}
+                          className={`flex h-9 shrink-0 lg:shrink lg:w-full items-center justify-between gap-2 rounded-lg px-2.5 text-[13px] font-medium transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] ${
+                            isActive
+                              ? 'bg-[#1E1B4B] text-white font-semibold'
+                              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                          }`}
+                        >
+                          <span className="flex min-w-0 items-center gap-2.5">
+                            <Icon
+                              className={`h-4 w-4 shrink-0 ${
+                                isActive ? 'text-[#D2DB76]' : 'text-slate-500'
+                              }`}
+                              aria-hidden
+                            />
+                            <span className="hidden sm:inline truncate">
+                              {label}
+                            </span>
+                            <span className="sm:hidden">{shortLabel}</span>
+                          </span>
+                          {badge !== undefined && (
+                            <span
+                              className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10.5px] font-bold tabular-nums ${
+                                danger
+                                  ? 'bg-rose-600 text-white'
+                                  : isActive
+                                    ? 'bg-[#D2DB76] text-[#1E1B4B]'
+                                    : 'bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              {badge}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    },
                   )}
-                </button>
+                </div>
               );
             })}
           </nav>
         </div>
 
-        <div className="hidden lg:block border-t border-slate-100 p-3 space-y-2">
-          {isBusinessLive && (
-            <Link
-              to={`/r/${business.slug}/cafe`}
-              target="_blank"
-              className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-[#1E1B4B] text-[12px] font-semibold text-[#D2DB76] hover:bg-[#2E2A6E]"
+        {/* Clean Sidebar Property Footer */}
+        <div className="hidden lg:block border-t border-slate-100 p-3 space-y-2.5">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#1E1B4B] text-[#D2DB76]">
+              <Coffee className="h-4 w-4" aria-hidden />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-semibold text-[#111827]">
+                {business.name}
+              </p>
+              <p className="truncate text-[11px] text-slate-500">
+                {categoryLabels[business.category]} • {business.city}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <span
+              className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10.5px] font-semibold ${currentPill.className}`}
             >
-              Open Customer Cafe Pass{' '}
-              <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-            </Link>
-          )}
-          <p className="text-center text-[11px] text-slate-400">
-            Dedicated CafeOS · Zero Table Clutter
-          </p>
+              <StatusIcon className="h-3 w-3 shrink-0" aria-hidden />
+              {currentPill.label}
+            </span>
+            {isBusinessLive && (
+              <div className="flex items-center gap-2">
+                <Link
+                  to={`/r/${business.slug}/menu`}
+                  target="_blank"
+                  className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-[#1E1B4B] hover:underline"
+                >
+                  Menu <ExternalLink className="h-3 w-3" aria-hidden />
+                </Link>
+                <Link
+                  to={`/r/${business.slug}/cafe`}
+                  target="_blank"
+                  className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-amber-800 hover:underline"
+                >
+                  Pass <ExternalLink className="h-3 w-3" aria-hidden />
+                </Link>
+              </div>
+            )}
+          </div>
         </div>
       </aside>
 
-      {/* MAIN CAFE WORKSPACE */}
+      {/* MAIN CAFE WORKSPACE CANVAS */}
       <div className="flex-1 min-w-0 bg-[#F8F9FA] px-4 py-4 sm:px-6 sm:py-5 space-y-4">
+        {!isBusinessLive && (
+          <div
+            role="status"
+            className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3"
+          >
+            <div className="flex items-center gap-2">
+              <StatusIcon className="h-4 w-4 text-amber-700" aria-hidden />
+              <p className="text-[13px] font-semibold text-amber-950">
+                {business.status === 'pending'
+                  ? 'Preview Mode — Awaiting Platform Approval. You can set up Menu, Tables, Staff & Stamp Rules now.'
+                  : 'Public links are currently paused.'}
+              </p>
+            </div>
+          </div>
+        )}
+
         {statusMsg && (
           <div
             role="status"
@@ -771,8 +1006,166 @@ export function CafeManagerView({
           </div>
         )}
 
+        {/* DIGITAL MENU QUICK CAFE STARTER BAR */}
+        {activeTab === 'menu' && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#1E1B4B] text-[#D2DB76]">
+                <Coffee className="h-4 w-4" aria-hidden />
+              </span>
+              <div>
+                <p className="text-[13px] font-bold text-[#111827]">
+                  Unified Cafe Table &amp; Counter Menu
+                </p>
+                <p className="text-[11.5px] text-slate-500">
+                  Every drink &amp; bakery item syncs live to both Table QR ordering and Counter Pickup (#C-01).
+                </p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              loading={seedingCafeMenu}
+              onClick={() => void handleSeedPopularCafeDrinks()}
+            >
+              <Sparkles className="h-3.5 w-3.5" aria-hidden />
+              Seed 5 Signature Cafe Drinks
+            </Button>
+          </div>
+        )}
+
+        {/* STOCK & EXPENSES SUB-SWITCHER (RAW CAFE INGREDIENTS + MONTHLY EXPENSES) */}
+        {activeTab === 'inventory' && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-2">
+            <div className="flex flex-wrap items-center gap-1.5" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={stockSubTab === 'ingredients'}
+                onClick={() => setStockSubTab('ingredients')}
+                className={`inline-flex h-9 items-center gap-2 rounded-lg px-3.5 text-[13px] font-semibold transition-colors cursor-pointer ${
+                  stockSubTab === 'ingredients'
+                    ? 'bg-[#1E1B4B] text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Coffee
+                  className={`h-3.5 w-3.5 ${
+                    stockSubTab === 'ingredients'
+                      ? 'text-[#D2DB76]'
+                      : 'text-slate-500'
+                  }`}
+                  aria-hidden
+                />
+                <span>Cafe Raw Ingredients (Beans, Milk &amp; Cups)</span>
+                {stats.lowStockCount > 0 && (
+                  <span className="rounded bg-rose-600 px-1.5 py-0.5 text-[10.5px] font-bold text-white tabular-nums">
+                    {stats.lowStockCount}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                role="tab"
+                aria-selected={stockSubTab === 'expenses'}
+                onClick={() => setStockSubTab('expenses')}
+                className={`inline-flex h-9 items-center gap-2 rounded-lg px-3.5 text-[13px] font-semibold transition-colors cursor-pointer ${
+                  stockSubTab === 'expenses'
+                    ? 'bg-[#1E1B4B] text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Receipt
+                  className={`h-3.5 w-3.5 ${
+                    stockSubTab === 'expenses'
+                      ? 'text-[#D2DB76]'
+                      : 'text-slate-500'
+                  }`}
+                  aria-hidden
+                />
+                <span>Monthly Stock &amp; Expenses</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* GAMES & LOYALTY SUB-SWITCHER (TABLE GAMES & STARS + COFFEE STAMP & BIRTHDAY PASS) */}
+        {activeTab === 'games_loyalty' && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-2">
+            <div className="flex flex-wrap items-center gap-1.5" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={loyaltySubTab === 'table_games'}
+                onClick={() => setLoyaltySubTab('table_games')}
+                className={`inline-flex h-9 items-center gap-2 rounded-lg px-3.5 text-[13px] font-semibold transition-colors cursor-pointer ${
+                  loyaltySubTab === 'table_games'
+                    ? 'bg-[#1E1B4B] text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Gamepad2
+                  className={`h-3.5 w-3.5 ${
+                    loyaltySubTab === 'table_games'
+                      ? 'text-[#D2DB76]'
+                      : 'text-slate-500'
+                  }`}
+                  aria-hidden
+                />
+                <span>Table Games &amp; Loyalty Stars</span>
+              </button>
+
+              <button
+                type="button"
+                role="tab"
+                aria-selected={loyaltySubTab === 'stamp_pass'}
+                onClick={() => setLoyaltySubTab('stamp_pass')}
+                className={`inline-flex h-9 items-center gap-2 rounded-lg px-3.5 text-[13px] font-semibold transition-colors cursor-pointer ${
+                  loyaltySubTab === 'stamp_pass'
+                    ? 'bg-[#1E1B4B] text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Cake
+                  className={`h-3.5 w-3.5 ${
+                    loyaltySubTab === 'stamp_pass'
+                      ? 'text-[#D2DB76]'
+                      : 'text-slate-500'
+                  }`}
+                  aria-hidden
+                />
+                <span>Coffee Stamp Card &amp; Birthday Rules</span>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ===================================================================
-            TAB 1: COUNTER & LIVE STAMP PASS (HOME)
+            UNIFIED CAFE OPERATIONS ENGINE (TABLES ONLY — ZERO HOTEL ROOMS!)
+            Covers: Live Desk, Analytics, Digital Menu, Tables & QRs,
+                    Staff & Waiters, Monthly Stock & Expenses,
+                    Table Games & Loyalty, and Settings
+           =================================================================== */}
+        {restaurantSection && (
+          <RestaurantManagerView
+            key={`cafe-ops-${business.id}-${restaurantMountSeed}`}
+            business={business}
+            isBusinessLive={isBusinessLive}
+            activeSection={restaurantSection}
+            onSectionChange={(sec) => {
+              if (sec === 'inventory') setStockSubTab('expenses');
+              if (sec === 'games_loyalty') setLoyaltySubTab('table_games');
+              handleTabChange(sec);
+            }}
+            moduleVisibility={moduleVisibility}
+            onModuleVisibilityChange={handleUpdateModules}
+            disableHotelRooms
+          />
+        )}
+
+        {/* ===================================================================
+            CAFE SIGNATURE TAB: COUNTER & LIVE COFFEE STAMP PASS
            =================================================================== */}
         {activeTab === 'counter' && (
           <div className="space-y-4">
@@ -800,7 +1193,11 @@ export function CafeManagerView({
                     rel="noopener noreferrer"
                     className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#1E1B4B] px-3.5 text-[12.5px] font-semibold text-white hover:bg-[#2E2A6E]"
                   >
-                    Customer Pass <ExternalLink className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
+                    Customer Pass{' '}
+                    <ExternalLink
+                      className="h-3.5 w-3.5 text-[#D2DB76]"
+                      aria-hidden
+                    />
                   </a>
                 )}
               </div>
@@ -810,7 +1207,10 @@ export function CafeManagerView({
             <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
               <button
                 type="button"
-                onClick={() => setActiveTab('inventory')}
+                onClick={() => {
+                  setStockSubTab('ingredients');
+                  handleTabChange('inventory');
+                }}
                 className={`text-left rounded-xl border p-4 transition-colors cursor-pointer ${
                   stats.lowStockCount > 0
                     ? 'border-rose-300 bg-rose-50 hover:bg-rose-100/70'
@@ -869,7 +1269,10 @@ export function CafeManagerView({
 
               <div className="rounded-xl border border-slate-200 bg-white p-4">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                  <UtensilsCrossed className="h-3.5 w-3.5 text-[#1E1B4B]" aria-hidden />
+                  <UtensilsCrossed
+                    className="h-3.5 w-3.5 text-[#1E1B4B]"
+                    aria-hidden
+                  />
                   Counter Orders Today
                 </p>
                 <p className="mt-1 text-[28px] font-bold text-[#111827] tabular-nums">
@@ -904,7 +1307,9 @@ export function CafeManagerView({
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
                   <div
                     className="h-full bg-[#1E1B4B] transition-all duration-1000"
-                    style={{ width: `${Math.round((secondsLeft / 30) * 100)}%` }}
+                    style={{
+                      width: `${Math.round((secondsLeft / 30) * 100)}%`,
+                    }}
                   />
                 </div>
 
@@ -934,7 +1339,9 @@ export function CafeManagerView({
                     className="flex-1 inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
                   >
                     <Copy className="h-3.5 w-3.5" aria-hidden />
-                    {copiedCounterUrl ? 'Copied Live URL ✓' : 'Copy Live Stamp URL'}
+                    {copiedCounterUrl
+                      ? 'Copied Live URL ✓'
+                      : 'Copy Live Stamp URL'}
                   </button>
                   <a
                     href={rotatingQrUrl}
@@ -942,14 +1349,17 @@ export function CafeManagerView({
                     rel="noopener noreferrer"
                     className="inline-flex h-9 items-center justify-center gap-1 rounded-lg bg-[#1E1B4B] px-3 text-[12px] font-semibold text-white hover:bg-[#2E2A6E]"
                   >
-                    Test Scan <ExternalLink className="h-3.5 w-3.5 text-[#D2DB76]" aria-hidden />
+                    Test Scan{' '}
+                    <ExternalLink
+                      className="h-3.5 w-3.5 text-[#D2DB76]"
+                      aria-hidden
+                    />
                   </a>
                 </div>
               </div>
 
               {/* RIGHT (8 cols): Reward & Birthday Lookup + Counter Pickup Queue */}
               <div className="xl:col-span-8 space-y-4">
-                {/* Quick Reward & Birthday Coffee Lookup */}
                 <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-3.5">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
@@ -1042,7 +1452,8 @@ export function CafeManagerView({
                               <button
                                 type="button"
                                 disabled={
-                                  redeemingKey === `${pass.id}-stamp_free_drink`
+                                  redeemingKey ===
+                                  `${pass.id}-stamp_free_drink`
                                 }
                                 onClick={() =>
                                   void handleRedeemReward(
@@ -1173,14 +1584,14 @@ export function CafeManagerView({
         )}
 
         {/* ===================================================================
-            TAB 2: CAFE INVENTORY & LOW-STOCK RADAR
+            CAFE RAW INGREDIENTS & LOW-STOCK RADAR (BEANS, MILK, CUPS)
            =================================================================== */}
-        {activeTab === 'inventory' && (
+        {activeTab === 'inventory' && stockSubTab === 'ingredients' && (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3.5">
               <div>
                 <h1 className="text-[22px] font-bold tracking-tight text-[#111827]">
-                  Cafe Inventory &amp; Low-Stock Radar
+                  Cafe Raw Ingredients &amp; Low-Stock Radar
                 </h1>
                 <p className="text-[13px] text-slate-500">
                   Track coffee beans (kg), milk (liters), syrups, cups &amp; lids, and bakery batches with 1-tap shift usage &amp; restock logs.
@@ -1207,7 +1618,6 @@ export function CafeManagerView({
               </div>
             </div>
 
-            {/* Low-Stock Alert Banner */}
             {lowStockItems.length > 0 && (
               <div className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 space-y-1.5">
                 <p className="text-[12.5px] font-bold text-rose-800 flex items-center gap-2">
@@ -1238,7 +1648,6 @@ export function CafeManagerView({
               </div>
             )}
 
-            {/* Category Filter Pills */}
             <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
@@ -1273,10 +1682,12 @@ export function CafeManagerView({
               })}
             </div>
 
-            {/* Interactive Stock Cards Grid */}
             {filteredInventory.length === 0 ? (
               <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center space-y-3">
-                <Package className="mx-auto h-8 w-8 text-slate-400" aria-hidden />
+                <Package
+                  className="mx-auto h-8 w-8 text-slate-400"
+                  aria-hidden
+                />
                 <p className="text-[14px] font-semibold text-slate-700">
                   No ingredients in this category yet.
                 </p>
@@ -1307,7 +1718,8 @@ export function CafeManagerView({
                       ? Math.min(
                           100,
                           Math.round(
-                            (item.currentStock / (item.lowStockThreshold * 2.5)) *
+                            (item.currentStock /
+                              (item.lowStockThreshold * 2.5)) *
                               100,
                           ),
                         )
@@ -1317,7 +1729,9 @@ export function CafeManagerView({
                     <div
                       key={item.id}
                       className={`rounded-xl border bg-white p-4 space-y-3 ${
-                        isLow ? 'border-rose-300 bg-rose-50/30' : 'border-slate-200'
+                        isLow
+                          ? 'border-rose-300 bg-rose-50/30'
+                          : 'border-slate-200'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
@@ -1398,7 +1812,10 @@ export function CafeManagerView({
                           }}
                           className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-[#1E1B4B] text-[11.5px] font-semibold text-white hover:bg-[#2E2A6E] cursor-pointer"
                         >
-                          <Plus className="h-3 w-3 text-[#D2DB76]" aria-hidden />{' '}
+                          <Plus
+                            className="h-3 w-3 text-[#D2DB76]"
+                            aria-hidden
+                          />{' '}
                           Restock
                         </button>
                         <button
@@ -1419,7 +1836,6 @@ export function CafeManagerView({
               </div>
             )}
 
-            {/* Auditable Stock Movement History */}
             <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
               <h2 className="text-[15px] font-bold text-[#111827] flex items-center gap-2">
                 <History className="h-4 w-4 text-[#1E1B4B]" aria-hidden />
@@ -1485,20 +1901,19 @@ export function CafeManagerView({
         )}
 
         {/* ===================================================================
-            TAB 3: CAFE MENU & STAMP / BIRTHDAY RULES
+            COFFEE STAMP CARD & BIRTHDAY RULES (UNDER GAMES & LOYALTY)
            =================================================================== */}
-        {activeTab === 'menu_rules' && (
+        {activeTab === 'games_loyalty' && loyaltySubTab === 'stamp_pass' && (
           <div className="space-y-5 max-w-5xl">
             <div className="border-b border-slate-200 pb-3.5">
               <h1 className="text-[22px] font-bold tracking-tight text-[#111827]">
-                Cafe Menu &amp; Stamp Card Rules
+                Coffee Stamp Card &amp; Birthday Free Coffee Rules
               </h1>
               <p className="text-[13px] text-slate-500">
-                Configure your coffee stamp card threshold, automatic birthday free coffee, and counter drinks menu.
+                Configure your counter coffee stamp card threshold, automatic birthday free coffee, and counter UPI ID.
               </p>
             </div>
 
-            {/* Stamp Card & Birthday Config Form */}
             <form
               onSubmit={(e) => void handleSaveStampConfig(e)}
               className="rounded-xl border border-slate-200 bg-white p-5 space-y-4"
@@ -1595,127 +2010,11 @@ export function CafeManagerView({
                 </Button>
               </div>
             </form>
-
-            {/* Quick Cafe Menu Manager */}
-            <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h2 className="text-[15px] font-bold text-[#111827]">
-                    Counter Drinks &amp; Bakery Menu ({menuItems.length})
-                  </h2>
-                  <p className="text-[12px] text-slate-500">
-                    Appears on the guest&apos;s &ldquo;Order at Counter&rdquo; tab for fast pickup tokens (#C-01).
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  loading={addingDrink}
-                  onClick={() => void handleSeedPopularCafeDrinks()}
-                >
-                  <Sparkles className="h-3.5 w-3.5" aria-hidden />
-                  Seed 5 Signature Cafe Drinks
-                </Button>
-              </div>
-
-              <form
-                onSubmit={(e) => void handleAddCafeDrink(e)}
-                className="grid gap-2.5 sm:grid-cols-12 items-end rounded-lg border border-slate-200 bg-slate-50 p-3"
-              >
-                <div className="sm:col-span-4 space-y-1">
-                  <label className="block text-[11.5px] font-semibold text-slate-700">
-                    Drink / Snack Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Iced Caramel Macchiato"
-                    value={newDrinkName}
-                    onChange={(e) => setNewDrinkName(e.target.value)}
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-[13px]"
-                  />
-                </div>
-                <div className="sm:col-span-3 space-y-1">
-                  <label className="block text-[11.5px] font-semibold text-slate-700">
-                    Price (₹) *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newDrinkPrice}
-                    onChange={(e) => setNewDrinkPrice(e.target.value)}
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] font-semibold"
-                  />
-                </div>
-                <div className="sm:col-span-3 space-y-1">
-                  <label className="block text-[11.5px] font-semibold text-slate-700">
-                    Short Note
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Optional subtitle"
-                    value={newDrinkDesc}
-                    onChange={(e) => setNewDrinkDesc(e.target.value)}
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-[13px]"
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    loading={addingDrink}
-                    className="w-full h-9"
-                  >
-                    + Add
-                  </Button>
-                </div>
-              </form>
-
-              {menuItems.length > 0 && (
-                <div className="divide-y divide-slate-100">
-                  {menuItems.map((it) => (
-                    <div
-                      key={it.id}
-                      className="flex items-center justify-between gap-2 py-2.5 text-[13px]"
-                    >
-                      <div className="min-w-0">
-                        <p className="font-semibold text-[#111827] truncate">
-                          {it.name}
-                        </p>
-                        {it.description && (
-                          <p className="text-[11.5px] text-slate-500 truncate">
-                            {it.description}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span className="font-bold text-[#1E1B4B] tabular-nums">
-                          {formatPriceFromPaise(it.pricePaise, 'INR')}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            await businessRepository.deleteRestaurantMenuItem(
-                              business.id,
-                              it.id,
-                            );
-                            await refreshCafeData();
-                          }}
-                          className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 cursor-pointer"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         )}
 
         {/* ===================================================================
-            TAB 4: AI GOOGLE REVIEWS & COUNTER COFFEE STAMP QR POSTER
+            AI GOOGLE REVIEWS & COUNTER STAMP STANDEES
            =================================================================== */}
         {activeTab === 'reviews' && (
           <div className="space-y-4">
@@ -1725,7 +2024,7 @@ export function CafeManagerView({
                   AI Google Reviews &amp; Counter Standees
                 </h1>
                 <p className="text-[13px] text-slate-500">
-                  Download printable Counter Coffee Stamp &amp; Quick Menu standees and manage AI Google review drafts.
+                  Download printable Counter Coffee Stamp &amp; Google Review standees and manage AI review drafts.
                 </p>
               </div>
               {isBusinessLive && (
@@ -1734,7 +2033,8 @@ export function CafeManagerView({
                   target="_blank"
                   className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[12.5px] font-semibold text-[#1E1B4B] hover:bg-slate-50"
                 >
-                  Open AI Review Page <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                  Open AI Review Page{' '}
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden />
                 </Link>
               )}
             </div>

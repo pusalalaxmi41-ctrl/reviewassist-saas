@@ -157,6 +157,8 @@ interface Props {
   onProfileChanged?: (profile: RestaurantProfile) => void;
   moduleVisibility?: WorkspaceModuleVisibility;
   onModuleVisibilityChange?: (next: WorkspaceModuleVisibility) => void;
+  /** When true (e.g. CafeOS), strictly hides all Hotel Rooms & Hotel Floor UI. */
+  disableHotelRooms?: boolean;
 }
 
 function TableQrPreviewCanvas({ url }: { url: string }) {
@@ -200,7 +202,9 @@ export function RestaurantManagerView({
   onProfileChanged,
   moduleVisibility = DEFAULT_WORKSPACE_MODULES,
   onModuleVisibilityChange,
+  disableHotelRooms = false,
 }: Props) {
+  const allowHotelRooms = !disableHotelRooms && business.category !== 'cafe';
   const [internalSection, setInternalSection] =
     useState<RestaurantWorkspaceSection>('overview');
   const currentSection = activeSection ?? internalSection;
@@ -1309,30 +1313,42 @@ export function RestaurantManagerView({
   }
 
   // Multi-Floor Building Derived State (Strictly Separates Restaurant Tables & Hotel Rooms!)
-  const buildingFloors = useMemo<BuildingFloor[]>(
+  const visibleTables = useMemo(
     () =>
-      buildEffectiveBuildingFloors({
-        savedFloors: savedBuildingFloors,
-        tables,
-        hotelRoomsEnabled:
-          hotelRoomsEnabled ||
-          business.category === 'hotel' ||
-          business.category === 'pg',
-        defaultWidthFt: floorData?.floorWidthFt ?? profile?.floorWidthFt ?? 40,
-        defaultHeightFt:
-          floorData?.floorHeightFt ?? profile?.floorHeightFt ?? 28,
-      }),
-    [
-      savedBuildingFloors,
-      tables,
-      hotelRoomsEnabled,
-      business.category,
-      floorData?.floorWidthFt,
-      floorData?.floorHeightFt,
-      profile?.floorWidthFt,
-      profile?.floorHeightFt,
-    ],
+      allowHotelRooms
+        ? tables
+        : tables.filter((t) => (t.locationType ?? 'table') !== 'room'),
+    [allowHotelRooms, tables],
   );
+
+  const showHotelRoomsUi =
+    allowHotelRooms &&
+    (hotelRoomsEnabled ||
+      business.category === 'hotel' ||
+      business.category === 'pg');
+
+  const buildingFloors = useMemo<BuildingFloor[]>(() => {
+    const built = buildEffectiveBuildingFloors({
+      savedFloors: savedBuildingFloors,
+      tables: visibleTables,
+      hotelRoomsEnabled: showHotelRoomsUi,
+      defaultWidthFt: floorData?.floorWidthFt ?? profile?.floorWidthFt ?? 40,
+      defaultHeightFt:
+        floorData?.floorHeightFt ?? profile?.floorHeightFt ?? 28,
+    });
+    return allowHotelRooms
+      ? built
+      : built.filter((f) => f.floorType !== 'hotel');
+  }, [
+    allowHotelRooms,
+    savedBuildingFloors,
+    visibleTables,
+    showHotelRoomsUi,
+    floorData?.floorWidthFt,
+    floorData?.floorHeightFt,
+    profile?.floorWidthFt,
+    profile?.floorHeightFt,
+  ]);
 
   const selectedBuildingFloor = useMemo<BuildingFloor>(
     () =>
@@ -1352,7 +1368,7 @@ export function RestaurantManagerView({
     for (const fl of buildingFloors) {
       map.set(fl.id, []);
     }
-    for (const tbl of tables) {
+    for (const tbl of visibleTables) {
       if (!tbl.isActive) continue;
       const isRoom = (tbl.locationType ?? 'table') === 'room';
       const targetType: BuildingFloorType = isRoom ? 'hotel' : 'restaurant';
@@ -1368,7 +1384,7 @@ export function RestaurantManagerView({
       }
     }
     return map;
-  }, [buildingFloors, tables]);
+  }, [buildingFloors, visibleTables]);
 
   const activeFloorTables = useMemo(
     () => tablesByFloorId.get(selectedBuildingFloor.id) ?? [],
@@ -1447,17 +1463,20 @@ export function RestaurantManagerView({
     locType: RestaurantLocationType,
     presetFloorName?: string,
   ) {
-    setTableLocationType(locType);
-    setTableSeatCapacity(locType === 'room' ? 2 : 4);
+    const effectiveLocType: RestaurantLocationType = allowHotelRooms
+      ? locType
+      : 'table';
+    setTableLocationType(effectiveLocType);
+    setTableSeatCapacity(effectiveLocType === 'room' ? 2 : 4);
     setTableNumber('');
     const targetType: BuildingFloorType =
-      locType === 'room' ? 'hotel' : 'restaurant';
+      effectiveLocType === 'room' ? 'hotel' : 'restaurant';
     const defaultFloor =
       presetFloorName ||
       (selectedBuildingFloor.floorType === targetType
         ? selectedBuildingFloor.name
         : buildingFloors.find((f) => f.floorType === targetType)?.name) ||
-      (locType === 'room' ? 'Floor 1' : 'Ground Floor');
+      (effectiveLocType === 'room' ? 'Floor 1' : 'Ground Floor');
     setTableLabel(defaultFloor);
     setShowAddTableForm(true);
   }
@@ -2013,15 +2032,9 @@ export function RestaurantManagerView({
                   }`}
                 >
                   <LayoutGrid className="h-4 w-4" aria-hidden />
-                  <span>
-                    {hotelRoomsEnabled ||
-                    business.category === 'hotel' ||
-                    business.category === 'pg'
-                      ? 'Floor & Rooms'
-                      : 'Floor'}
-                  </span>
+                  <span>{showHotelRoomsUi ? 'Floor & Rooms' : 'Floor'}</span>
                   <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-700 tabular-nums">
-                    {tables.filter((t) => t.isActive).length}
+                    {visibleTables.filter((t) => t.isActive).length}
                   </span>
                 </button>
 
@@ -2345,7 +2358,13 @@ export function RestaurantManagerView({
                               isSelected ? 'text-white/75' : 'text-slate-400'
                             }`}
                           >
-                            ({isHotel ? 'Hotel' : 'Restaurant'})
+                            (
+                            {isHotel
+                              ? 'Hotel'
+                              : business.category === 'cafe'
+                                ? 'Tables'
+                                : 'Restaurant'}
+                            )
                           </span>
                           <span
                             className={`rounded px-1.5 py-0.2 text-[10.5px] font-bold tabular-nums ${
@@ -2376,11 +2395,17 @@ export function RestaurantManagerView({
                 <button
                   type="button"
                   onClick={() => {
-                    const nextHotelNum =
-                      buildingFloors.filter((f) => f.floorType === 'hotel')
-                        .length + 1;
-                    setNewFloorType('hotel');
-                    setNewFloorName(`Floor ${nextHotelNum}`);
+                    if (allowHotelRooms) {
+                      const nextHotelNum =
+                        buildingFloors.filter((f) => f.floorType === 'hotel')
+                          .length + 1;
+                      setNewFloorType('hotel');
+                      setNewFloorName(`Floor ${nextHotelNum}`);
+                    } else {
+                      const nextFloorNum = buildingFloors.length + 1;
+                      setNewFloorType('restaurant');
+                      setNewFloorName(`Cafe Floor ${nextFloorNum}`);
+                    }
                     setNewFloorWidthFt(40);
                     setNewFloorHeightFt(28);
                     setShowAddFloorModal(true);
@@ -2402,11 +2427,7 @@ export function RestaurantManagerView({
                 serviceChargePercent={serviceChargePercent}
                 floorMode={selectedBuildingFloor.floorType}
                 floorName={selectedBuildingFloor.name}
-                hotelRoomsEnabled={
-                  hotelRoomsEnabled ||
-                  business.category === 'hotel' ||
-                  business.category === 'pg'
-                }
+                hotelRoomsEnabled={showHotelRoomsUi}
                 floorWidthFt={selectedBuildingFloor.widthFt}
                 floorHeightFt={selectedBuildingFloor.heightFt}
                 onAddLocation={(locType) =>
@@ -2480,7 +2501,7 @@ export function RestaurantManagerView({
               />
 
               {/* Proactive Manager -> Waiter Task Dispatcher (Send instant alert to Rahul/Madhan phone!) */}
-              {tables.filter((t) => t.isActive).length > 0 &&
+              {visibleTables.filter((t) => t.isActive).length > 0 &&
                 staffMembers.some(
                   (s) =>
                     s.isActive &&
@@ -2509,13 +2530,13 @@ export function RestaurantManagerView({
                         aria-label="Select table for waiter task"
                         value={
                           dispatchTableKey ||
-                          tables.filter((t) => t.isActive)[0]?.tableKey ||
+                          visibleTables.filter((t) => t.isActive)[0]?.tableKey ||
                           ''
                         }
                         onChange={(e) => setDispatchTableKey(e.target.value)}
                         className="h-9 rounded-xl border border-[#1E1B4B]/20 bg-[#F8F9FA] px-2.5 text-[12px] font-bold text-[#111827] focus:border-[#1E1B4B] focus:outline-none cursor-pointer"
                       >
-                        {tables
+                        {visibleTables
                           .filter((t) => t.isActive)
                           .map((t) => (
                             <option key={t.id} value={t.tableKey}>
@@ -2654,7 +2675,9 @@ export function RestaurantManagerView({
                     No orders in this filter right now
                   </p>
                   <p className="text-[12.5px] text-[#6B7280]">
-                    Incoming QR Table/Room orders, Counter POS tickets, and Swiggy/Zomato orders appear here live.
+                    {allowHotelRooms
+                      ? 'Incoming QR Table/Room orders, Counter POS tickets, and Swiggy/Zomato orders appear here live.'
+                      : 'Incoming QR Table orders, Counter POS tickets, and Swiggy/Zomato orders appear here live.'}
                   </p>
                 </div>
               ) : (
@@ -2895,7 +2918,7 @@ export function RestaurantManagerView({
               businessName={business.name}
               activeCalls={activeCalls}
               tableMessages={tableMessages}
-              tables={tables}
+              tables={visibleTables}
               staffRoster={staffMembers}
               onResolveCall={async (callId, assignedLabel) => {
                 await handleUpdateTableCall(callId, 'resolved', assignedLabel);
@@ -2944,7 +2967,9 @@ export function RestaurantManagerView({
                 {analytics.qrScans.toLocaleString()}
               </p>
               <p className="text-[11.5px] text-slate-500">
-                Table, room &amp; counter menu opens
+                {allowHotelRooms
+                  ? 'Table, room & counter menu opens'
+                  : 'Table & counter menu opens'}
               </p>
             </div>
 
@@ -2988,7 +3013,9 @@ export function RestaurantManagerView({
                 )}
               </p>
               <p className="text-[11.5px] text-slate-500">
-                Across currently occupied tables &amp; rooms
+                {allowHotelRooms
+                  ? 'Across currently occupied tables & rooms'
+                  : 'Across currently occupied tables'}
               </p>
             </div>
 
@@ -3025,8 +3052,10 @@ export function RestaurantManagerView({
                     onClick: () => setSection('menu'),
                   },
                   {
-                    done: tables.filter((t) => t.isActive).length > 0,
-                    label: `Tables & Rooms (${tables.filter((t) => (t.locationType ?? 'table') === 'table').length} tables, ${tables.filter((t) => t.locationType === 'room').length} rooms)`,
+                    done: visibleTables.filter((t) => t.isActive).length > 0,
+                    label: allowHotelRooms
+                      ? `Tables & Rooms (${tables.filter((t) => (t.locationType ?? 'table') === 'table').length} tables, ${tables.filter((t) => t.locationType === 'room').length} rooms)`
+                      : `Tables & QRs (${visibleTables.filter((t) => t.isActive).length} tables)`,
                     actionLabel: 'Manage Tables',
                     onClick: () => setSection('tables'),
                   },
@@ -3827,29 +3856,31 @@ export function RestaurantManagerView({
                     />
                     Chef&apos;s Special
                   </label>
-                  <div className="inline-flex items-center gap-3 rounded-xl border border-[#1E1B4B]/12 bg-[#F8F9FA] px-3 py-1.5">
-                    <span className="text-[11.5px] font-extrabold uppercase tracking-wider text-[#6B7280]">
-                      Show on:
-                    </span>
-                    <label className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-[#111827] cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={itemShowOnTable}
-                        onChange={(e) => setItemShowOnTable(e.target.checked)}
-                        className="h-4 w-4 accent-[#1E1B4B]"
-                      />
-                      Tables
-                    </label>
-                    <label className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-[#111827] cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={itemShowOnRoom}
-                        onChange={(e) => setItemShowOnRoom(e.target.checked)}
-                        className="h-4 w-4 accent-[#1E1B4B]"
-                      />
-                      Hotel Rooms
-                    </label>
-                  </div>
+                  {allowHotelRooms && (
+                    <div className="inline-flex items-center gap-3 rounded-xl border border-[#1E1B4B]/12 bg-[#F8F9FA] px-3 py-1.5">
+                      <span className="text-[11.5px] font-extrabold uppercase tracking-wider text-[#6B7280]">
+                        Show on:
+                      </span>
+                      <label className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-[#111827] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={itemShowOnTable}
+                          onChange={(e) => setItemShowOnTable(e.target.checked)}
+                          className="h-4 w-4 accent-[#1E1B4B]"
+                        />
+                        Tables
+                      </label>
+                      <label className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-[#111827] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={itemShowOnRoom}
+                          onChange={(e) => setItemShowOnRoom(e.target.checked)}
+                          className="h-4 w-4 accent-[#1E1B4B]"
+                        />
+                        Hotel Rooms
+                      </label>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -3958,12 +3989,12 @@ export function RestaurantManagerView({
                               {item.prepTimeMinutes}m
                             </span>
                           )}
-                          {item.showOnTable === false && (
+                          {allowHotelRooms && item.showOnTable === false && (
                             <span className="rounded-full bg-violet-50 border border-violet-200 px-2 py-0.5 text-[10.5px] font-bold text-violet-800">
                               Rooms Only
                             </span>
                           )}
-                          {item.showOnRoom === false && (
+                          {allowHotelRooms && item.showOnRoom === false && (
                             <span className="rounded-full bg-sky-50 border border-sky-200 px-2 py-0.5 text-[10.5px] font-bold text-sky-800">
                               Tables Only
                             </span>
@@ -4084,16 +4115,19 @@ export function RestaurantManagerView({
           5. TABLES & HOTEL ROOMS QR STANDEES — TWO COMPLETELY SEPARATE SECTIONS!
          ===================================================================== */}
       {currentSection === 'tables' && (() => {
+        const effectiveQrTab: 'tables' | 'rooms' = allowHotelRooms
+          ? qrSectionTab
+          : 'tables';
         const diningTables = tables.filter(
           (t) => (t.locationType ?? 'table') !== 'room',
         );
         const hotelRooms = tables.filter((t) => t.locationType === 'room');
         const activeTabFloors = buildingFloors.filter((f) =>
-          qrSectionTab === 'rooms'
+          effectiveQrTab === 'rooms'
             ? f.floorType === 'hotel'
             : f.floorType === 'restaurant',
         );
-        const rawList = qrSectionTab === 'rooms' ? hotelRooms : diningTables;
+        const rawList = effectiveQrTab === 'rooms' ? hotelRooms : diningTables;
         const displayedQrItems =
           qrFloorFilter === 'all'
             ? rawList
@@ -4108,14 +4142,16 @@ export function RestaurantManagerView({
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-4">
               <div>
                 <h1 className="text-[22px] font-bold tracking-tight text-[#111827]">
-                  QR &amp; NFC Standees
+                  {allowHotelRooms ? 'QR & NFC Standees' : 'Tables & QR Standees'}
                 </h1>
                 <p className="mt-0.5 text-[13px] text-slate-500">
-                  Separate QR standee workspaces for Restaurant Tables and Hotel Rooms so standees never get mixed up.
+                  {allowHotelRooms
+                    ? 'Separate QR standee workspaces for Restaurant Tables and Hotel Rooms so standees never get mixed up.'
+                    : 'Generate printable QR & NFC standees for every cafe table and your counter menu.'}
                 </p>
               </div>
               <div className="flex flex-wrap shrink-0 items-center gap-2">
-                {qrSectionTab === 'tables' && (
+                {effectiveQrTab === 'tables' && (
                   <button
                     type="button"
                     onClick={() => {
@@ -4132,7 +4168,7 @@ export function RestaurantManagerView({
                   type="button"
                   onClick={() => {
                     const nextType: BuildingFloorType =
-                      qrSectionTab === 'rooms' ? 'hotel' : 'restaurant';
+                      effectiveQrTab === 'rooms' ? 'hotel' : 'restaurant';
                     const nextNum =
                       buildingFloors.filter((f) => f.floorType === nextType)
                         .length + 1;
@@ -4140,7 +4176,9 @@ export function RestaurantManagerView({
                     setNewFloorName(
                       nextType === 'hotel'
                         ? `Floor ${nextNum}`
-                        : `Dining Floor ${nextNum}`,
+                        : business.category === 'cafe'
+                          ? `Cafe Floor ${nextNum}`
+                          : `Dining Floor ${nextNum}`,
                     );
                     setShowAddFloorModal(true);
                   }}
@@ -4149,7 +4187,7 @@ export function RestaurantManagerView({
                   <Layers className="h-3.5 w-3.5 text-[#1E1B4B]" aria-hidden />
                   + Add Floor
                 </button>
-                {qrSectionTab === 'rooms' ? (
+                {effectiveQrTab === 'rooms' ? (
                   <button
                     type="button"
                     onClick={() =>
@@ -4187,44 +4225,46 @@ export function RestaurantManagerView({
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={qrSectionTab === 'tables'}
+                  aria-selected={effectiveQrTab === 'tables'}
                   onClick={() => {
                     setQrSectionTab('tables');
                     setQrFloorFilter('all');
                   }}
                   className={`inline-flex h-11 items-center gap-2 border-b-2 px-4 text-[13.5px] font-semibold transition-colors cursor-pointer ${
-                    qrSectionTab === 'tables'
+                    effectiveQrTab === 'tables'
                       ? 'border-[#1E1B4B] text-[#1E1B4B]'
                       : 'border-transparent text-slate-500 hover:text-slate-900'
                   }`}
                 >
                   <UtensilsCrossed className="h-4 w-4" aria-hidden />
-                  <span>Dining Tables QRs</span>
+                  <span>{allowHotelRooms ? 'Dining Tables QRs' : 'Tables QRs'}</span>
                   <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-700 tabular-nums">
                     {diningTables.length}
                   </span>
                 </button>
 
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={qrSectionTab === 'rooms'}
-                  onClick={() => {
-                    setQrSectionTab('rooms');
-                    setQrFloorFilter('all');
-                  }}
-                  className={`inline-flex h-11 items-center gap-2 border-b-2 px-4 text-[13.5px] font-semibold transition-colors cursor-pointer ${
-                    qrSectionTab === 'rooms'
-                      ? 'border-[#1E1B4B] text-[#1E1B4B]'
-                      : 'border-transparent text-slate-500 hover:text-slate-900'
-                  }`}
-                >
-                  <BedDouble className="h-4 w-4" aria-hidden />
-                  <span>Hotel Rooms QRs</span>
-                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-700 tabular-nums">
-                    {hotelRooms.length}
-                  </span>
-                </button>
+                {allowHotelRooms && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={effectiveQrTab === 'rooms'}
+                    onClick={() => {
+                      setQrSectionTab('rooms');
+                      setQrFloorFilter('all');
+                    }}
+                    className={`inline-flex h-11 items-center gap-2 border-b-2 px-4 text-[13.5px] font-semibold transition-colors cursor-pointer ${
+                      effectiveQrTab === 'rooms'
+                        ? 'border-[#1E1B4B] text-[#1E1B4B]'
+                        : 'border-transparent text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    <BedDouble className="h-4 w-4" aria-hidden />
+                    <span>Hotel Rooms QRs</span>
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-700 tabular-nums">
+                      {hotelRooms.length}
+                    </span>
+                  </button>
+                )}
               </div>
 
               {/* Per-Floor Filter Chips for the Active Section */}
@@ -4385,14 +4425,14 @@ export function RestaurantManagerView({
                 type="button"
                 onClick={() =>
                   openAddLocationModal(
-                    qrSectionTab === 'rooms' ? 'room' : 'table',
+                    effectiveQrTab === 'rooms' ? 'room' : 'table',
                     qrFloorFilter !== 'all' ? qrFloorFilter : undefined,
                   )
                 }
                 className="flex min-h-[260px] flex-col items-center justify-center gap-2.5 rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center hover:border-[#1E1B4B] hover:bg-slate-50/50 transition-colors cursor-pointer"
               >
                 <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#1E1B4B] text-[#D2DB76]">
-                  {qrSectionTab === 'rooms' ? (
+                  {effectiveQrTab === 'rooms' ? (
                     <BedDouble className="h-5 w-5" aria-hidden />
                   ) : (
                     <Plus className="h-5 w-5" aria-hidden />
@@ -4400,14 +4440,16 @@ export function RestaurantManagerView({
                 </span>
                 <div>
                   <p className="text-[14.5px] font-bold text-[#111827]">
-                    {qrSectionTab === 'rooms'
+                    {effectiveQrTab === 'rooms'
                       ? '+ Add Hotel Room QR'
-                      : '+ Add Dining Table QR'}
+                      : allowHotelRooms
+                        ? '+ Add Dining Table QR'
+                        : '+ Add Table QR'}
                   </p>
                   <p className="mt-0.5 text-[12px] text-slate-500">
-                    {qrSectionTab === 'rooms'
+                    {effectiveQrTab === 'rooms'
                       ? 'Create a room service QR & NFC tag'
-                      : 'Create a dining table QR & NFC standee'}
+                      : 'Create a table QR & NFC standee'}
                   </p>
                 </div>
               </button>
@@ -5435,41 +5477,43 @@ export function RestaurantManagerView({
               </div>
 
               {/* Hotel Rooms Mode */}
-              <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3.5 py-3">
-                <div>
-                  <p className="text-[13px] font-semibold text-[#111827]">
-                    Hotel Rooms Mode
-                  </p>
-                  <p className="text-[11.5px] text-slate-500">
-                    Enable room service QR cards &amp; room-only menu dishes
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={hotelRoomsEnabled}
-                  disabled={savingProfile}
-                  onClick={() => {
-                    const next = !hotelRoomsEnabled;
-                    setHotelRoomsEnabled(next);
-                    void handleSaveProfile({
-                      hotelRoomsEnabled: next,
-                      statusMessage: next
-                        ? 'Hotel Rooms Mode turned ON.'
-                        : 'Hotel Rooms Mode turned OFF.',
-                    });
-                  }}
-                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
-                    hotelRoomsEnabled ? 'bg-emerald-600' : 'bg-slate-300'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      hotelRoomsEnabled ? 'translate-x-6' : 'translate-x-1'
+              {allowHotelRooms && (
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3.5 py-3">
+                  <div>
+                    <p className="text-[13px] font-semibold text-[#111827]">
+                      Hotel Rooms Mode
+                    </p>
+                    <p className="text-[11.5px] text-slate-500">
+                      Enable room service QR cards &amp; room-only menu dishes
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={hotelRoomsEnabled}
+                    disabled={savingProfile}
+                    onClick={() => {
+                      const next = !hotelRoomsEnabled;
+                      setHotelRoomsEnabled(next);
+                      void handleSaveProfile({
+                        hotelRoomsEnabled: next,
+                        statusMessage: next
+                          ? 'Hotel Rooms Mode turned ON.'
+                          : 'Hotel Rooms Mode turned OFF.',
+                      });
+                    }}
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                      hotelRoomsEnabled ? 'bg-emerald-600' : 'bg-slate-300'
                     }`}
-                  />
-                </button>
-              </div>
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        hotelRoomsEnabled ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              )}
 
               {/* Spoken Voice Alerts */}
               <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3.5 py-3">
@@ -5828,7 +5872,11 @@ export function RestaurantManagerView({
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Add Dining Table or Hotel Room"
+            aria-label={
+              allowHotelRooms
+                ? 'Add Dining Table or Hotel Room'
+                : 'Add Dining Table'
+            }
             className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-[2px]"
           >
             <form
@@ -5837,7 +5885,12 @@ export function RestaurantManagerView({
             >
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <h2 className="text-[17px] font-bold text-[#111827]">
-                  Add {tableLocationType === 'room' ? 'Hotel Room' : 'Dining Table'}
+                  Add{' '}
+                  {allowHotelRooms && tableLocationType === 'room'
+                    ? 'Hotel Room'
+                    : allowHotelRooms
+                      ? 'Dining Table'
+                      : 'Table'}
                 </h2>
                 <button
                   type="button"
@@ -5849,47 +5902,49 @@ export function RestaurantManagerView({
                 </button>
               </div>
 
-              {/* Quick 2-Button Type Switch */}
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTableLocationType('table');
-                    setTableSeatCapacity(4);
-                    const firstRest = buildingFloors.find(
-                      (f) => f.floorType === 'restaurant',
-                    );
-                    setTableLabel(firstRest?.name ?? 'Ground Floor');
-                  }}
-                  className={`flex h-10 items-center justify-center gap-2 rounded-lg border text-[13px] font-semibold transition-colors cursor-pointer ${
-                    tableLocationType === 'table'
-                      ? 'border-[#1E1B4B] bg-[#1E1B4B] text-white'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <UtensilsCrossed className="h-4 w-4" aria-hidden />
-                  Dining Table
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTableLocationType('room');
-                    setTableSeatCapacity(2);
-                    const firstHotel = buildingFloors.find(
-                      (f) => f.floorType === 'hotel',
-                    );
-                    setTableLabel(firstHotel?.name ?? 'Floor 1');
-                  }}
-                  className={`flex h-10 items-center justify-center gap-2 rounded-lg border text-[13px] font-semibold transition-colors cursor-pointer ${
-                    tableLocationType === 'room'
-                      ? 'border-[#1E1B4B] bg-[#1E1B4B] text-white'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <BedDouble className="h-4 w-4" aria-hidden />
-                  Hotel Room
-                </button>
-              </div>
+              {/* Quick 2-Button Type Switch (Hidden when Hotel Rooms are disabled, e.g. CafeOS) */}
+              {allowHotelRooms && (
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTableLocationType('table');
+                      setTableSeatCapacity(4);
+                      const firstRest = buildingFloors.find(
+                        (f) => f.floorType === 'restaurant',
+                      );
+                      setTableLabel(firstRest?.name ?? 'Ground Floor');
+                    }}
+                    className={`flex h-10 items-center justify-center gap-2 rounded-lg border text-[13px] font-semibold transition-colors cursor-pointer ${
+                      tableLocationType === 'table'
+                        ? 'border-[#1E1B4B] bg-[#1E1B4B] text-white'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <UtensilsCrossed className="h-4 w-4" aria-hidden />
+                    Dining Table
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTableLocationType('room');
+                      setTableSeatCapacity(2);
+                      const firstHotel = buildingFloors.find(
+                        (f) => f.floorType === 'hotel',
+                      );
+                      setTableLabel(firstHotel?.name ?? 'Floor 1');
+                    }}
+                    className={`flex h-10 items-center justify-center gap-2 rounded-lg border text-[13px] font-semibold transition-colors cursor-pointer ${
+                      tableLocationType === 'room'
+                        ? 'border-[#1E1B4B] bg-[#1E1B4B] text-white'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <BedDouble className="h-4 w-4" aria-hidden />
+                    Hotel Room
+                  </button>
+                </div>
+              )}
 
               <div className="grid gap-3.5 sm:grid-cols-2">
                 <div className="space-y-1 sm:col-span-2">
@@ -5897,7 +5952,7 @@ export function RestaurantManagerView({
                     htmlFor="modalTableNumber"
                     className="block text-[12.5px] font-semibold text-[#111827]"
                   >
-                    {tableLocationType === 'room'
+                    {allowHotelRooms && tableLocationType === 'room'
                       ? 'Room Number *'
                       : 'Table Name / Number *'}
                   </label>
@@ -5908,7 +5963,7 @@ export function RestaurantManagerView({
                     autoFocus
                     maxLength={40}
                     placeholder={
-                      tableLocationType === 'room'
+                      allowHotelRooms && tableLocationType === 'room'
                         ? 'e.g. Room 101, Suite 204'
                         : 'e.g. Table 05, T5, Patio 2'
                     }
@@ -5923,9 +5978,11 @@ export function RestaurantManagerView({
                     htmlFor="modalTableLabel"
                     className="block text-[12.5px] font-semibold text-[#111827]"
                   >
-                    {tableLocationType === 'room'
+                    {allowHotelRooms && tableLocationType === 'room'
                       ? 'Assign to Hotel Floor *'
-                      : 'Assign to Restaurant Floor *'}
+                      : allowHotelRooms
+                        ? 'Assign to Restaurant Floor *'
+                        : 'Assign to Floor *'}
                   </label>
                   <select
                     id="modalTableLabel"
@@ -5935,7 +5992,7 @@ export function RestaurantManagerView({
                   >
                     {buildingFloors
                       .filter((f) =>
-                        tableLocationType === 'room'
+                        allowHotelRooms && tableLocationType === 'room'
                           ? f.floorType === 'hotel'
                           : f.floorType === 'restaurant',
                       )
@@ -5946,7 +6003,7 @@ export function RestaurantManagerView({
                       ))}
                     {!buildingFloors.some(
                       (f) =>
-                        (tableLocationType === 'room'
+                        (allowHotelRooms && tableLocationType === 'room'
                           ? f.floorType === 'hotel'
                           : f.floorType === 'restaurant') &&
                         f.name.toLowerCase() === tableLabel.toLowerCase(),
@@ -5962,7 +6019,7 @@ export function RestaurantManagerView({
                     htmlFor="modalTableSeats"
                     className="block text-[12.5px] font-semibold text-[#111827]"
                   >
-                    {tableLocationType === 'room'
+                    {allowHotelRooms && tableLocationType === 'room'
                       ? 'Max Guests'
                       : 'Seat Capacity'}
                   </label>
@@ -6007,7 +6064,11 @@ export function RestaurantManagerView({
                   type="submit"
                   className="h-9.5 rounded-lg bg-[#1E1B4B] px-4 text-[13px] font-semibold text-white hover:bg-[#2E2A6E] cursor-pointer"
                 >
-                  Create {tableLocationType === 'room' ? 'Room' : 'Table'} ✓
+                  Create{' '}
+                  {allowHotelRooms && tableLocationType === 'room'
+                    ? 'Room'
+                    : 'Table'}{' '}
+                  ✓
                 </button>
               </div>
             </form>
@@ -6046,57 +6107,59 @@ export function RestaurantManagerView({
                 </button>
               </div>
 
-              <div className="space-y-1.5">
-                <span className="block text-[12px] font-semibold text-[#111827]">
-                  Floor Purpose *
-                </span>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewFloorType('restaurant');
-                      if (!newFloorName || /^Floor \d+$/i.test(newFloorName)) {
-                        setNewFloorName('Rooftop Dining');
-                      }
-                    }}
-                    className={`flex h-11 flex-col items-center justify-center rounded-lg border text-[12.5px] font-semibold transition-colors cursor-pointer ${
-                      newFloorType === 'restaurant'
-                        ? 'border-[#1E1B4B] bg-[#1E1B4B] text-white'
-                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span className="inline-flex items-center gap-1.5">
-                      <UtensilsCrossed className="h-3.5 w-3.5" aria-hidden />
-                      Restaurant Floor
-                    </span>
-                    <span className="text-[10px] opacity-75">Tables Only</span>
-                  </button>
+              {allowHotelRooms && (
+                <div className="space-y-1.5">
+                  <span className="block text-[12px] font-semibold text-[#111827]">
+                    Floor Purpose *
+                  </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewFloorType('restaurant');
+                        if (!newFloorName || /^Floor \d+$/i.test(newFloorName)) {
+                          setNewFloorName('Rooftop Dining');
+                        }
+                      }}
+                      className={`flex h-11 flex-col items-center justify-center rounded-lg border text-[12.5px] font-semibold transition-colors cursor-pointer ${
+                        newFloorType === 'restaurant'
+                          ? 'border-[#1E1B4B] bg-[#1E1B4B] text-white'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="inline-flex items-center gap-1.5">
+                        <UtensilsCrossed className="h-3.5 w-3.5" aria-hidden />
+                        Restaurant Floor
+                      </span>
+                      <span className="text-[10px] opacity-75">Tables Only</span>
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewFloorType('hotel');
-                      const nextNum =
-                        buildingFloors.filter((f) => f.floorType === 'hotel')
-                          .length + 1;
-                      if (!newFloorName || newFloorName === 'Rooftop Dining') {
-                        setNewFloorName(`Floor ${nextNum}`);
-                      }
-                    }}
-                    className={`flex h-11 flex-col items-center justify-center rounded-lg border text-[12.5px] font-semibold transition-colors cursor-pointer ${
-                      newFloorType === 'hotel'
-                        ? 'border-[#1E1B4B] bg-[#1E1B4B] text-white'
-                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span className="inline-flex items-center gap-1.5">
-                      <BedDouble className="h-3.5 w-3.5" aria-hidden />
-                      Hotel Floor
-                    </span>
-                    <span className="text-[10px] opacity-75">Rooms Only</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewFloorType('hotel');
+                        const nextNum =
+                          buildingFloors.filter((f) => f.floorType === 'hotel')
+                            .length + 1;
+                        if (!newFloorName || newFloorName === 'Rooftop Dining') {
+                          setNewFloorName(`Floor ${nextNum}`);
+                        }
+                      }}
+                      className={`flex h-11 flex-col items-center justify-center rounded-lg border text-[12.5px] font-semibold transition-colors cursor-pointer ${
+                        newFloorType === 'hotel'
+                          ? 'border-[#1E1B4B] bg-[#1E1B4B] text-white'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="inline-flex items-center gap-1.5">
+                        <BedDouble className="h-3.5 w-3.5" aria-hidden />
+                        Hotel Floor
+                      </span>
+                      <span className="text-[10px] opacity-75">Rooms Only</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="space-y-1">
                 <label
@@ -6112,9 +6175,9 @@ export function RestaurantManagerView({
                   autoFocus
                   maxLength={48}
                   placeholder={
-                    newFloorType === 'hotel'
+                    allowHotelRooms && newFloorType === 'hotel'
                       ? 'e.g. Floor 2, Floor 3, Deluxe Wing'
-                      : 'e.g. Ground Floor, Rooftop, AC Hall'
+                      : 'e.g. Ground Floor, Patio, Rooftop'
                   }
                   value={newFloorName}
                   onChange={(e) => setNewFloorName(e.target.value)}
@@ -6309,7 +6372,7 @@ export function RestaurantManagerView({
                   businessName={business.name}
                   activeCalls={activeCalls}
                   tableMessages={tableMessages}
-                  tables={tables}
+                  tables={visibleTables}
                   staffRoster={staffMembers}
                   singleColumn={chatWindowSize !== 'large'}
                   onResolveCall={async (callId, assignedLabel) => {
@@ -6359,13 +6422,14 @@ export function RestaurantManagerView({
         <CounterPosAndPlatformModal
           mode={posModalMode}
           businessId={business.id}
-          tables={tables}
+          tables={visibleTables}
           categories={categories}
           items={items}
           currencyCode={currencyCode}
           gstPercent={gstPercent}
           serviceChargePercent={serviceChargePercent}
           initialTableId={posInitialTableId}
+          disableHotelRooms={!allowHotelRooms}
           onClose={() => {
             setPosModalMode(null);
             setPosInitialTableId(null);

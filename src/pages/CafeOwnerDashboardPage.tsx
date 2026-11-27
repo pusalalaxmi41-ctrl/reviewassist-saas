@@ -94,7 +94,9 @@ export default function CafeOwnerDashboardPage() {
       hasOtherBusinesses={hasOtherBusinesses}
       onSelectBusiness={(slug) => {
         setSelectedSlug(slug);
-        setSearchParams({ slug });
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.set('slug', slug);
+        setSearchParams(nextParams);
       }}
       onBusinessUpdated={(updated) => {
         setAllBusinesses((prev) =>

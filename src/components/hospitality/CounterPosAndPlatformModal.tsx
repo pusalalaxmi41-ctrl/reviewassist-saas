@@ -41,6 +41,7 @@ interface Props {
   gstPercent: number;
   serviceChargePercent: number;
   initialTableId?: string | null;
+  disableHotelRooms?: boolean;
   onClose: () => void;
   onOrderCreated: (summary: string) => void;
 }
@@ -55,6 +56,7 @@ export function CounterPosAndPlatformModal({
   gstPercent,
   serviceChargePercent,
   initialTableId = null,
+  disableHotelRooms = false,
   onClose,
   onOrderCreated,
 }: Props) {
@@ -157,7 +159,11 @@ export function CounterPosAndPlatformModal({
       mode === 'platform' ? platformChannel : posChannel;
 
     if (orderSource === 'pos_dine_in' && !selectedTableId) {
-      setError('Please select a dining table or hotel room for Dine-In.');
+      setError(
+        disableHotelRooms
+          ? 'Please select a table for Dine-In.'
+          : 'Please select a dining table or hotel room for Dine-In.',
+      );
       return;
     }
 
@@ -311,7 +317,9 @@ export function CounterPosAndPlatformModal({
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <label className="block text-[10.5px] font-extrabold uppercase tracking-wider text-slate-500">
-                      Select Table / Hotel Room
+                      {disableHotelRooms
+                        ? 'Select Table'
+                        : 'Select Table / Hotel Room'}
                     </label>
                     {selectedTableId && (
                       <span className="rounded-full bg-[#D2DB76]/55 px-2 py-0.5 text-[10px] font-black text-[#1E1B4B]">

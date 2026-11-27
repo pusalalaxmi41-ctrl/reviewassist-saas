@@ -11118,7 +11118,13 @@ export class MockLocalStorageRepository implements IBusinessRepository {
                       va.status === 'vitals_done' ||
                       va.status === 'in_consultation') &&
                     (va.status === 'in_consultation' ||
-                      new Date(va.checkedInAt).getTime() < myCheckinMs),
+                      new Date(va.checkedInAt).getTime() < myCheckinMs ||
+                      (new Date(va.checkedInAt).getTime() === myCheckinMs &&
+                        va.tokenNumber.localeCompare(
+                          currentActive.tokenNumber,
+                          undefined,
+                          { numeric: true },
+                        ) < 0)),
                 ).length;
 
           const eta = calculateClinicEstimatedWaitMinutes({
@@ -11312,7 +11318,13 @@ export class MockLocalStorageRepository implements IBusinessRepository {
                   va.status === 'vitals_done' ||
                   va.status === 'in_consultation') &&
                 (va.status === 'in_consultation' ||
-                  new Date(va.checkedInAt).getTime() < exCheckinMs),
+                  new Date(va.checkedInAt).getTime() < exCheckinMs ||
+                  (new Date(va.checkedInAt).getTime() === exCheckinMs &&
+                    va.tokenNumber.localeCompare(
+                      existingActive.tokenNumber,
+                      undefined,
+                      { numeric: true },
+                    ) < 0)),
             ).length;
       const eta = calculateClinicEstimatedWaitMinutes({
         patientsAhead: ahead,
