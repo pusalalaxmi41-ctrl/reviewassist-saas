@@ -118,6 +118,16 @@ assert(
   'Public catering portal loads starter packages/dishes and strips chefStationPin',
 );
 
+const royalDemoPortal = await repo.getPublicCateringPortal(
+  'royal-imperial-banquet',
+);
+assert(
+  royalDemoPortal !== null &&
+    royalDemoPortal.business.slug === 'royal-imperial-banquet' &&
+    royalDemoPortal.packages.length >= 3,
+  'Built-in demo venue (royal-imperial-banquet) auto-backfills into existing caches and resolves publicly',
+);
+
 // ---------------------------------------------------------------------------
 // 2. Mixed Veg + Non-Veg Package, Hall Add-On & 3-Stage Milestone Math
 // ---------------------------------------------------------------------------

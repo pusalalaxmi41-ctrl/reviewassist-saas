@@ -298,7 +298,10 @@ import type {
   AIConfigAccessOptions,
   IBusinessRepository,
 } from './BusinessRepository';
-import { businessRepository as mockBusinessRepository } from './MockLocalStorageRepository';
+import {
+  businessRepository as mockBusinessRepository,
+  type MockLocalStorageRepository,
+} from './MockLocalStorageRepository';
 
 interface DbBusinessRow {
   id: string;
@@ -7941,6 +7944,200 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
   // Module 10: CateringOS & Banquet Hall Management System
   // ---------------------------------------------------------------------------
 
+  private async ensureSupabaseCateringStarterCatalog(
+    businessId: string,
+  ): Promise<void> {
+    const client = this.requireClient();
+    const { count: pkgCount, error: checkErr } = await client
+      .from('catering_packages')
+      .select('id', { count: 'exact', head: true })
+      .eq('business_id', businessId);
+
+    if (checkErr || (pkgCount ?? 0) > 0) return;
+
+    await client.from('catering_packages').insert([
+      {
+        business_id: businessId,
+        package_name: 'Silver Feast',
+        tier_badge: 'Silver',
+        meal_session: 'all_day',
+        veg_price_paise: 30000,
+        non_veg_price_paise: 42000,
+        slot_rules: [
+          { category: 'starter', label: 'Starters & Appetizers', maxSelect: 2 },
+          { category: 'main_course', label: 'Main Course Curries', maxSelect: 2 },
+          { category: 'rice_bread', label: 'Biryani / Rice & Breads', maxSelect: 2 },
+          { category: 'dessert', label: 'Desserts & Sweets', maxSelect: 1 },
+        ],
+        description:
+          'Classic celebratory spread ideal for birthdays, poojas & corporate lunches.',
+        is_active: true,
+      },
+      {
+        business_id: businessId,
+        package_name: 'Royal Gold Banquet',
+        tier_badge: 'Gold',
+        meal_session: 'all_day',
+        veg_price_paise: 45000,
+        non_veg_price_paise: 58000,
+        slot_rules: [
+          { category: 'starter', label: 'Starters & Appetizers', maxSelect: 3 },
+          { category: 'main_course', label: 'Main Course Curries', maxSelect: 3 },
+          { category: 'rice_bread', label: 'Biryani / Rice & Breads', maxSelect: 2 },
+          { category: 'dessert', label: 'Desserts & Sweets', maxSelect: 2 },
+        ],
+        description:
+          'Signature wedding & reception buffet with Hyderabadi Dum Biryanis and Mughlai curries.',
+        is_active: true,
+      },
+      {
+        business_id: businessId,
+        package_name: 'Imperial Wedding Platinum',
+        tier_badge: 'Platinum',
+        meal_session: 'all_day',
+        veg_price_paise: 65000,
+        non_veg_price_paise: 82000,
+        slot_rules: [
+          { category: 'starter', label: 'Starters & Appetizers', maxSelect: 4 },
+          { category: 'main_course', label: 'Main Course Curries', maxSelect: 4 },
+          { category: 'rice_bread', label: 'Biryani / Rice & Breads', maxSelect: 3 },
+          { category: 'dessert', label: 'Desserts & Sweets', maxSelect: 2 },
+          { category: 'live_counter', label: 'Live Chaat / Dosa Counters', maxSelect: 1 },
+        ],
+        description:
+          'Grand luxury banquet experience with live counters, welcome mocktails & royal desserts.',
+        is_active: true,
+      },
+    ]);
+
+    const { count: dishCount } = await client
+      .from('catering_dishes_and_recipes')
+      .select('id', { count: 'exact', head: true })
+      .eq('business_id', businessId);
+
+    if ((dishCount ?? 0) === 0) {
+      await client.from('catering_dishes_and_recipes').insert([
+        {
+          business_id: businessId,
+          dish_name: 'Crispy Veg Manchurian',
+          category: 'starter',
+          diet_type: 'veg',
+          available_in_packages: true,
+          available_bulk_alacarte: true,
+          bulk_unit: 'tray',
+          bulk_unit_price_paise: 180000,
+          ingredients_per_100_plates: [
+            { ingredientName: 'Cabbage & Carrots', unit: 'kg', qtyPer100: 10 },
+            { ingredientName: 'Refined Flour', unit: 'kg', qtyPer100: 3 },
+            { ingredientName: 'Cooking Oil', unit: 'litres', qtyPer100: 2.5 },
+          ],
+          is_active: true,
+        },
+        {
+          business_id: businessId,
+          dish_name: 'Hyderabadi Chicken 65',
+          category: 'starter',
+          diet_type: 'non_veg',
+          available_in_packages: true,
+          available_bulk_alacarte: true,
+          bulk_unit: 'kg',
+          bulk_unit_price_paise: 65000,
+          ingredients_per_100_plates: [
+            { ingredientName: 'Boneless Chicken', unit: 'kg', qtyPer100: 14 },
+            { ingredientName: 'Fresh Curd', unit: 'kg', qtyPer100: 3 },
+          ],
+          is_active: true,
+        },
+        {
+          business_id: businessId,
+          dish_name: 'Shahi Paneer Butter Masala',
+          category: 'main_course',
+          diet_type: 'veg',
+          available_in_packages: true,
+          available_bulk_alacarte: true,
+          bulk_unit: 'kg',
+          bulk_unit_price_paise: 52000,
+          ingredients_per_100_plates: [
+            { ingredientName: 'Malai Paneer', unit: 'kg', qtyPer100: 14 },
+            { ingredientName: 'Ripe Tomatoes', unit: 'kg', qtyPer100: 12 },
+            { ingredientName: 'Salted Butter', unit: 'kg', qtyPer100: 2.5 },
+          ],
+          is_active: true,
+        },
+        {
+          business_id: businessId,
+          dish_name: 'Hyderabadi Chicken Dum Biryani',
+          category: 'rice_bread',
+          diet_type: 'non_veg',
+          available_in_packages: true,
+          available_bulk_alacarte: true,
+          bulk_unit: 'kg',
+          bulk_unit_price_paise: 48000,
+          ingredients_per_100_plates: [
+            { ingredientName: 'Basmati Rice', unit: 'kg', qtyPer100: 15 },
+            { ingredientName: 'Chicken', unit: 'kg', qtyPer100: 18 },
+            { ingredientName: 'Pure Ghee', unit: 'litres', qtyPer100: 3 },
+          ],
+          is_active: true,
+        },
+        {
+          business_id: businessId,
+          dish_name: 'Subz Zafrani Veg Dum Biryani',
+          category: 'rice_bread',
+          diet_type: 'veg',
+          available_in_packages: true,
+          available_bulk_alacarte: true,
+          bulk_unit: 'kg',
+          bulk_unit_price_paise: 34000,
+          ingredients_per_100_plates: [
+            { ingredientName: 'Basmati Rice', unit: 'kg', qtyPer100: 15 },
+            { ingredientName: 'Mixed Vegetables', unit: 'kg', qtyPer100: 12 },
+          ],
+          is_active: true,
+        },
+        {
+          business_id: businessId,
+          dish_name: 'Royal Double Ka Meetha',
+          category: 'dessert',
+          diet_type: 'veg',
+          available_in_packages: true,
+          available_bulk_alacarte: true,
+          bulk_unit: 'tray',
+          bulk_unit_price_paise: 220000,
+          ingredients_per_100_plates: [
+            { ingredientName: 'Milk Bread', unit: 'kg', qtyPer100: 8 },
+            { ingredientName: 'Full Cream Milk', unit: 'litres', qtyPer100: 12 },
+            { ingredientName: 'Sugar', unit: 'kg', qtyPer100: 6 },
+          ],
+          is_active: true,
+        },
+      ]);
+    }
+  }
+
+  private async resolveCloudOrOwnerPreviewBusinessBySlug(
+    cleanSlug: string,
+  ): Promise<Business | null> {
+    const publicBiz = await this.getBusinessBySlug(cleanSlug);
+    if (publicBiz) return publicBiz;
+
+    // Authenticated owner / platform-admin preview fallback (strictly governed by Supabase RLS)
+    try {
+      const client = this.requireClient();
+      const { data } = await client
+        .from('businesses')
+        .select('*')
+        .eq('slug', cleanSlug)
+        .maybeSingle();
+      if (data) {
+        return this.rememberBusiness(mapBusinessRow(data as DbBusinessRow));
+      }
+    } catch {
+      // ignore if unauthenticated
+    }
+    return null;
+  }
+
   async getPublicCateringPortal(
     businessSlug: string,
   ): Promise<PublicCateringPortalPayload | null> {
@@ -7951,15 +8148,42 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     const { data, error } = await client.rpc('get_public_catering_portal', {
       p_slug: cleanSlug,
     });
-    if (!error) {
-      if (data && typeof data === 'object') {
-        return data as PublicCateringPortalPayload;
+    if (!error && data && typeof data === 'object') {
+      const payload = data as PublicCateringPortalPayload;
+      if (
+        (payload.packages?.length ?? 0) === 0 &&
+        (payload.dishes?.length ?? 0) === 0 &&
+        payload.business?.id
+      ) {
+        try {
+          await this.ensureSupabaseCateringStarterCatalog(payload.business.id);
+          const retry = await client.rpc('get_public_catering_portal', {
+            p_slug: cleanSlug,
+          });
+          if (!retry.error && retry.data && typeof retry.data === 'object') {
+            return retry.data as PublicCateringPortalPayload;
+          }
+        } catch {
+          // If anonymous visitor before owner seeded, fall through cleanly
+        }
       }
-      const demo = await mockBusinessRepository.getPublicCateringPortal(cleanSlug);
-      if (demo) return demo;
-      return null;
+      return payload;
     }
-    return mockBusinessRepository.getPublicCateringPortal(cleanSlug);
+
+    // 1. Check built-in demo fixture (e.g. royal-imperial-banquet)
+    const demo = await mockBusinessRepository.getPublicCateringPortal(cleanSlug);
+    if (demo) return demo;
+
+    // 2. Check cloud business (handles unmigrated 034 fallback OR authenticated owner previewing a pending venue)
+    const cloudBiz = await this.resolveCloudOrOwnerPreviewBusinessBySlug(cleanSlug);
+    if (cloudBiz) {
+      (mockBusinessRepository as MockLocalStorageRepository).syncExternalBusinessForFallback(
+        cloudBiz,
+      );
+      return mockBusinessRepository.getPublicCateringPortal(cleanSlug);
+    }
+
+    return null;
   }
 
   async submitCateringOrder(
@@ -7986,6 +8210,13 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     ) {
       throw new Error(error.message);
     }
+    const cleanSlug = (input.businessSlug ?? '').trim().toLowerCase();
+    const cloudBiz = await this.resolveCloudOrOwnerPreviewBusinessBySlug(cleanSlug);
+    if (cloudBiz) {
+      (mockBusinessRepository as MockLocalStorageRepository).syncExternalBusinessForFallback(
+        cloudBiz,
+      );
+    }
     return mockBusinessRepository.submitCateringOrder(input, options);
   }
 
@@ -7996,8 +8227,10 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     const err = validateBusinessId(businessId);
     if (err) throw new Error(err);
     const cleanId = businessId.trim();
-    await this.verifyBusinessOwnership(cleanId, options);
+    const biz = await this.verifyBusinessOwnership(cleanId, options);
     const client = this.requireClient();
+
+    await this.ensureSupabaseCateringStarterCatalog(cleanId).catch(() => {});
 
     const { data, error } = await client.rpc('get_catering_owner_dashboard', {
       p_business_id: cleanId,
@@ -8020,6 +8253,9 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     if (error && error.message.includes('Unauthorized')) {
       throw new Error(error.message);
     }
+    (mockBusinessRepository as MockLocalStorageRepository).syncExternalBusinessForFallback(
+      biz,
+    );
     return mockBusinessRepository.getCateringOwnerDashboard(cleanId, options);
   }
 

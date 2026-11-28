@@ -29,6 +29,7 @@ import type {
   CustomerDraftRecord,
 } from '../types/business';
 import { businessRepository } from '../services/storage';
+import { businessRepository as mockBusinessRepository } from '../services/storage/MockLocalStorageRepository';
 import { categoryLabels } from '../services/business/mockBusinesses';
 import { AnalyticsView } from '../components/dashboard/AnalyticsView';
 import { QRCodeManager } from '../components/dashboard/QRCodeManager';
@@ -142,11 +143,18 @@ export default function BusinessDashboard() {
   useEffect(() => {
     async function loadBusinesses() {
       setLoading(true);
-      const list = await businessRepository.getBusinesses();
-      setBusinesses(list);
+      let list = await businessRepository.getBusinesses();
 
       const paramSlug = searchParams.get('slug');
       const paramView = searchParams.get('view');
+      if (paramSlug && !list.some((b) => b.slug === paramSlug)) {
+        const demoBiz = await mockBusinessRepository.getBusinessBySlug(paramSlug);
+        if (demoBiz) {
+          list = [demoBiz, ...list];
+        }
+      }
+      setBusinesses(list);
+
       if (paramSlug) {
         const match = list.find((b) => b.slug === paramSlug);
         if (match) {

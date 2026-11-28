@@ -620,7 +620,42 @@ export class MockLocalStorageRepository implements IBusinessRepository {
       this.write(STORAGE_KEYS.BUSINESSES, seeded);
       return seeded;
     }
+    // Auto-backfill any newly introduced seed demo businesses (e.g. biz-royal-banquet-7) into existing browser caches
+    const existingIds = new Set(list.map((b) => b.id));
+    const existingSlugs = new Set(list.map((b) => b.slug.toLowerCase()));
+    const missingSeeds = INITIAL_BUSINESSES.filter(
+      (seed) =>
+        !existingIds.has(seed.id) &&
+        !existingSlugs.has(seed.slug.toLowerCase()),
+    );
+    if (missingSeeds.length > 0) {
+      const merged = [...list, ...missingSeeds].map(normalizeBiz);
+      this.write(STORAGE_KEYS.BUSINESSES, merged);
+      return merged;
+    }
     return list.map(normalizeBiz);
+  }
+
+  /** Syncs a cloud Supabase business record into local fallback cache when unmigrated RPCs fall back cleanly. */
+  syncExternalBusinessForFallback(business: Business): void {
+    const list = this.read<Business[]>(STORAGE_KEYS.BUSINESSES, []);
+    const idx = list.findIndex(
+      (b) =>
+        b.id === business.id ||
+        b.slug.toLowerCase() === business.slug.toLowerCase(),
+    );
+    const normalized: Business = {
+      ...business,
+      status: 'active',
+      accountState: 'active',
+    };
+    if (idx === -1) {
+      this.write(STORAGE_KEYS.BUSINESSES, [normalized, ...list]);
+    } else {
+      const next = [...list];
+      next[idx] = { ...next[idx], ...normalized };
+      this.write(STORAGE_KEYS.BUSINESSES, next);
+    }
   }
 
   async getBusinessById(id: string): Promise<Business | null> {

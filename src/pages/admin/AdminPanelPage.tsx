@@ -644,7 +644,20 @@ export default function AdminPanelPage() {
         googleReviewUrl: PLACEHOLDER_GOOGLE_REVIEW_URL,
         googleReviewUrlIsPlaceholder: true,
         loyaltyEnabled: newBizLoyaltyEnabled,
+        status: 'active',
+        accountState: 'active',
       });
+      if (repoMode === 'supabase') {
+        try {
+          await repo.setBusinessStatus({
+            businessId: created.id,
+            status: 'active',
+            reason: 'Created & activated by Platform Admin',
+          });
+        } catch {
+          // Best-effort activation if already active or unmigrated
+        }
+      }
       const nowIso = new Date().toISOString();
       mockAdminRepository.registerMockClient({
         id: created.id,

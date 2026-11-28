@@ -423,6 +423,18 @@ export class MockAdminRepository implements IAdminRepository {
       this.write(STORAGE_KEYS.CLIENTS, INITIAL_CLIENTS);
       return INITIAL_CLIENTS;
     }
+    const existingIds = new Set(existing.map((c) => c.id));
+    const existingSlugs = new Set(existing.map((c) => c.slug.toLowerCase()));
+    const missing = INITIAL_CLIENTS.filter(
+      (seed) =>
+        !existingIds.has(seed.id) &&
+        !existingSlugs.has(seed.slug.toLowerCase()),
+    );
+    if (missing.length > 0) {
+      const merged = [...existing, ...missing];
+      this.write(STORAGE_KEYS.CLIENTS, merged);
+      return merged;
+    }
     return existing;
   }
 

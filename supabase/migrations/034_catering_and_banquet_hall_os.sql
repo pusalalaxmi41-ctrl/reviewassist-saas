@@ -267,6 +267,26 @@ begin
      limit 1;
   end if;
 
+  -- Auto-seed starter packages & dishes on brand-new catering venues if empty
+  if not exists (select 1 from public.catering_packages where business_id = p_business_id)
+     and not exists (select 1 from public.catering_dishes_and_recipes where business_id = p_business_id) then
+    insert into public.catering_packages (
+      business_id, package_name, tier_badge, meal_session, veg_price_paise, non_veg_price_paise, description
+    ) values
+      (p_business_id, 'Silver Feast', 'Silver', 'all_day', 30000, 42000, 'Classic celebratory spread ideal for birthdays, poojas & corporate lunches.'),
+      (p_business_id, 'Royal Gold Banquet', 'Gold', 'all_day', 45000, 58000, 'Signature wedding & reception buffet with Hyderabadi Dum Biryanis and Mughlai curries.'),
+      (p_business_id, 'Imperial Wedding Platinum', 'Platinum', 'all_day', 65000, 82000, 'Grand luxury banquet experience with live counters & royal desserts.');
+
+    insert into public.catering_dishes_and_recipes (
+      business_id, dish_name, category, diet_type, available_in_packages, available_bulk_alacarte, bulk_unit, bulk_unit_price_paise, ingredients_per_100_plates
+    ) values
+      (p_business_id, 'Crispy Veg Manchurian', 'starter', 'veg', true, true, 'tray', 180000, '[{"ingredientName":"Cabbage & Carrots","unit":"kg","qtyPer100":10},{"ingredientName":"Cooking Oil","unit":"litres","qtyPer100":2.5}]'::jsonb),
+      (p_business_id, 'Hyderabadi Chicken 65', 'starter', 'non_veg', true, true, 'kg', 65000, '[{"ingredientName":"Boneless Chicken","unit":"kg","qtyPer100":14},{"ingredientName":"Fresh Curd","unit":"kg","qtyPer100":3}]'::jsonb),
+      (p_business_id, 'Shahi Paneer Butter Masala', 'main_course', 'veg', true, true, 'kg', 52000, '[{"ingredientName":"Malai Paneer","unit":"kg","qtyPer100":14},{"ingredientName":"Ripe Tomatoes","unit":"kg","qtyPer100":12}]'::jsonb),
+      (p_business_id, 'Hyderabadi Chicken Dum Biryani', 'rice_bread', 'non_veg', true, true, 'kg', 48000, '[{"ingredientName":"Basmati Rice","unit":"kg","qtyPer100":15},{"ingredientName":"Chicken","unit":"kg","qtyPer100":18},{"ingredientName":"Pure Ghee","unit":"litres","qtyPer100":3}]'::jsonb),
+      (p_business_id, 'Royal Double Ka Meetha', 'dessert', 'veg', true, true, 'tray', 220000, '[{"ingredientName":"Milk Bread","unit":"kg","qtyPer100":8},{"ingredientName":"Full Cream Milk","unit":"litres","qtyPer100":12}]'::jsonb);
+  end if;
+
   return v_cfg;
 end;
 $$;
@@ -347,8 +367,10 @@ begin
     into v_biz
     from public.businesses b
    where b.slug = v_clean_slug
-     and coalesce(b.status, 'active') = 'active'
-     and coalesce(b.account_state, 'active') = 'active'
+     and (
+       (coalesce(b.status, 'active') = 'active' and coalesce(b.account_state, 'active') = 'active')
+       or public.is_business_owner(b.id)
+     )
    limit 1;
 
   if not found then
