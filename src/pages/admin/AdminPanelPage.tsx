@@ -107,6 +107,7 @@ type AdminNavSection =
   | 'barbers'
   | 'gyms'
   | 'clinics'
+  | 'catering'
   | 'loyalty'
   | 'clients'
   | 'accounts'
@@ -164,7 +165,7 @@ export default function AdminPanelPage() {
   const [clientStatusTab, setClientStatusTab] =
     useState<ClientFilterTab>('all');
   const [clientIndustryFilter, setClientIndustryFilter] = useState<
-    'all' | 'restaurant' | 'cafe' | 'barber' | 'gym' | 'clinic' | 'loyalty'
+    'all' | 'restaurant' | 'cafe' | 'barber' | 'gym' | 'clinic' | 'catering' | 'loyalty'
   >('all');
 
   // Create-business modal state
@@ -290,6 +291,11 @@ export default function AdminPanelPage() {
       clients.filter((c) => getIndustryWorkspaceType(c.category) === 'clinic'),
     [clients],
   );
+  const cateringClients = useMemo(
+    () =>
+      clients.filter((c) => getIndustryWorkspaceType(c.category) === 'catering'),
+    [clients],
+  );
 
   const pendingRestaurantsCount = useMemo(
     () => restaurantClients.filter((c) => c.status === 'pending').length,
@@ -315,6 +321,10 @@ export default function AdminPanelPage() {
     () => clinicClients.filter((c) => c.status === 'pending').length,
     [clinicClients],
   );
+  const pendingCateringCount = useMemo(
+    () => cateringClients.filter((c) => c.status === 'pending').length,
+    [cateringClients],
+  );
 
   // Scoped list for the active directory tab ('restaurants' | 'cafes' | 'barbers' | 'gyms' | 'clinics' | 'loyalty' | 'clients')
   const scopedClientsForDirectory = useMemo(() => {
@@ -323,12 +333,14 @@ export default function AdminPanelPage() {
     if (activeNav === 'barbers') return barberClients;
     if (activeNav === 'gyms') return gymClients;
     if (activeNav === 'clinics') return clinicClients;
+    if (activeNav === 'catering') return cateringClients;
     if (activeNav === 'loyalty') return loyaltyClients;
     if (clientIndustryFilter === 'restaurant') return restaurantClients;
     if (clientIndustryFilter === 'cafe') return cafeClients;
     if (clientIndustryFilter === 'barber') return barberClients;
     if (clientIndustryFilter === 'gym') return gymClients;
     if (clientIndustryFilter === 'clinic') return clinicClients;
+    if (clientIndustryFilter === 'catering') return cateringClients;
     if (clientIndustryFilter === 'loyalty') return loyaltyClients;
     return clients;
   }, [
@@ -340,6 +352,7 @@ export default function AdminPanelPage() {
     barberClients,
     gymClients,
     clinicClients,
+    cateringClients,
     loyaltyClients,
   ]);
 
@@ -794,6 +807,12 @@ export default function AdminPanelPage() {
       badge: pendingClinicsCount || undefined,
     },
     {
+      id: 'catering',
+      label: 'CateringOS & Banquet Halls',
+      icon: Building2,
+      badge: pendingCateringCount || undefined,
+    },
+    {
       id: 'loyalty',
       label: 'Loyalty & AI Reviews',
       icon: Star,
@@ -978,6 +997,8 @@ export default function AdminPanelPage() {
                         ? '🏋️ Gym & Fitness Approvals (GymOS)'
                         : activeNav === 'clinics'
                           ? '🏥 ClinicOS / Medical & Dental Approvals'
+                          : activeNav === 'catering'
+                          ? '🏛️ CateringOS & Banquet Hall Approvals'
                           : activeNav === 'loyalty'
                             ? '⭐ Loyalty & AI Reviews Approvals (LoyaltyOS)'
                             : activeNav === 'clients'
@@ -1245,6 +1266,7 @@ export default function AdminPanelPage() {
             activeNav === 'barbers' ||
             activeNav === 'gyms' ||
             activeNav === 'clinics' ||
+            activeNav === 'catering' ||
             activeNav === 'loyalty') && (
             <div className="rounded-lg border border-slate-200 bg-white shadow-2xs">
               {/* Industry Filter Bar when viewing All Businesses */}
@@ -1281,6 +1303,11 @@ export default function AdminPanelPage() {
                           id: 'clinic',
                           label: '🏥 ClinicOS / Medical & Dental',
                           count: clinicClients.length,
+                        },
+                        {
+                          id: 'catering',
+                          label: '🏛️ CateringOS & Banquet Halls',
+                          count: cateringClients.length,
                         },
                         {
                           id: 'loyalty',
@@ -1325,6 +1352,8 @@ export default function AdminPanelPage() {
                             ? '✂️ Barber & Salon Approval Queue — Unlocks BarberOS (Live Queue Timer, Broadcast Delays, Token QRs)'
                             : activeNav === 'clinics'
                               ? '🏥 ClinicOS / Medical & Dental Approval Queue — Unlocks Multi-Doctor Live Token Queue, Vitals, Digital Rx Vault, 3-Day Recalls & Doctor Commissions'
+                              : activeNav === 'catering'
+                                ? '🏛️ CateringOS & Banquet Hall Approval Queue — Unlocks Event Quotes, Website Embed, 3-Stage Payments, Recipe-to-Grocery & Head Chef PIN Portal'
                               : activeNav === 'loyalty'
                                 ? '⭐ Loyalty & AI Reviews Approval Queue — Unlocks LoyaltyOS (Anti-Fraud Counter QR/NFC Star Wallet & 4-Digit Reward Lock)'
                                 : '🏋️ Gym & Fitness Approval Queue — Unlocks GymOS (Member Signup QR, 3-Day Renewal Radar, Daily Check-In)'}
@@ -1460,7 +1489,9 @@ export default function AdminPanelPage() {
                                       : ''
                                     : badge.workspace === 'clinic'
                                       ? '/clinic'
-                                      : '/menu';
+                                      : badge.workspace === 'catering'
+                                        ? '/catering'
+                                        : '/menu';
                         return (
                           <tr
                             key={biz.id}
@@ -2476,6 +2507,9 @@ export default function AdminPanelPage() {
                 </option>
                 <option value="clinic">
                   🏥 ClinicOS / Medical &amp; Dental (OPD Queue, Vitals &amp; Digital Rx)
+                </option>
+                <option value="catering">
+                  🏛️ CateringOS &amp; Banquet Halls (Event Quotes, Hall Slots &amp; Chef PIN)
                 </option>
                 <option value="restaurant">
                   🍽️ BistroOS / Restaurant &amp; Dining

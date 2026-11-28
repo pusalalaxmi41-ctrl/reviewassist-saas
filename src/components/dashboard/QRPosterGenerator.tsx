@@ -10,6 +10,7 @@ export interface QRPosterGeneratorProps {
     | 'cafe'
     | 'loyalty'
     | 'clinic'
+    | 'catering'
     | 'restaurant_menu';
 }
 
@@ -17,6 +18,8 @@ export interface QRPosterGeneratorProps {
  * Multi-industry printable reception & counter standee generator.
  * For `category === 'clinic'`, generates a crisp reception standee:
  * "Scan for Live Queue Token & Digital Prescription Pass" -> `/r/:businessSlug/clinic`.
+ * For `category === 'catering'`, generates a branded event standee:
+ * "Scan to Customize Your Event Menu & Instant Catering Quote" -> `/r/:businessSlug/catering`.
  */
 export function QRPosterGenerator({
   business,

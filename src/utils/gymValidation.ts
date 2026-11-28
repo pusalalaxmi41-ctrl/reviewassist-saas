@@ -16,6 +16,7 @@ import type {
 import { validateBusinessId } from './aiConfigValidation';
 import { isBarberOrSalonCategory } from './barberQueueValidation';
 import { isCafeCategory } from './cafeValidation';
+import { isCateringCategory } from './cateringValidation';
 import { isClinicCategory } from './clinicValidation';
 import { isLoyaltyCategory } from './loyaltyValidation';
 import { formatPriceFromPaise } from './restaurantValidation';
@@ -287,6 +288,7 @@ export function getIndustryWorkspaceType(
   if (isCafeCategory(category)) return 'cafe';
   if (isLoyaltyCategory(category)) return 'loyalty';
   if (isClinicCategory(category)) return 'clinic';
+  if (isCateringCategory(category)) return 'catering';
   return 'restaurant';
 }
 
@@ -344,6 +346,15 @@ export function getIndustryBadgeMeta(
       badgeClass: 'bg-teal-50 text-teal-950 border-teal-300',
     };
   }
+  if (isCateringCategory(category)) {
+    return {
+      workspace: 'catering',
+      emoji: '🏛️',
+      label: 'Catering & Banquets',
+      moduleName: 'CateringOS',
+      badgeClass: 'bg-amber-50 text-amber-950 border-amber-400',
+    };
+  }
   return {
     workspace: 'restaurant',
     emoji: '🍽️',
@@ -391,6 +402,9 @@ export function getPrimaryCustomerQrUrlForBusiness(
   }
   if (isClinicCategory(business.category)) {
     return `${host}/r/${slug}/clinic`;
+  }
+  if (isCateringCategory(business.category)) {
+    return `${host}/r/${slug}/catering`;
   }
   return `${host}/r/${slug}/menu`;
 }

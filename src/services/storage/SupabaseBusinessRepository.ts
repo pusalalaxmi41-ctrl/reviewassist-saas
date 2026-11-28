@@ -206,6 +206,30 @@ import {
   validateClinicConfigInput,
   validateClinicDoctorInput,
 } from '../../utils/clinicValidation';
+import type {
+  CateringChefKitchenPortalPayload,
+  CateringConfig,
+  CateringConfigInput,
+  CateringDishAndRecipe,
+  CateringDishAndRecipeInput,
+  CateringKitchenChecklist,
+  CateringOrder,
+  CateringOrderStatus,
+  CateringOwnerDashboardPayload,
+  CateringPackage,
+  CateringPackageInput,
+  CateringPaymentMethod,
+  CateringPaymentStage,
+  CateringVesselDispatchLine,
+  PublicCateringPortalPayload,
+  SubmitCateringOrderInput,
+} from '../../types/catering';
+import {
+  computeCateringGroceryShoppingList,
+  validateCateringConfigInput,
+  validateCateringDishInput,
+  validateCateringPackageInput,
+} from '../../utils/cateringValidation';
 import {
   CAFE_INVENTORY_STARTER_PACK,
   createDefaultCafeConfig,
@@ -7911,5 +7935,459 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       throw new Error(error.message);
     }
     return mockBusinessRepository.collectClinicPatientBalance(params);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Module 10: CateringOS & Banquet Hall Management System
+  // ---------------------------------------------------------------------------
+
+  async getPublicCateringPortal(
+    businessSlug: string,
+  ): Promise<PublicCateringPortalPayload | null> {
+    const cleanSlug = (businessSlug ?? '').trim().toLowerCase();
+    if (!cleanSlug) return null;
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('get_public_catering_portal', {
+      p_slug: cleanSlug,
+    });
+    if (!error) {
+      if (data && typeof data === 'object') {
+        return data as PublicCateringPortalPayload;
+      }
+      const demo = await mockBusinessRepository.getPublicCateringPortal(cleanSlug);
+      if (demo) return demo;
+      return null;
+    }
+    return mockBusinessRepository.getPublicCateringPortal(cleanSlug);
+  }
+
+  async submitCateringOrder(
+    input: SubmitCateringOrderInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CateringOrder> {
+    const client = this.requireClient();
+    const { data, error } = await client.rpc('submit_catering_order', {
+      p_payload: input,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as CateringOrder;
+    }
+    if (
+      error &&
+      (error.message.includes('Minimum headcount') ||
+        error.message.includes('Maximum capacity') ||
+        error.message.includes('blacked out') ||
+        error.message.includes('advance notice') ||
+        error.message.includes('already booked') ||
+        error.message.includes('disabled') ||
+        error.message.includes('Please enter') ||
+        error.message.includes('Please select'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.submitCateringOrder(input, options);
+  }
+
+  async getCateringOwnerDashboard(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<CateringOwnerDashboardPayload> {
+    const err = validateBusinessId(businessId);
+    if (err) throw new Error(err);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('get_catering_owner_dashboard', {
+      p_business_id: cleanId,
+    });
+    if (!error && data && typeof data === 'object') {
+      const payload = data as CateringOwnerDashboardPayload;
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const upcomingActive = (payload.orders ?? []).filter(
+        (o) => o.orderStatus !== 'cancelled' && o.eventDate >= todayIso,
+      );
+      return {
+        ...payload,
+        groceryList: computeCateringGroceryShoppingList({
+          orders: upcomingActive,
+          dishesCatalog: payload.dishes ?? [],
+          wastagePercent: payload.config?.defaultWastagePercent ?? 5,
+        }),
+      };
+    }
+    if (error && error.message.includes('Unauthorized')) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.getCateringOwnerDashboard(cleanId, options);
+  }
+
+  async updateCateringConfig(
+    businessId: string,
+    input: CateringConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CateringConfig> {
+    const validated = validateCateringConfigInput(businessId, input);
+    await this.verifyBusinessOwnership(validated.businessId, options);
+    const client = this.requireClient();
+
+    const { data, error } = await client
+      .from('catering_configs')
+      .upsert(
+        {
+          business_id: validated.businessId,
+          min_headcount: validated.minHeadcount,
+          max_capacity_per_event: validated.maxCapacityPerEvent,
+          min_advance_hours: validated.minAdvanceHours,
+          cutoff_hours_before_event: validated.cutoffHoursBeforeEvent,
+          service_zones: validated.serviceZones,
+          blackout_dates: validated.blackoutDates,
+          banquet_hall_enabled: validated.banquetHallEnabled,
+          hall_name: validated.hallName,
+          hall_slots: validated.hallSlots,
+          hall_addons_catalog: validated.hallAddonsCatalog,
+          service_rates_json: validated.serviceRatesJson,
+          chef_station_pin: validated.chefStationPin ?? '4321',
+          default_wastage_percent: validated.defaultWastagePercent,
+          brand_logo_url: validated.brandLogoUrl,
+          primary_accent_hex: validated.primaryAccentHex,
+          secondary_surface_hex: validated.secondarySurfaceHex,
+          whatsapp_quote_template: validated.whatsappQuoteTemplate,
+          updated_at: validated.updatedAt,
+        },
+        { onConflict: 'business_id' },
+      )
+      .select()
+      .single();
+
+    if (!error && data) {
+      return validated;
+    }
+    if (error && error.message.includes('Unauthorized')) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.updateCateringConfig(
+      validated.businessId,
+      input,
+      options,
+    );
+  }
+
+  async upsertCateringPackage(
+    businessId: string,
+    input: CateringPackageInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CateringPackage> {
+    const validated = validateCateringPackageInput(businessId, input);
+    await this.verifyBusinessOwnership(validated.businessId, options);
+    const client = this.requireClient();
+
+    const rowPayload: Record<string, unknown> = {
+      business_id: validated.businessId,
+      package_name: validated.packageName,
+      tier_badge: validated.tierBadge,
+      meal_session: validated.mealSession,
+      veg_price_paise: validated.vegPricePaise,
+      non_veg_price_paise: validated.nonVegPricePaise,
+      slot_rules: validated.slotRules,
+      description: validated.description,
+      is_active: validated.isActive,
+    };
+    if (validated.id && /^[0-9a-f-]{36}$/i.test(validated.id)) {
+      rowPayload.id = validated.id;
+    }
+
+    const { data, error } = await client
+      .from('catering_packages')
+      .upsert(rowPayload)
+      .select()
+      .single();
+
+    if (!error && data && typeof data === 'object') {
+      const r = data as Record<string, unknown>;
+      return {
+        id: String(r.id),
+        businessId: String(r.business_id),
+        packageName: String(r.package_name),
+        tierBadge: String(r.tier_badge),
+        mealSession: validated.mealSession,
+        vegPricePaise: Number(r.veg_price_paise),
+        nonVegPricePaise: Number(r.non_veg_price_paise),
+        slotRules: validated.slotRules,
+        description: (r.description as string | null) ?? null,
+        isActive: Boolean(r.is_active),
+        createdAt: String(r.created_at),
+      };
+    }
+    if (error && error.message.includes('Unauthorized')) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.upsertCateringPackage(
+      validated.businessId,
+      input,
+      options,
+    );
+  }
+
+  async deleteCateringPackage(
+    businessId: string,
+    packageId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const err = validateBusinessId(businessId);
+    if (err) throw new Error(err);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { error } = await client
+      .from('catering_packages')
+      .delete()
+      .eq('id', packageId)
+      .eq('business_id', cleanId);
+
+    if (error) {
+      if (error.message.includes('Unauthorized')) {
+        throw new Error(error.message);
+      }
+      await mockBusinessRepository.deleteCateringPackage(
+        cleanId,
+        packageId,
+        options,
+      );
+    }
+  }
+
+  async upsertCateringDishAndRecipe(
+    businessId: string,
+    input: CateringDishAndRecipeInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CateringDishAndRecipe> {
+    const validated = validateCateringDishInput(businessId, input);
+    await this.verifyBusinessOwnership(validated.businessId, options);
+    const client = this.requireClient();
+
+    const rowPayload: Record<string, unknown> = {
+      business_id: validated.businessId,
+      dish_name: validated.dishName,
+      category: validated.category,
+      diet_type: validated.dietType,
+      available_in_packages: validated.availableInPackages,
+      available_bulk_alacarte: validated.availableBulkAlacarte,
+      bulk_unit: validated.bulkUnit,
+      bulk_unit_price_paise: validated.bulkUnitPricePaise,
+      ingredients_per_100_plates: validated.ingredientsPer100Plates,
+      is_active: validated.isActive,
+    };
+    if (validated.id && /^[0-9a-f-]{36}$/i.test(validated.id)) {
+      rowPayload.id = validated.id;
+    }
+
+    const { data, error } = await client
+      .from('catering_dishes_and_recipes')
+      .upsert(rowPayload)
+      .select()
+      .single();
+
+    if (!error && data && typeof data === 'object') {
+      const r = data as Record<string, unknown>;
+      return {
+        id: String(r.id),
+        businessId: String(r.business_id),
+        dishName: String(r.dish_name),
+        category: validated.category,
+        dietType: validated.dietType,
+        availableInPackages: Boolean(r.available_in_packages),
+        availableBulkAlacarte: Boolean(r.available_bulk_alacarte),
+        bulkUnit: validated.bulkUnit,
+        bulkUnitPricePaise: Number(r.bulk_unit_price_paise),
+        ingredientsPer100Plates: validated.ingredientsPer100Plates,
+        isActive: Boolean(r.is_active),
+        createdAt: String(r.created_at),
+      };
+    }
+    if (error && error.message.includes('Unauthorized')) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.upsertCateringDishAndRecipe(
+      validated.businessId,
+      input,
+      options,
+    );
+  }
+
+  async deleteCateringDishAndRecipe(
+    businessId: string,
+    dishId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const err = validateBusinessId(businessId);
+    if (err) throw new Error(err);
+    const cleanId = businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, options);
+    const client = this.requireClient();
+
+    const { error } = await client
+      .from('catering_dishes_and_recipes')
+      .delete()
+      .eq('id', dishId)
+      .eq('business_id', cleanId);
+
+    if (error) {
+      if (error.message.includes('Unauthorized')) {
+        throw new Error(error.message);
+      }
+      await mockBusinessRepository.deleteCateringDishAndRecipe(
+        cleanId,
+        dishId,
+        options,
+      );
+    }
+  }
+
+  async recordCateringStagePayment(params: {
+    businessId: string;
+    orderId: string;
+    stage: CateringPaymentStage;
+    amountPaise: number;
+    method: CateringPaymentMethod;
+    note?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<CateringOrder> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('record_catering_stage_payment', {
+      p_business_id: cleanId,
+      p_order_id: params.orderId,
+      p_stage: params.stage,
+      p_amount_paise: Math.max(0, Math.round(Number(params.amountPaise) || 0)),
+      p_method: params.method || 'upi',
+      p_note: params.note ?? null,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as CateringOrder;
+    }
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('greater than zero') ||
+        error.message.includes('not found'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.recordCateringStagePayment(params);
+  }
+
+  async addCateringExtraPlates(params: {
+    businessId: string;
+    orderId: string;
+    extraPlates: number;
+    options?: AIConfigAccessOptions;
+  }): Promise<CateringOrder> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    await this.verifyBusinessOwnership(cleanId, params.options);
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('add_catering_extra_plates', {
+      p_business_id: cleanId,
+      p_order_id: params.orderId,
+      p_extra_plates: Math.max(0, Math.floor(Number(params.extraPlates) || 0)),
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as CateringOrder;
+    }
+    if (
+      error &&
+      (error.message.includes('Unauthorized') ||
+        error.message.includes('at least 1') ||
+        error.message.includes('not found'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.addCateringExtraPlates(params);
+  }
+
+  async updateCateringKitchenAndVessels(params: {
+    businessId: string;
+    orderId: string;
+    chefPin?: string | null;
+    orderStatus?: CateringOrderStatus;
+    kitchenChecklist?: CateringKitchenChecklist;
+    vesselsDispatched?: CateringVesselDispatchLine[];
+    chefNotes?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<
+    Partial<CateringOrder> & Pick<CateringOrder, 'id' | 'orderCode' | 'orderStatus'>
+  > {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    if (!params.chefPin) {
+      await this.verifyBusinessOwnership(cleanId, params.options);
+    }
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc(
+      'update_catering_kitchen_and_vessels',
+      {
+        p_business_id: cleanId,
+        p_order_id: params.orderId,
+        p_chef_pin: params.chefPin ?? null,
+        p_order_status: params.orderStatus ?? null,
+        p_kitchen_checklist: params.kitchenChecklist ?? null,
+        p_vessels_dispatched: params.vesselsDispatched ?? null,
+        p_chef_notes: params.chefNotes ?? null,
+      },
+    );
+    if (!error && data && typeof data === 'object') {
+      return data as Partial<CateringOrder> &
+        Pick<CateringOrder, 'id' | 'orderCode' | 'orderStatus'>;
+    }
+    if (
+      error &&
+      (error.message.includes('Invalid Head Chef PIN') ||
+        error.message.includes('Unauthorized') ||
+        error.message.includes('not found'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.updateCateringKitchenAndVessels(params);
+  }
+
+  async getCateringChefKitchenPortal(params: {
+    businessId: string;
+    chefPin: string;
+    dateFrom?: string;
+    dateTo?: string;
+  }): Promise<CateringChefKitchenPortalPayload> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    const client = this.requireClient();
+
+    const { data, error } = await client.rpc('get_catering_chef_kitchen_portal', {
+      p_business_id: cleanId,
+      p_chef_pin: params.chefPin,
+      p_date_from: params.dateFrom ?? undefined,
+      p_date_to: params.dateTo ?? undefined,
+    });
+    if (!error && data && typeof data === 'object') {
+      return data as CateringChefKitchenPortalPayload;
+    }
+    if (
+      error &&
+      (error.message.includes('Invalid Head Chef PIN') ||
+        error.message.includes('Business not found'))
+    ) {
+      throw new Error(error.message);
+    }
+    return mockBusinessRepository.getCateringChefKitchenPortal(params);
   }
 }

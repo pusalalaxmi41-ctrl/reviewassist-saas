@@ -269,6 +269,42 @@ import {
   validateClinicConfigInput,
   validateClinicDoctorInput,
 } from '../../utils/clinicValidation';
+import type {
+  CateringBookedHallSlot,
+  CateringBulkAlacarteLine,
+  CateringChefKitchenPortalPayload,
+  CateringChefSanitizedOrder,
+  CateringConfig,
+  CateringConfigInput,
+  CateringDishAndRecipe,
+  CateringDishAndRecipeInput,
+  CateringKitchenChecklist,
+  CateringOrder,
+  CateringOrderStatus,
+  CateringOwnerDashboardPayload,
+  CateringPackage,
+  CateringPackageInput,
+  CateringPaymentLedgerEntry,
+  CateringPaymentMethod,
+  CateringPaymentStage,
+  CateringSelectedHallAddon,
+  CateringSelectedPackageDish,
+  CateringVesselDispatchLine,
+  PublicCateringPortalPayload,
+  SubmitCateringOrderInput,
+} from '../../types/catering';
+import {
+  ALLOWED_CATERING_ORDER_STATUSES,
+  calculateCateringPricingBreakdown,
+  checkVesselsAllReturned,
+  computeCateringGroceryShoppingList,
+  createDefaultCateringConfig,
+  DEFAULT_KITCHEN_CHECKLIST,
+  normalizeCateringPhone,
+  validateCateringConfigInput,
+  validateCateringDishInput,
+  validateCateringPackageInput,
+} from '../../utils/cateringValidation';
 import {
   CAFE_INVENTORY_STARTER_PACK,
   computeCafeCounterTokenSig,
@@ -367,6 +403,11 @@ const STORAGE_KEYS = {
   CLINIC_DOCTORS: 'reviewassist_mock_clinic_os_doctors_v1',
   CLINIC_PATIENTS: 'reviewassist_mock_clinic_os_patients_v1',
   CLINIC_VISITS: 'reviewassist_mock_clinic_os_visits_v1',
+  CATERING_CONFIGS: 'reviewassist_mock_catering_os_configs_v1',
+  CATERING_PACKAGES: 'reviewassist_mock_catering_os_packages_v1',
+  CATERING_DISHES: 'reviewassist_mock_catering_os_dishes_v1',
+  CATERING_ORDERS: 'reviewassist_mock_catering_os_orders_v1',
+  CATERING_SEEDED: 'reviewassist_mock_catering_os_seeded_v1',
 };
 
 // Initial seed businesses for development & preview
@@ -448,6 +489,19 @@ const INITIAL_BUSINESSES: Business[] = [
     status: 'active',
     accountState: 'active',
     createdAt: '2026-11-06T09:00:00.000Z',
+  },
+  {
+    id: 'biz-royal-banquet-7',
+    ownerId: 'owner-royal-banquet-7',
+    slug: 'royal-imperial-banquet',
+    name: 'Royal Imperial Banquets & Catering',
+    category: 'catering',
+    city: 'Hyderabad',
+    googleReviewUrl: PLACEHOLDER_GOOGLE_REVIEW_URL,
+    googleReviewUrlIsPlaceholder: true,
+    status: 'active',
+    accountState: 'active',
+    createdAt: '2026-11-07T09:00:00.000Z',
   },
 ];
 
@@ -12046,6 +12100,1223 @@ export class MockLocalStorageRepository implements IBusinessRepository {
     };
     this.write(STORAGE_KEYS.CLINIC_PATIENTS, patients);
     return patients[idx];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Module 10: CateringOS & Banquet Hall Management System
+  // ---------------------------------------------------------------------------
+
+  private getOrCreateCateringConfigRecord(businessId: string): CateringConfig {
+    const configs = this.read<Record<string, CateringConfig>>(
+      STORAGE_KEYS.CATERING_CONFIGS,
+      {},
+    );
+    if (!configs[businessId]) {
+      configs[businessId] = createDefaultCateringConfig(businessId);
+      this.write(STORAGE_KEYS.CATERING_CONFIGS, configs);
+    }
+    return configs[businessId];
+  }
+
+  private ensureDemoCateringSeeded(businessId: string): void {
+    const seededMap = this.read<Record<string, boolean>>(
+      STORAGE_KEYS.CATERING_SEEDED,
+      {},
+    );
+    if (seededMap[businessId]) return;
+
+    this.getOrCreateCateringConfigRecord(businessId);
+    const nowIso = new Date().toISOString();
+
+    const packages = this.read<CateringPackage[]>(
+      STORAGE_KEYS.CATERING_PACKAGES,
+      [],
+    );
+    const hasPackages = packages.some((p) => p.businessId === businessId);
+
+    let silverPkgId = `cat-pkg-silver-${businessId}`;
+    const goldPkgId = `cat-pkg-gold-${businessId}`;
+    const platPkgId = `cat-pkg-plat-${businessId}`;
+
+    if (!hasPackages) {
+      packages.push(
+        {
+          id: silverPkgId,
+          businessId,
+          packageName: 'Silver Feast',
+          tierBadge: 'Silver',
+          mealSession: 'all_day',
+          vegPricePaise: 30000,
+          nonVegPricePaise: 42000,
+          slotRules: [
+            { category: 'starter', label: 'Starters & Appetizers', maxSelect: 2 },
+            { category: 'main_course', label: 'Main Course Curries', maxSelect: 2 },
+            { category: 'rice_bread', label: 'Biryani / Rice & Breads', maxSelect: 2 },
+            { category: 'dessert', label: 'Desserts & Sweets', maxSelect: 1 },
+          ],
+          description:
+            'Classic celebratory spread ideal for birthdays, poojas & corporate lunches.',
+          isActive: true,
+          createdAt: nowIso,
+        },
+        {
+          id: goldPkgId,
+          businessId,
+          packageName: 'Royal Gold Banquet',
+          tierBadge: 'Gold',
+          mealSession: 'all_day',
+          vegPricePaise: 45000,
+          nonVegPricePaise: 58000,
+          slotRules: [
+            { category: 'starter', label: 'Starters & Appetizers', maxSelect: 3 },
+            { category: 'main_course', label: 'Main Course Curries', maxSelect: 3 },
+            { category: 'rice_bread', label: 'Biryani / Rice & Breads', maxSelect: 2 },
+            { category: 'dessert', label: 'Desserts & Sweets', maxSelect: 2 },
+          ],
+          description:
+            'Signature wedding & reception buffet with Hyderabadi Dum Biryanis and rich Mughlai curries.',
+          isActive: true,
+          createdAt: nowIso,
+        },
+        {
+          id: platPkgId,
+          businessId,
+          packageName: 'Imperial Wedding Platinum',
+          tierBadge: 'Platinum',
+          mealSession: 'all_day',
+          vegPricePaise: 65000,
+          nonVegPricePaise: 82000,
+          slotRules: [
+            { category: 'starter', label: 'Starters & Appetizers', maxSelect: 4 },
+            { category: 'main_course', label: 'Main Course Curries', maxSelect: 4 },
+            { category: 'rice_bread', label: 'Biryani / Rice & Breads', maxSelect: 3 },
+            { category: 'dessert', label: 'Desserts & Sweets', maxSelect: 2 },
+            { category: 'live_counter', label: 'Live Chaat / Dosa Counters', maxSelect: 1 },
+          ],
+          description:
+            'Grand luxury banquet experience with live counters, welcome mocktails, and royal desserts.',
+          isActive: true,
+          createdAt: nowIso,
+        },
+      );
+      this.write(STORAGE_KEYS.CATERING_PACKAGES, packages);
+    } else {
+      const existingSilver = packages.find((p) => p.businessId === businessId);
+      if (existingSilver) silverPkgId = existingSilver.id;
+    }
+
+    const dishes = this.read<CateringDishAndRecipe[]>(
+      STORAGE_KEYS.CATERING_DISHES,
+      [],
+    );
+    const hasDishes = dishes.some((d) => d.businessId === businessId);
+
+    const chickenBiryaniId = `cat-dish-biryani-${businessId}`;
+    const vegBiryaniId = `cat-dish-vegbiryani-${businessId}`;
+    const paneerId = `cat-dish-paneer-${businessId}`;
+    const manchurianId = `cat-dish-manchurian-${businessId}`;
+    const dessertId = `cat-dish-meetha-${businessId}`;
+
+    if (!hasDishes) {
+      dishes.push(
+        {
+          id: manchurianId,
+          businessId,
+          dishName: 'Crispy Veg Manchurian',
+          category: 'starter',
+          dietType: 'veg',
+          availableInPackages: true,
+          availableBulkAlacarte: true,
+          bulkUnit: 'tray',
+          bulkUnitPricePaise: 180000,
+          ingredientsPer100Plates: [
+            { ingredientName: 'Cabbage & Carrots', unit: 'kg', qtyPer100: 10 },
+            { ingredientName: 'Refined Flour', unit: 'kg', qtyPer100: 3 },
+            { ingredientName: 'Cooking Oil', unit: 'litres', qtyPer100: 2.5 },
+          ],
+          isActive: true,
+          createdAt: nowIso,
+        },
+        {
+          id: `cat-dish-chk65-${businessId}`,
+          businessId,
+          dishName: 'Hyderabadi Chicken 65',
+          category: 'starter',
+          dietType: 'non_veg',
+          availableInPackages: true,
+          availableBulkAlacarte: true,
+          bulkUnit: 'kg',
+          bulkUnitPricePaise: 65000,
+          ingredientsPer100Plates: [
+            { ingredientName: 'Boneless Chicken', unit: 'kg', qtyPer100: 14 },
+            { ingredientName: 'Fresh Curd', unit: 'kg', qtyPer100: 3 },
+            { ingredientName: 'Cooking Oil', unit: 'litres', qtyPer100: 2 },
+          ],
+          isActive: true,
+          createdAt: nowIso,
+        },
+        {
+          id: paneerId,
+          businessId,
+          dishName: 'Shahi Paneer Butter Masala',
+          category: 'main_course',
+          dietType: 'veg',
+          availableInPackages: true,
+          availableBulkAlacarte: true,
+          bulkUnit: 'kg',
+          bulkUnitPricePaise: 52000,
+          ingredientsPer100Plates: [
+            { ingredientName: 'Malai Paneer', unit: 'kg', qtyPer100: 14 },
+            { ingredientName: 'Ripe Tomatoes', unit: 'kg', qtyPer100: 12 },
+            { ingredientName: 'Salted Butter', unit: 'kg', qtyPer100: 2.5 },
+            { ingredientName: 'Fresh Cream', unit: 'litres', qtyPer100: 2 },
+          ],
+          isActive: true,
+          createdAt: nowIso,
+        },
+        {
+          id: `cat-dish-mutton-${businessId}`,
+          businessId,
+          dishName: 'Nizami Mutton Rogan Josh',
+          category: 'main_course',
+          dietType: 'non_veg',
+          availableInPackages: true,
+          availableBulkAlacarte: true,
+          bulkUnit: 'kg',
+          bulkUnitPricePaise: 92000,
+          ingredientsPer100Plates: [
+            { ingredientName: 'Tender Mutton', unit: 'kg', qtyPer100: 18 },
+            { ingredientName: 'Red Onions', unit: 'kg', qtyPer100: 10 },
+            { ingredientName: 'Pure Ghee', unit: 'litres', qtyPer100: 2.5 },
+          ],
+          isActive: true,
+          createdAt: nowIso,
+        },
+        {
+          id: chickenBiryaniId,
+          businessId,
+          dishName: 'Hyderabadi Chicken Dum Biryani',
+          category: 'rice_bread',
+          dietType: 'non_veg',
+          availableInPackages: true,
+          availableBulkAlacarte: true,
+          bulkUnit: 'kg',
+          bulkUnitPricePaise: 48000,
+          ingredientsPer100Plates: [
+            { ingredientName: 'Basmati Rice', unit: 'kg', qtyPer100: 15 },
+            { ingredientName: 'Chicken', unit: 'kg', qtyPer100: 18 },
+            { ingredientName: 'Pure Ghee', unit: 'litres', qtyPer100: 3 },
+            { ingredientName: 'Fresh Curd', unit: 'kg', qtyPer100: 4 },
+          ],
+          isActive: true,
+          createdAt: nowIso,
+        },
+        {
+          id: vegBiryaniId,
+          businessId,
+          dishName: 'Subz Zafrani Veg Dum Biryani',
+          category: 'rice_bread',
+          dietType: 'veg',
+          availableInPackages: true,
+          availableBulkAlacarte: true,
+          bulkUnit: 'kg',
+          bulkUnitPricePaise: 34000,
+          ingredientsPer100Plates: [
+            { ingredientName: 'Basmati Rice', unit: 'kg', qtyPer100: 15 },
+            { ingredientName: 'Mixed Vegetables', unit: 'kg', qtyPer100: 12 },
+            { ingredientName: 'Pure Ghee', unit: 'litres', qtyPer100: 2.5 },
+          ],
+          isActive: true,
+          createdAt: nowIso,
+        },
+        {
+          id: dessertId,
+          businessId,
+          dishName: 'Royal Double Ka Meetha',
+          category: 'dessert',
+          dietType: 'veg',
+          availableInPackages: true,
+          availableBulkAlacarte: true,
+          bulkUnit: 'tray',
+          bulkUnitPricePaise: 220000,
+          ingredientsPer100Plates: [
+            { ingredientName: 'Milk Bread', unit: 'kg', qtyPer100: 8 },
+            { ingredientName: 'Full Cream Milk', unit: 'litres', qtyPer100: 12 },
+            { ingredientName: 'Sugar', unit: 'kg', qtyPer100: 6 },
+            { ingredientName: 'Cashews & Almonds', unit: 'kg', qtyPer100: 1.2 },
+          ],
+          isActive: true,
+          createdAt: nowIso,
+        },
+        {
+          id: `cat-dish-chaat-${businessId}`,
+          businessId,
+          dishName: 'Live Pani Puri & Chaat Station',
+          category: 'live_counter',
+          dietType: 'veg',
+          availableInPackages: true,
+          availableBulkAlacarte: true,
+          bulkUnit: 'pieces',
+          bulkUnitPricePaise: 6000,
+          ingredientsPer100Plates: [
+            { ingredientName: 'Semolina Puris', unit: 'pcs', qtyPer100: 600 },
+            { ingredientName: 'Boiled Potatoes & Chickpeas', unit: 'kg', qtyPer100: 8 },
+          ],
+          isActive: true,
+          createdAt: nowIso,
+        },
+      );
+      this.write(STORAGE_KEYS.CATERING_DISHES, dishes);
+    }
+
+    // Seed 1 live showcase banquet booking only for the demo Royal Imperial Banquet venue
+    if (businessId === 'biz-royal-banquet-7') {
+      const orders = this.read<CateringOrder[]>(
+        STORAGE_KEYS.CATERING_ORDERS,
+        [],
+      );
+      if (!orders.some((o) => o.businessId === businessId)) {
+        const eventDate = addDaysToIsoDate(getTodayIsoDateKey(), 5);
+        const cfg = this.getOrCreateCateringConfigRecord(businessId);
+        const calc = calculateCateringPricingBreakdown({
+          vegPlates: 150,
+          vegRatePaise: 45000,
+          nonVegPlates: 100,
+          nonVegRatePaise: 58000,
+          bulkItemsTotalPaise: 0,
+          hallAddonsTotalPaise: 3300000,
+          serviceMode: 'full_service',
+          serviceRates: cfg.serviceRatesJson,
+          gstRatePercent: 5,
+        });
+        orders.push({
+          id: 'cat-ord-demo-101',
+          businessId,
+          orderCode: 'CAT-101',
+          intakeChannel: 'phone_desk',
+          customerName: 'Vikramaditya Rao',
+          customerPhone: '9848012345',
+          occasionType: 'Wedding / Reception Banquet',
+          eventDate,
+          deliveryTime: '12:30 PM',
+          serviceMode: 'full_service',
+          serviceZone: 'City Limits',
+          venueAddress: 'Grand Banquet Hall — Main Floor',
+          usesBanquetHall: true,
+          hallSlot: 'Afternoon (12:30 PM - 05:00 PM)',
+          packageId: goldPkgId,
+          packageNameSnapshot: 'Royal Gold Banquet',
+          vegPlates: 150,
+          vegRatePaise: 45000,
+          nonVegPlates: 100,
+          nonVegRatePaise: 58000,
+          extraPlatesAdded: 0,
+          selectedPackageDishes: [
+            {
+              dishId: manchurianId,
+              dishName: 'Crispy Veg Manchurian',
+              dietType: 'veg',
+              category: 'starter',
+            },
+            {
+              dishId: paneerId,
+              dishName: 'Shahi Paneer Butter Masala',
+              dietType: 'veg',
+              category: 'main_course',
+            },
+            {
+              dishId: chickenBiryaniId,
+              dishName: 'Hyderabadi Chicken Dum Biryani',
+              dietType: 'non_veg',
+              category: 'rice_bread',
+            },
+            {
+              dishId: dessertId,
+              dishName: 'Royal Double Ka Meetha',
+              dietType: 'veg',
+              category: 'dessert',
+            },
+          ],
+          bulkAlacarteItems: [],
+          selectedHallAddons: [
+            { id: 'hall_rent', label: 'Banquet Hall Rental', pricePaise: 2500000 },
+            {
+              id: 'ac_power',
+              label: 'Central AC & Generator Backup',
+              pricePaise: 800000,
+            },
+          ],
+          serviceStaffChargesPaise: calc.serviceStaffChargesPaise,
+          subtotalPaise: calc.subtotalPaise,
+          gstPaise: calc.gstPaise,
+          totalAmountPaise: calc.totalAmountPaise,
+          stage1AdvancePaise: calc.stage1AdvancePaise,
+          stage2PreeventPaise: calc.stage2PreeventPaise,
+          stage3BalancePaise: calc.stage3BalancePaise,
+          amountPaidPaise: calc.stage1AdvancePaise,
+          balanceDuePaise: calc.totalAmountPaise - calc.stage1AdvancePaise,
+          paymentLedger: [
+            {
+              stage: 'stage_1',
+              amountPaise: calc.stage1AdvancePaise,
+              method: 'upi',
+              paidAt: nowIso,
+              note: '30% Booking Advance received via UPI',
+            },
+          ],
+          orderStatus: 'advance_confirmed',
+          kitchenChecklist: {
+            ingredientsProcured: true,
+            prepCompleted: false,
+            cookingCompleted: false,
+            packedWithLabels: false,
+            dispatched: false,
+          },
+          vesselsDispatched: [
+            { itemName: 'Insulated Biryani Handi (25L)', qtySent: 4, qtyReturned: 2 },
+            { itemName: 'SS Chafing Dish + Burner', qtySent: 8, qtyReturned: 8 },
+          ],
+          vesselsAllReturned: false,
+          chefNotes: 'Keep Veg & Non-Veg buffet counters strictly separated. Less spice in Paneer.',
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        });
+        this.write(STORAGE_KEYS.CATERING_ORDERS, orders);
+      }
+    }
+
+    seededMap[businessId] = true;
+    this.write(STORAGE_KEYS.CATERING_SEEDED, seededMap);
+  }
+
+  async getPublicCateringPortal(
+    businessSlug: string,
+  ): Promise<PublicCateringPortalPayload | null> {
+    const cleanSlug = (businessSlug ?? '').trim().toLowerCase();
+    if (!cleanSlug) return null;
+    const business = await this.getBusinessBySlug(cleanSlug);
+    if (!business) return null;
+
+    this.ensureDemoCateringSeeded(business.id);
+    const fullConfig = this.getOrCreateCateringConfigRecord(business.id);
+    // Strip chefStationPin for public security parity
+    const { chefStationPin: _ignoredPin, ...publicConfig } = fullConfig;
+    void _ignoredPin;
+
+    const packages = this.read<CateringPackage[]>(
+      STORAGE_KEYS.CATERING_PACKAGES,
+      [],
+    ).filter((p) => p.businessId === business.id && p.isActive);
+
+    const dishes = this.read<CateringDishAndRecipe[]>(
+      STORAGE_KEYS.CATERING_DISHES,
+      [],
+    ).filter((d) => d.businessId === business.id && d.isActive);
+
+    const todayIso = getTodayIsoDateKey();
+    const bookedHallSlots: CateringBookedHallSlot[] = this.read<CateringOrder[]>(
+      STORAGE_KEYS.CATERING_ORDERS,
+      [],
+    )
+      .filter(
+        (o) =>
+          o.businessId === business.id &&
+          o.usesBanquetHall &&
+          Boolean(o.hallSlot) &&
+          o.orderStatus !== 'cancelled' &&
+          o.eventDate >= todayIso,
+      )
+      .map((o) => ({
+        eventDate: o.eventDate,
+        hallSlot: o.hallSlot!,
+        orderCode: o.orderCode,
+      }));
+
+    return {
+      business: {
+        id: business.id,
+        name: business.name,
+        slug: business.slug,
+        city: business.city,
+        category: business.category,
+        googleReviewUrl: business.googleReviewUrl,
+      },
+      config: publicConfig,
+      packages,
+      dishes,
+      bookedHallSlots,
+    };
+  }
+
+  async submitCateringOrder(
+    input: SubmitCateringOrderInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CateringOrder> {
+    const cleanName = (input.customerName ?? '').trim().slice(0, 90);
+    if (cleanName.length < 2) {
+      throw new Error('Please enter customer full name.');
+    }
+    const cleanPhone = normalizeCateringPhone(input.customerPhone);
+    if (cleanPhone.length < 7) {
+      throw new Error('Please enter a valid phone number.');
+    }
+    const cleanDate = (input.eventDate ?? '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
+      throw new Error('Please select a valid event date (YYYY-MM-DD).');
+    }
+
+    const allBusinesses = await this.getBusinesses();
+    const cleanSlug = (input.businessSlug ?? '').trim().toLowerCase();
+    const business =
+      allBusinesses.find((b) => b.slug.toLowerCase() === cleanSlug) ?? null;
+    if (!business) {
+      throw new Error('Catering venue not found.');
+    }
+
+    const isOwnerBypass = Boolean(
+      options?.actorOwnerId && business.ownerId === options.actorOwnerId,
+    );
+    if (
+      !isOwnerBypass &&
+      ((business.status ?? 'active') !== 'active' ||
+        (business.accountState ?? 'active') !== 'active')
+    ) {
+      throw new Error('Catering venue is currently inactive.');
+    }
+
+    this.ensureDemoCateringSeeded(business.id);
+    const cfg = this.getOrCreateCateringConfigRecord(business.id);
+    const channel = input.intakeChannel ?? 'online_link';
+
+    if (cfg.blackoutDates.includes(cleanDate)) {
+      throw new Error(
+        `Selected event date (${cleanDate}) is unavailable / blacked out.`,
+      );
+    }
+
+    const todayIso = getTodayIsoDateKey();
+    const diffDays = diffDaysBetweenIsoDates(cleanDate, todayIso);
+    if (
+      !isOwnerBypass &&
+      (channel === 'online_link' || channel === 'website_embed') &&
+      diffDays * 24 < cfg.minAdvanceHours
+    ) {
+      throw new Error(
+        `Online bookings require at least ${cfg.minAdvanceHours} hours advance notice.`,
+      );
+    }
+
+    const vegPlates = Math.max(0, Math.floor(Number(input.vegPlates) || 0));
+    const nonVegPlates = Math.max(
+      0,
+      Math.floor(Number(input.nonVegPlates) || 0),
+    );
+    const totalPlates = vegPlates + nonVegPlates;
+    const requestedBulk = (input.bulkItems ?? []).filter(
+      (b) => Number(b.quantity) > 0,
+    );
+
+    if (input.packageId || requestedBulk.length === 0) {
+      if (totalPlates < cfg.minHeadcount) {
+        throw new Error(
+          `Minimum headcount is ${cfg.minHeadcount} plates (requested ${totalPlates} plates).`,
+        );
+      }
+    }
+    if (totalPlates > cfg.maxCapacityPerEvent) {
+      throw new Error(
+        `Maximum capacity per event is ${cfg.maxCapacityPerEvent} plates.`,
+      );
+    }
+
+    const usesBanquetHall = Boolean(input.usesBanquetHall);
+    const hallSlot = input.hallSlot?.trim() || null;
+    const allOrders = this.read<CateringOrder[]>(
+      STORAGE_KEYS.CATERING_ORDERS,
+      [],
+    );
+
+    if (usesBanquetHall) {
+      if (!cfg.banquetHallEnabled) {
+        throw new Error('Banquet Hall bookings are disabled for this venue.');
+      }
+      if (!hallSlot) {
+        throw new Error(
+          'Please select a Banquet Hall slot (Morning / Afternoon / Evening).',
+        );
+      }
+      const conflict = allOrders.find(
+        (o) =>
+          o.businessId === business.id &&
+          o.usesBanquetHall &&
+          o.eventDate === cleanDate &&
+          (o.hallSlot ?? '').toLowerCase() === hallSlot.toLowerCase() &&
+          o.orderStatus !== 'cancelled',
+      );
+      if (conflict) {
+        throw new Error(
+          `Banquet Hall slot "${hallSlot}" on ${cleanDate} is already booked (${conflict.orderCode}).`,
+        );
+      }
+    }
+
+    const packages = this.read<CateringPackage[]>(
+      STORAGE_KEYS.CATERING_PACKAGES,
+      [],
+    );
+    let vegRatePaise = 0;
+    let nonVegRatePaise = 0;
+    let packageNameSnapshot: string | null = null;
+    if (input.packageId) {
+      const pkg = packages.find(
+        (p) => p.id === input.packageId && p.businessId === business.id,
+      );
+      if (!pkg) {
+        throw new Error('Selected catering package not found.');
+      }
+      vegRatePaise = pkg.vegPricePaise;
+      nonVegRatePaise = pkg.nonVegPricePaise;
+      packageNameSnapshot = pkg.packageName;
+    }
+
+    const dishes = this.read<CateringDishAndRecipe[]>(
+      STORAGE_KEYS.CATERING_DISHES,
+      [],
+    ).filter((d) => d.businessId === business.id);
+    const dishMap = new Map(dishes.map((d) => [d.id, d]));
+
+    const selectedPackageDishes: CateringSelectedPackageDish[] = (
+      input.selectedDishIds ?? []
+    )
+      .map((id) => dishMap.get(id))
+      .filter((d): d is CateringDishAndRecipe => Boolean(d))
+      .map((d) => ({
+        dishId: d.id,
+        dishName: d.dishName,
+        dietType: d.dietType,
+        category: d.category,
+      }));
+
+    const bulkAlacarteItems: CateringBulkAlacarteLine[] = [];
+    let bulkItemsTotalPaise = 0;
+    for (const bi of requestedBulk) {
+      const d = dishMap.get(bi.dishId);
+      if (!d) continue;
+      const qty = Math.max(0, Math.round(Number(bi.quantity) * 100) / 100);
+      if (qty <= 0) continue;
+      bulkAlacarteItems.push({
+        dishId: d.id,
+        dishName: d.dishName,
+        dietType: d.dietType,
+        unit: d.bulkUnit,
+        quantity: qty,
+        unitPricePaise: d.bulkUnitPricePaise,
+      });
+      bulkItemsTotalPaise += Math.round(qty * d.bulkUnitPricePaise);
+    }
+
+    const addonIdSet = new Set(input.selectedHallAddonIds ?? []);
+    const selectedHallAddons: CateringSelectedHallAddon[] = cfg.hallAddonsCatalog
+      .filter((a) => a.enabled && addonIdSet.has(a.id))
+      .map((a) => ({
+        id: a.id,
+        label: a.label,
+        pricePaise: a.pricePaise,
+      }));
+    const hallAddonsTotalPaise = selectedHallAddons.reduce(
+      (s, a) => s + a.pricePaise,
+      0,
+    );
+
+    const calc = calculateCateringPricingBreakdown({
+      vegPlates,
+      vegRatePaise,
+      nonVegPlates,
+      nonVegRatePaise,
+      bulkItemsTotalPaise,
+      hallAddonsTotalPaise,
+      serviceMode: input.serviceMode || 'drop_off',
+      serviceRates: cfg.serviceRatesJson,
+      waitersRequested: input.waitersRequested,
+      onsiteChefRequested: input.onsiteChefRequested,
+      gstRatePercent: input.gstRatePercent ?? 5,
+    });
+
+    const bizOrderCount = allOrders.filter(
+      (o) => o.businessId === business.id,
+    ).length;
+    const nowIso = new Date().toISOString();
+
+    const created: CateringOrder = {
+      id: `cat-ord-${crypto.randomUUID()}`,
+      businessId: business.id,
+      orderCode: `CAT-${101 + bizOrderCount}`,
+      intakeChannel: channel,
+      customerName: cleanName,
+      customerPhone: cleanPhone,
+      occasionType:
+        input.occasionType?.trim().slice(0, 80) ||
+        'Corporate / Hospital Event',
+      eventDate: cleanDate,
+      deliveryTime: input.deliveryTime?.trim() || '12:30 PM',
+      serviceMode: input.serviceMode || 'drop_off',
+      serviceZone: input.serviceZone?.trim() || cfg.serviceZones[0] || null,
+      venueAddress: input.venueAddress?.trim().slice(0, 240) || null,
+      usesBanquetHall,
+      hallSlot: usesBanquetHall ? hallSlot : null,
+      packageId: input.packageId ?? null,
+      packageNameSnapshot,
+      vegPlates,
+      vegRatePaise,
+      nonVegPlates,
+      nonVegRatePaise,
+      extraPlatesAdded: 0,
+      selectedPackageDishes,
+      bulkAlacarteItems,
+      selectedHallAddons,
+      serviceStaffChargesPaise: calc.serviceStaffChargesPaise,
+      subtotalPaise: calc.subtotalPaise,
+      gstPaise: calc.gstPaise,
+      totalAmountPaise: calc.totalAmountPaise,
+      stage1AdvancePaise: calc.stage1AdvancePaise,
+      stage2PreeventPaise: calc.stage2PreeventPaise,
+      stage3BalancePaise: calc.stage3BalancePaise,
+      amountPaidPaise: 0,
+      balanceDuePaise: calc.totalAmountPaise,
+      paymentLedger: [],
+      orderStatus: 'quote_pending',
+      kitchenChecklist: { ...DEFAULT_KITCHEN_CHECKLIST },
+      vesselsDispatched: [],
+      vesselsAllReturned: true,
+      chefNotes: input.chefNotes?.trim().slice(0, 400) || null,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    allOrders.push(created);
+    this.write(STORAGE_KEYS.CATERING_ORDERS, allOrders);
+    return created;
+  }
+
+  async getCateringOwnerDashboard(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<CateringOwnerDashboardPayload> {
+    const err = validateBusinessId(businessId);
+    if (err) throw new Error(err);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    this.ensureDemoCateringSeeded(cleanId);
+    const config = this.getOrCreateCateringConfigRecord(cleanId);
+
+    const orders = this.read<CateringOrder[]>(STORAGE_KEYS.CATERING_ORDERS, [])
+      .filter((o) => o.businessId === cleanId)
+      .sort((a, b) => {
+        const dt = a.eventDate.localeCompare(b.eventDate);
+        if (dt !== 0) return dt;
+        return b.createdAt.localeCompare(a.createdAt);
+      });
+
+    const packages = this.read<CateringPackage[]>(
+      STORAGE_KEYS.CATERING_PACKAGES,
+      [],
+    ).filter((p) => p.businessId === cleanId);
+
+    const dishes = this.read<CateringDishAndRecipe[]>(
+      STORAGE_KEYS.CATERING_DISHES,
+      [],
+    ).filter((d) => d.businessId === cleanId);
+
+    const todayIso = getTodayIsoDateKey();
+    const upcomingActive = orders.filter(
+      (o) => o.orderStatus !== 'cancelled' && o.eventDate >= todayIso,
+    );
+
+    const confirmedRevenuePaise = orders
+      .filter(
+        (o) =>
+          o.orderStatus !== 'quote_pending' && o.orderStatus !== 'cancelled',
+      )
+      .reduce((sum, o) => sum + o.totalAmountPaise, 0);
+
+    const pendingStageBalancesPaise = orders
+      .filter((o) => o.orderStatus !== 'cancelled')
+      .reduce((sum, o) => sum + o.balanceDuePaise, 0);
+
+    const unreturnedVesselAlertsCount = orders.filter(
+      (o) => o.orderStatus !== 'cancelled' && !o.vesselsAllReturned,
+    ).length;
+
+    const groceryList = computeCateringGroceryShoppingList({
+      orders: upcomingActive,
+      dishesCatalog: dishes,
+      wastagePercent: config.defaultWastagePercent,
+    });
+
+    return {
+      config,
+      kpis: {
+        upcomingEventsCount: upcomingActive.length,
+        confirmedRevenuePaise,
+        pendingStageBalancesPaise,
+        unreturnedVesselAlertsCount,
+      },
+      orders,
+      packages,
+      dishes,
+      groceryList,
+    };
+  }
+
+  async updateCateringConfig(
+    businessId: string,
+    input: CateringConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CateringConfig> {
+    const validated = validateCateringConfigInput(businessId, input);
+    const business = await this.getBusinessById(validated.businessId);
+    if (!business) {
+      throw new Error(`Business "${validated.businessId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    this.ensureDemoCateringSeeded(validated.businessId);
+    const configs = this.read<Record<string, CateringConfig>>(
+      STORAGE_KEYS.CATERING_CONFIGS,
+      {},
+    );
+    configs[validated.businessId] = validated;
+    this.write(STORAGE_KEYS.CATERING_CONFIGS, configs);
+    return validated;
+  }
+
+  async upsertCateringPackage(
+    businessId: string,
+    input: CateringPackageInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CateringPackage> {
+    const validated = validateCateringPackageInput(businessId, input);
+    const business = await this.getBusinessById(validated.businessId);
+    if (!business) {
+      throw new Error(`Business "${validated.businessId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    this.ensureDemoCateringSeeded(validated.businessId);
+    const packages = this.read<CateringPackage[]>(
+      STORAGE_KEYS.CATERING_PACKAGES,
+      [],
+    );
+    const nowIso = new Date().toISOString();
+
+    if (validated.id) {
+      const idx = packages.findIndex(
+        (p) => p.id === validated.id && p.businessId === validated.businessId,
+      );
+      if (idx !== -1) {
+        packages[idx] = {
+          ...packages[idx],
+          ...validated,
+          id: packages[idx].id,
+        };
+        this.write(STORAGE_KEYS.CATERING_PACKAGES, packages);
+        return packages[idx];
+      }
+    }
+
+    const created: CateringPackage = {
+      ...validated,
+      id: validated.id || `cat-pkg-${crypto.randomUUID()}`,
+      createdAt: nowIso,
+    };
+    packages.push(created);
+    this.write(STORAGE_KEYS.CATERING_PACKAGES, packages);
+    return created;
+  }
+
+  async deleteCateringPackage(
+    businessId: string,
+    packageId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const err = validateBusinessId(businessId);
+    if (err) throw new Error(err);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const packages = this.read<CateringPackage[]>(
+      STORAGE_KEYS.CATERING_PACKAGES,
+      [],
+    ).filter((p) => !(p.id === packageId && p.businessId === cleanId));
+    this.write(STORAGE_KEYS.CATERING_PACKAGES, packages);
+  }
+
+  async upsertCateringDishAndRecipe(
+    businessId: string,
+    input: CateringDishAndRecipeInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CateringDishAndRecipe> {
+    const validated = validateCateringDishInput(businessId, input);
+    const business = await this.getBusinessById(validated.businessId);
+    if (!business) {
+      throw new Error(`Business "${validated.businessId}" not found.`);
+    }
+    this.assertOwnerAccess(business, options);
+
+    this.ensureDemoCateringSeeded(validated.businessId);
+    const dishes = this.read<CateringDishAndRecipe[]>(
+      STORAGE_KEYS.CATERING_DISHES,
+      [],
+    );
+    const nowIso = new Date().toISOString();
+
+    if (validated.id) {
+      const idx = dishes.findIndex(
+        (d) => d.id === validated.id && d.businessId === validated.businessId,
+      );
+      if (idx !== -1) {
+        dishes[idx] = {
+          ...dishes[idx],
+          ...validated,
+          id: dishes[idx].id,
+        };
+        this.write(STORAGE_KEYS.CATERING_DISHES, dishes);
+        return dishes[idx];
+      }
+    }
+
+    const created: CateringDishAndRecipe = {
+      ...validated,
+      id: validated.id || `cat-dish-${crypto.randomUUID()}`,
+      createdAt: nowIso,
+    };
+    dishes.push(created);
+    this.write(STORAGE_KEYS.CATERING_DISHES, dishes);
+    return created;
+  }
+
+  async deleteCateringDishAndRecipe(
+    businessId: string,
+    dishId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void> {
+    const err = validateBusinessId(businessId);
+    if (err) throw new Error(err);
+    const cleanId = businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, options);
+
+    const dishes = this.read<CateringDishAndRecipe[]>(
+      STORAGE_KEYS.CATERING_DISHES,
+      [],
+    ).filter((d) => !(d.id === dishId && d.businessId === cleanId));
+    this.write(STORAGE_KEYS.CATERING_DISHES, dishes);
+  }
+
+  async recordCateringStagePayment(params: {
+    businessId: string;
+    orderId: string;
+    stage: CateringPaymentStage;
+    amountPaise: number;
+    method: CateringPaymentMethod;
+    note?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<CateringOrder> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    const amt = Math.max(0, Math.round(Number(params.amountPaise) || 0));
+    if (amt <= 0) {
+      throw new Error('Payment amount must be greater than zero.');
+    }
+
+    const orders = this.read<CateringOrder[]>(STORAGE_KEYS.CATERING_ORDERS, []);
+    const idx = orders.findIndex(
+      (o) => o.id === params.orderId && o.businessId === cleanId,
+    );
+    if (idx === -1) throw new Error('Catering order not found.');
+
+    const ord = orders[idx];
+    const nextPaid = Math.min(ord.totalAmountPaise, ord.amountPaidPaise + amt);
+    const nextDue = Math.max(0, ord.totalAmountPaise - nextPaid);
+    const nowIso = new Date().toISOString();
+
+    const entry: CateringPaymentLedgerEntry = {
+      stage: params.stage || 'stage_1',
+      amountPaise: amt,
+      method: params.method || 'upi',
+      paidAt: nowIso,
+      note: params.note?.trim().slice(0, 180) || null,
+    };
+
+    orders[idx] = {
+      ...ord,
+      amountPaidPaise: nextPaid,
+      balanceDuePaise: nextDue,
+      orderStatus:
+        ord.orderStatus === 'quote_pending'
+          ? 'advance_confirmed'
+          : ord.orderStatus,
+      paymentLedger: [...ord.paymentLedger, entry],
+      updatedAt: nowIso,
+    };
+    this.write(STORAGE_KEYS.CATERING_ORDERS, orders);
+    return orders[idx];
+  }
+
+  async addCateringExtraPlates(params: {
+    businessId: string;
+    orderId: string;
+    extraPlates: number;
+    options?: AIConfigAccessOptions;
+  }): Promise<CateringOrder> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+    this.assertOwnerAccess(business, params.options);
+
+    const addCount = Math.max(0, Math.floor(Number(params.extraPlates) || 0));
+    if (addCount <= 0) {
+      throw new Error('Extra plates must be at least 1.');
+    }
+
+    const orders = this.read<CateringOrder[]>(STORAGE_KEYS.CATERING_ORDERS, []);
+    const idx = orders.findIndex(
+      (o) => o.id === params.orderId && o.businessId === cleanId,
+    );
+    if (idx === -1) throw new Error('Catering order not found.');
+
+    const ord = orders[idx];
+    const basePlates = ord.vegPlates + ord.nonVegPlates;
+    const blendedRate =
+      basePlates > 0
+        ? Math.round(
+            (ord.vegPlates * ord.vegRatePaise +
+              ord.nonVegPlates * ord.nonVegRatePaise) /
+              basePlates,
+          )
+        : Math.max(ord.vegRatePaise, ord.nonVegRatePaise);
+
+    const addedFood = addCount * blendedRate;
+    const gstRatio =
+      ord.subtotalPaise > 0 ? ord.gstPaise / ord.subtotalPaise : 0.05;
+    const newSubtotal = ord.subtotalPaise + addedFood;
+    const newGst = Math.round(newSubtotal * gstRatio);
+    const newTotal = newSubtotal + newGst;
+    const newDue = Math.max(0, newTotal - ord.amountPaidPaise);
+
+    orders[idx] = {
+      ...ord,
+      extraPlatesAdded: ord.extraPlatesAdded + addCount,
+      subtotalPaise: newSubtotal,
+      gstPaise: newGst,
+      totalAmountPaise: newTotal,
+      stage3BalancePaise: Math.max(
+        0,
+        newTotal - ord.stage1AdvancePaise - ord.stage2PreeventPaise,
+      ),
+      balanceDuePaise: newDue,
+      updatedAt: new Date().toISOString(),
+    };
+    this.write(STORAGE_KEYS.CATERING_ORDERS, orders);
+    return orders[idx];
+  }
+
+  async updateCateringKitchenAndVessels(params: {
+    businessId: string;
+    orderId: string;
+    chefPin?: string | null;
+    orderStatus?: CateringOrderStatus;
+    kitchenChecklist?: CateringKitchenChecklist;
+    vesselsDispatched?: CateringVesselDispatchLine[];
+    chefNotes?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<
+    Partial<CateringOrder> & Pick<CateringOrder, 'id' | 'orderCode' | 'orderStatus'>
+  > {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error(`Business "${cleanId}" not found.`);
+
+    this.ensureDemoCateringSeeded(cleanId);
+    const cfg = this.getOrCreateCateringConfigRecord(cleanId);
+
+    let isOwner = false;
+    if (params.chefPin !== undefined && params.chefPin !== null) {
+      if (params.chefPin.trim() !== (cfg.chefStationPin ?? '4321')) {
+        throw new Error('Invalid Head Chef PIN or unauthorized access.');
+      }
+    } else {
+      this.assertOwnerAccess(business, params.options);
+      isOwner = true;
+    }
+
+    if (
+      params.orderStatus &&
+      !ALLOWED_CATERING_ORDER_STATUSES.includes(params.orderStatus)
+    ) {
+      throw new Error(`Invalid catering order status: ${params.orderStatus}`);
+    }
+
+    const orders = this.read<CateringOrder[]>(STORAGE_KEYS.CATERING_ORDERS, []);
+    const idx = orders.findIndex(
+      (o) => o.id === params.orderId && o.businessId === cleanId,
+    );
+    if (idx === -1) throw new Error('Catering order not found.');
+
+    const ord = orders[idx];
+    const nextVessels = params.vesselsDispatched
+      ? params.vesselsDispatched.map((v) => ({
+          itemName: (v.itemName ?? '').trim().slice(0, 80) || 'Hot Box',
+          qtySent: Math.max(0, Math.floor(Number(v.qtySent) || 0)),
+          qtyReturned: Math.max(0, Math.floor(Number(v.qtyReturned) || 0)),
+        }))
+      : ord.vesselsDispatched;
+
+    const allReturned = checkVesselsAllReturned(nextVessels);
+
+    orders[idx] = {
+      ...ord,
+      orderStatus: params.orderStatus ?? ord.orderStatus,
+      kitchenChecklist: params.kitchenChecklist
+        ? { ...ord.kitchenChecklist, ...params.kitchenChecklist }
+        : ord.kitchenChecklist,
+      vesselsDispatched: nextVessels,
+      vesselsAllReturned: allReturned,
+      chefNotes:
+        params.chefNotes !== undefined
+          ? params.chefNotes?.trim().slice(0, 400) || null
+          : ord.chefNotes,
+      updatedAt: new Date().toISOString(),
+    };
+    this.write(STORAGE_KEYS.CATERING_ORDERS, orders);
+
+    if (isOwner) {
+      return orders[idx];
+    }
+
+    // Strictly sanitized response when updated via Head Chef PIN (zero prices / customer phone)
+    return {
+      id: orders[idx].id,
+      orderCode: orders[idx].orderCode,
+      orderStatus: orders[idx].orderStatus,
+      kitchenChecklist: orders[idx].kitchenChecklist,
+      vesselsDispatched: orders[idx].vesselsDispatched,
+      vesselsAllReturned: orders[idx].vesselsAllReturned,
+      chefNotes: orders[idx].chefNotes,
+    };
+  }
+
+  async getCateringChefKitchenPortal(params: {
+    businessId: string;
+    chefPin: string;
+    dateFrom?: string;
+    dateTo?: string;
+  }): Promise<CateringChefKitchenPortalPayload> {
+    const err = validateBusinessId(params.businessId);
+    if (err) throw new Error(err);
+    const cleanId = params.businessId.trim();
+    const business = await this.getBusinessById(cleanId);
+    if (!business) throw new Error('Business not found.');
+
+    this.ensureDemoCateringSeeded(cleanId);
+    const cfg = this.getOrCreateCateringConfigRecord(cleanId);
+    if ((params.chefPin ?? '').trim() !== (cfg.chefStationPin ?? '4321')) {
+      throw new Error('Invalid Head Chef PIN.');
+    }
+
+    const todayIso = getTodayIsoDateKey();
+    const dateFrom =
+      params.dateFrom && /^\d{4}-\d{2}-\d{2}$/.test(params.dateFrom.trim())
+        ? params.dateFrom.trim()
+        : todayIso;
+    const dateTo =
+      params.dateTo && /^\d{4}-\d{2}-\d{2}$/.test(params.dateTo.trim())
+        ? params.dateTo.trim()
+        : addDaysToIsoDate(todayIso, 14);
+
+    const matchingOrders = this.read<CateringOrder[]>(
+      STORAGE_KEYS.CATERING_ORDERS,
+      [],
+    )
+      .filter(
+        (o) =>
+          o.businessId === cleanId &&
+          o.orderStatus !== 'cancelled' &&
+          o.eventDate >= dateFrom &&
+          o.eventDate <= dateTo,
+      )
+      .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+
+    const dishes = this.read<CateringDishAndRecipe[]>(
+      STORAGE_KEYS.CATERING_DISHES,
+      [],
+    ).filter((d) => d.businessId === cleanId);
+
+    // Explicitly construct sanitized objects so NO customerPhone, NO ₹ rates, NO totals, NO paymentLedger ever leak!
+    const events: CateringChefSanitizedOrder[] = matchingOrders.map((o) => ({
+      id: o.id,
+      orderCode: o.orderCode,
+      occasionType: o.occasionType,
+      eventDate: o.eventDate,
+      deliveryTime: o.deliveryTime,
+      serviceMode: o.serviceMode,
+      usesBanquetHall: o.usesBanquetHall,
+      hallSlot: o.hallSlot,
+      packageNameSnapshot: o.packageNameSnapshot,
+      vegPlates: o.vegPlates,
+      nonVegPlates: o.nonVegPlates,
+      extraPlatesAdded: o.extraPlatesAdded,
+      totalPlates: o.vegPlates + o.nonVegPlates + o.extraPlatesAdded,
+      selectedPackageDishes: o.selectedPackageDishes.map((d) => ({
+        dishId: d.dishId,
+        dishName: d.dishName,
+        dietType: d.dietType,
+        category: d.category,
+      })),
+      bulkAlacarteItems: o.bulkAlacarteItems.map((bi) => ({
+        dishId: bi.dishId,
+        dishName: bi.dishName,
+        dietType: bi.dietType,
+        unit: bi.unit,
+        quantity: bi.quantity,
+      })),
+      orderStatus: o.orderStatus,
+      kitchenChecklist: { ...o.kitchenChecklist },
+      vesselsDispatched: o.vesselsDispatched.map((v) => ({ ...v })),
+      vesselsAllReturned: o.vesselsAllReturned,
+      chefNotes: o.chefNotes,
+    }));
+
+    const groceryList = computeCateringGroceryShoppingList({
+      orders: matchingOrders,
+      dishesCatalog: dishes,
+      wastagePercent: cfg.defaultWastagePercent,
+    });
+
+    return {
+      businessName: business.name,
+      hallName: cfg.hallName,
+      defaultWastagePercent: cfg.defaultWastagePercent,
+      dateFrom,
+      dateTo,
+      events,
+      groceryList,
+    };
   }
 }
 

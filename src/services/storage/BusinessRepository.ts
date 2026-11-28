@@ -165,6 +165,24 @@ import type {
   CompleteClinicConsultationResult,
   PublicClinicHubPayload,
 } from '../../types/clinic';
+import type {
+  CateringChefKitchenPortalPayload,
+  CateringConfig,
+  CateringConfigInput,
+  CateringDishAndRecipe,
+  CateringDishAndRecipeInput,
+  CateringKitchenChecklist,
+  CateringOrder,
+  CateringOrderStatus,
+  CateringOwnerDashboardPayload,
+  CateringPackage,
+  CateringPackageInput,
+  CateringPaymentMethod,
+  CateringPaymentStage,
+  CateringVesselDispatchLine,
+  PublicCateringPortalPayload,
+  SubmitCateringOrderInput,
+} from '../../types/catering';
 
 export interface AIConfigAccessOptions {
   /** Optional explicit owner ID used to verify tenant isolation. */
@@ -1385,4 +1403,99 @@ export interface IBusinessRepository {
     paymentMethod?: ClinicPaymentMethod;
     options?: AIConfigAccessOptions;
   }): Promise<ClinicPatient>;
+
+  // ---------------------------------------------------------------------------
+  // Module 10: CateringOS & Banquet Hall Management System
+  // ---------------------------------------------------------------------------
+
+  /** Public customer & website-embed catering configurator payload (/r/:businessSlug/catering). Strips chefStationPin. */
+  getPublicCateringPortal(
+    businessSlug: string,
+  ): Promise<PublicCateringPortalPayload | null>;
+
+  /** Submits a catering & banquet hall quote/order (online link, website embed, phone desk, or walk-in) with conflict & rule checks. */
+  submitCateringOrder(
+    input: SubmitCateringOrderInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CateringOrder>;
+
+  /** Owner Banquet & Revenue Command Center payload (config, KPIs, orders, packages, dishes & grocery requirements). */
+  getCateringOwnerDashboard(
+    businessId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<CateringOwnerDashboardPayload>;
+
+  /** Owner updates CateringOS booking rules, hall slots, add-on prices, Chef PIN, wastage % & white-label branding. */
+  updateCateringConfig(
+    businessId: string,
+    input: CateringConfigInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CateringConfig>;
+
+  /** Owner creates or updates a tiered Catering Package (Silver, Gold, Premium) with Veg/Non-Veg rates & dish-slot pickers. */
+  upsertCateringPackage(
+    businessId: string,
+    input: CateringPackageInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CateringPackage>;
+
+  /** Owner deletes a Catering Package. */
+  deleteCateringPackage(
+    businessId: string,
+    packageId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void>;
+
+  /** Owner creates or updates a Catering Dish (bulk tray rates + per-100-plate raw ingredient recipe yields). */
+  upsertCateringDishAndRecipe(
+    businessId: string,
+    input: CateringDishAndRecipeInput,
+    options?: AIConfigAccessOptions,
+  ): Promise<CateringDishAndRecipe>;
+
+  /** Owner deletes a Catering Dish from the catalog. */
+  deleteCateringDishAndRecipe(
+    businessId: string,
+    dishId: string,
+    options?: AIConfigAccessOptions,
+  ): Promise<void>;
+
+  /** Owner records a Stage 1 (Advance), Stage 2 (Pre-Event), Stage 3 (Final), or Extra Plates payment. */
+  recordCateringStagePayment(params: {
+    businessId: string;
+    orderId: string;
+    stage: CateringPaymentStage;
+    amountPaise: number;
+    method: CateringPaymentMethod;
+    note?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<CateringOrder>;
+
+  /** Owner adds on-site +Extra Plates and recalculates subtotal, GST, total & balance due. */
+  addCateringExtraPlates(params: {
+    businessId: string;
+    orderId: string;
+    extraPlates: number;
+    options?: AIConfigAccessOptions;
+  }): Promise<CateringOrder>;
+
+  /** Owner or Head Chef (via 4-digit PIN) updates kitchen prep checklists, status & hot-box/vessel dispatch/returns. */
+  updateCateringKitchenAndVessels(params: {
+    businessId: string;
+    orderId: string;
+    chefPin?: string | null;
+    orderStatus?: CateringOrderStatus;
+    kitchenChecklist?: CateringKitchenChecklist;
+    vesselsDispatched?: CateringVesselDispatchLine[];
+    chefNotes?: string | null;
+    options?: AIConfigAccessOptions;
+  }): Promise<Partial<CateringOrder> & Pick<CateringOrder, 'id' | 'orderCode' | 'orderStatus'>>;
+
+  /** Restricted Head Chef PIN Portal: strictly zero customer phones, zero ₹ prices, zero payments/margins! */
+  getCateringChefKitchenPortal(params: {
+    businessId: string;
+    chefPin: string;
+    dateFrom?: string;
+    dateTo?: string;
+  }): Promise<CateringChefKitchenPortalPayload>;
 }

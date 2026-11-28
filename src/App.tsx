@@ -15,6 +15,7 @@ import CustomerGymPage from './pages/CustomerGymPage';
 import CustomerCafeHubPage from './pages/CustomerCafeHubPage';
 import CustomerLoyaltyHubPage from './pages/CustomerLoyaltyHubPage';
 import CustomerClinicHubPage from './pages/CustomerClinicHubPage';
+import CustomerCateringHubPage from './pages/CustomerCateringHubPage';
 import BusinessDashboard from './pages/BusinessDashboard';
 import BarberOwnerDashboardPage from './pages/BarberOwnerDashboardPage';
 import GymOwnerDashboardPage from './pages/GymOwnerDashboardPage';
@@ -90,6 +91,10 @@ export default function App() {
           <Route
             path="/r/:businessSlug/clinic"
             element={<CustomerClinicHubPage />}
+          />
+          <Route
+            path="/r/:businessSlug/catering"
+            element={<CustomerCateringHubPage />}
           />
           <Route element={<CustomerLayout />}>
             <Route path="/r/:businessSlug" element={<CustomerReviewPage />} />

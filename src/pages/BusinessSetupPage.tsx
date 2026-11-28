@@ -34,6 +34,7 @@ import { getIndustryWorkspaceType, isGymCategory } from '../utils/gymValidation'
 import { isCafeCategory } from '../utils/cafeValidation';
 import { isLoyaltyCategory } from '../utils/loyaltyValidation';
 import { isClinicCategory } from '../utils/clinicValidation';
+import { isCateringCategory } from '../utils/cateringValidation';
 import { Button } from '../components/common/Button';
 import { TextField } from '../components/common/TextField';
 import { Alert } from '../components/common/Alert';
@@ -66,7 +67,9 @@ export default function BusinessSetupPage() {
             ? 'loyalty'
             : initialType === 'clinic'
               ? 'clinic'
-              : 'restaurant',
+              : initialType === 'catering'
+                ? 'catering'
+                : 'restaurant',
   );
   const [city, setCity] = useState('');
   const [slug, setSlug] = useState('');
@@ -266,7 +269,9 @@ export default function BusinessSetupPage() {
                         ? 'Open LoyaltyOS Command Center'
                         : getIndustryWorkspaceType(createdBusiness.category) === 'clinic'
                           ? 'Open ClinicOS Command Center'
-                          : 'Open Restaurant Workspace'}{' '}
+                          : getIndustryWorkspaceType(createdBusiness.category) === 'catering'
+                            ? 'Open CateringOS Banquet Command'
+                            : 'Open Restaurant Workspace'}{' '}
                 <ArrowRight className="h-4 w-4" aria-hidden />
               </Button>
             </div>
@@ -333,7 +338,9 @@ export default function BusinessSetupPage() {
                           ? `/r/${createdBusiness.slug}/loyalty`
                           : isClinicCategory(createdBusiness.category)
                             ? `/r/${createdBusiness.slug}/clinic`
-                            : `/r/${createdBusiness.slug}/menu`
+                            : isCateringCategory(createdBusiness.category)
+                              ? `/r/${createdBusiness.slug}/catering`
+                              : `/r/${createdBusiness.slug}/menu`
                 }
                 target="_blank"
                 rel="noopener noreferrer"
@@ -350,7 +357,9 @@ export default function BusinessSetupPage() {
                         ? 'Open Digital Loyalty Wallet'
                         : isClinicCategory(createdBusiness.category)
                           ? 'Open Patient Health Pass'
-                          : 'Open Customer Menu'}
+                          : isCateringCategory(createdBusiness.category)
+                            ? 'Open Event Quote Configurator'
+                            : 'Open Customer Menu'}
               </a>
               <Button
                 variant="primary"
@@ -419,7 +428,9 @@ export default function BusinessSetupPage() {
                   ? 'Launch Your LoyaltyOS Rewards Studio'
                   : selectedWorkspace === 'clinic'
                     ? 'Launch Your ClinicOS OPD & Digital Rx Studio'
-                    : 'Set Up Your Business Workspace'}
+                    : selectedWorkspace === 'catering'
+                      ? 'Launch Your CateringOS & Banquet Hall Studio'
+                      : 'Set Up Your Business Workspace'}
         </h1>
         <p className="mt-1.5 text-[15px] text-[#6B7280]">
           {selectedWorkspace === 'cafe'
@@ -432,7 +443,9 @@ export default function BusinessSetupPage() {
                   ? 'Turn any retail shop, boutique, or salon counter into an anti-fraud Digital Star Wallet + AI Google Review engine.'
                   : selectedWorkspace === 'clinic'
                     ? 'Multi-doctor live OPD queue tokens, nurse vitals, Digital Prescription (Rx) vault, multi-session packages, and 3-day patient recalls.'
-                    : 'Launch your digital table menu, waiter roster, guest loyalty stars, and Google review flow in under a minute.'}
+                    : selectedWorkspace === 'catering'
+                      ? 'Instant event quotes with Veg/Non-Veg plate splits, banquet hall slots, 3-stage payments, recipe-to-grocery scaling and a Head Chef PIN portal.'
+                      : 'Launch your digital table menu, waiter roster, guest loyalty stars, and Google review flow in under a minute.'}
         </p>
       </div>
 

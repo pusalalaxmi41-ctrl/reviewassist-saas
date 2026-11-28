@@ -46,6 +46,7 @@ import { GymOwnerWorkspace } from '../components/gym/GymOwnerWorkspace';
 import { CafeManagerView } from '../components/cafe/CafeManagerView';
 import { LoyaltyManagerView } from '../components/loyalty/LoyaltyManagerView';
 import { ClinicManagerView } from '../components/ClinicManagerView';
+import { CateringManagerView } from '../components/CateringManagerView';
 import { getIndustryWorkspaceType } from '../utils/gymValidation';
 import { isCafeCategory } from '../utils/cafeValidation';
 import { isLoyaltyCategory } from '../utils/loyaltyValidation';
@@ -336,6 +337,17 @@ export default function BusinessDashboard() {
         business={currentBusiness}
         clinicBusinesses={clinicOnly.length > 0 ? clinicOnly : [currentBusiness]}
         hasOtherBusinesses={businesses.some((b) => !isClinicCategory(b.category))}
+        onSelectBusiness={handleSelectBusiness}
+        onBusinessUpdated={handleBusinessUpdated}
+      />
+    );
+  }
+  if (workspaceType === 'catering') {
+    return (
+      <CateringManagerView
+        key={currentBusiness.id}
+        business={currentBusiness}
+        allBusinesses={businesses}
         onSelectBusiness={handleSelectBusiness}
         onBusinessUpdated={handleBusinessUpdated}
       />

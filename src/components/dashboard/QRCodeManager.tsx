@@ -34,6 +34,7 @@ import { getGymPortalUrl, isGymCategory } from '../../utils/gymValidation';
 import { getCafeHubUrl, isCafeCategory } from '../../utils/cafeValidation';
 import { getLoyaltyPortalUrl, isLoyaltyCategory } from '../../utils/loyaltyValidation';
 import { getClinicPortalUrl, isClinicCategory } from '../../utils/clinicValidation';
+import { getCateringPortalUrl, isCateringCategory } from '../../utils/cateringValidation';
 import {
   generatePrintablePdfBlobFromCanvas,
   getDefaultQRDesignSettings,
@@ -56,6 +57,7 @@ interface Props {
     | 'cafe'
     | 'loyalty'
     | 'clinic'
+    | 'catering'
     | 'restaurant_menu';
 }
 
@@ -79,6 +81,7 @@ export function QRCodeManager({ business, defaultMode }: Props) {
     business.loyaltyEnabled ?? isLoyaltyCategory(business.category),
   );
   const supportsClinicPortal = isClinicCategory(business.category);
+  const supportsCateringPortal = isCateringCategory(business.category);
   const supportsRestaurantMenu =
     business.category === 'restaurant' ||
     business.category === 'hotel' ||
@@ -90,9 +93,12 @@ export function QRCodeManager({ business, defaultMode }: Props) {
     | 'cafe'
     | 'loyalty'
     | 'clinic'
+    | 'catering'
     | 'restaurant_menu' =
     defaultMode ??
-    (supportsClinicPortal
+    (supportsCateringPortal
+      ? 'catering'
+      : supportsClinicPortal
       ? 'clinic'
       : supportsCafeHub
         ? 'cafe'
@@ -111,6 +117,7 @@ export function QRCodeManager({ business, defaultMode }: Props) {
     | 'cafe'
     | 'loyalty'
     | 'clinic'
+    | 'catering'
     | 'restaurant_menu'
   >(resolvedDefault);
   const [queueHeading, setQueueHeading] = useState('Scan to Join the Live Queue');
@@ -139,6 +146,12 @@ export function QRCodeManager({ business, defaultMode }: Props) {
   const [clinicInstruction, setClinicInstruction] = useState(
     'Check live doctor wait times, claim your OPD token & access your Digital Rx',
   );
+  const [cateringHeading, setCateringHeading] = useState(
+    'Scan to Customize Your Event Menu & Instant Catering Quote',
+  );
+  const [cateringInstruction, setCateringInstruction] = useState(
+    'Pick date & banquet slot, split Veg / Non-Veg plates & get your quote on WhatsApp',
+  );
   const [menuHeading, setMenuHeading] = useState('Scan for Digital Menu & Loyalty');
   const [menuInstruction, setMenuInstruction] = useState(
     'Browse our live menu, play table games & collect Loyalty Stars',
@@ -149,6 +162,7 @@ export function QRCodeManager({ business, defaultMode }: Props) {
   const isCafeMode = supportsCafeHub && qrMode === 'cafe';
   const isLoyaltyMode = supportsLoyaltyPortal && qrMode === 'loyalty';
   const isClinicMode = supportsClinicPortal && qrMode === 'clinic';
+  const isCateringMode = supportsCateringPortal && qrMode === 'catering';
   const isMenuMode = supportsRestaurantMenu && qrMode === 'restaurant_menu';
   const originHost =
     typeof window !== 'undefined'
@@ -156,7 +170,9 @@ export function QRCodeManager({ business, defaultMode }: Props) {
       : 'http://localhost:5173';
   const menuHubUrl = `${originHost}/r/${business.slug}/menu`;
 
-  const qrUrl = isClinicMode
+  const qrUrl = isCateringMode
+    ? getCateringPortalUrl(business.slug)
+    : isClinicMode
     ? getClinicPortalUrl(business.slug)
     : isCafeMode
       ? getCafeHubUrl(business.slug)
@@ -169,7 +185,9 @@ export function QRCodeManager({ business, defaultMode }: Props) {
             : isMenuMode
               ? menuHubUrl
               : getCustomerReviewUrl(business.slug, 'qr');
-  const directUrl = isClinicMode
+  const directUrl = isCateringMode
+    ? getCateringPortalUrl(business.slug)
+    : isClinicMode
     ? getClinicPortalUrl(business.slug)
     : isCafeMode
       ? getCafeHubUrl(business.slug)
@@ -187,7 +205,14 @@ export function QRCodeManager({ business, defaultMode }: Props) {
 
   const effectivePosterSettings: QRDesignSettings = useMemo(
     () =>
-      isClinicMode
+      isCateringMode
+        ? {
+            ...settings,
+            template: 'table_standee',
+            heading: cateringHeading,
+            instruction: cateringInstruction,
+          }
+        : isClinicMode
         ? {
             ...settings,
             template: 'table_standee',
@@ -231,6 +256,9 @@ export function QRCodeManager({ business, defaultMode }: Props) {
                     }
                   : settings,
     [
+      isCateringMode,
+      cateringHeading,
+      cateringInstruction,
       isClinicMode,
       isCafeMode,
       isGymMode,
@@ -255,7 +283,16 @@ export function QRCodeManager({ business, defaultMode }: Props) {
 
   const effectiveRenderOptions = useMemo(
     () =>
-      isClinicMode
+      isCateringMode
+        ? {
+            targetUrl: qrUrl,
+            customSteps: [
+              'Scan QR with phone camera',
+              'Pick date, banquet slot & Veg / Non-Veg plates',
+              'Get instant itemized quote on WhatsApp',
+            ] as [string, string, string],
+          }
+        : isClinicMode
         ? {
             targetUrl: qrUrl,
             customSteps: [
@@ -311,6 +348,7 @@ export function QRCodeManager({ business, defaultMode }: Props) {
                     }
                   : undefined,
     [
+      isCateringMode,
       isClinicMode,
       isCafeMode,
       isGymMode,
@@ -393,6 +431,11 @@ export function QRCodeManager({ business, defaultMode }: Props) {
       setLoyaltyInstruction(
         'Collect visit stars on your digital wallet card & unlock exclusive rewards',
       );
+    } else if (isCateringMode) {
+      setCateringHeading('Scan to Customize Your Event Menu & Instant Catering Quote');
+      setCateringInstruction(
+        'Pick date & banquet slot, split Veg / Non-Veg plates & get your quote on WhatsApp',
+      );
     } else if (isClinicMode) {
       setClinicHeading('Scan for Live Queue Token & Digital Prescription Pass');
       setClinicInstruction(
@@ -411,7 +454,9 @@ export function QRCodeManager({ business, defaultMode }: Props) {
       effectiveRenderOptions,
     );
     const pngUrl = canvasRef.current.toDataURL('image/png');
-    const filename = isClinicMode
+    const filename = isCateringMode
+      ? `${business.slug}-catering-quote-qr.png`
+      : isClinicMode
       ? `${business.slug}-clinic-reception-qr.png`
       : isCafeMode
         ? `${business.slug}-cafe-stamp-qr.png`
@@ -441,7 +486,9 @@ export function QRCodeManager({ business, defaultMode }: Props) {
     );
     const pdfBlob = generatePrintablePdfBlobFromCanvas(canvasRef.current);
     const blobUrl = URL.createObjectURL(pdfBlob);
-    const filename = isClinicMode
+    const filename = isCateringMode
+      ? `${business.slug}-catering-quote-qr.pdf`
+      : isClinicMode
       ? `${business.slug}-clinic-reception-qr.pdf`
       : isCafeMode
         ? `${business.slug}-cafe-stamp-qr.pdf`
@@ -490,8 +537,23 @@ export function QRCodeManager({ business, defaultMode }: Props) {
         supportsBarberQueue ||
         supportsGymPortal ||
         supportsLoyaltyPortal ||
-        supportsClinicPortal) && (
+        supportsClinicPortal ||
+        supportsCateringPortal) && (
         <div className="inline-flex flex-wrap items-center gap-1.5 rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-2 shadow-2xs">
+          {supportsCateringPortal && (
+            <button
+              type="button"
+              onClick={() => setQrMode('catering')}
+              className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
+                isCateringMode
+                  ? 'bg-[#0F1115] text-[#D4AF37] shadow-2xs'
+                  : 'text-[#626B65] hover:bg-[#F7F7F2] hover:text-[#252B29]'
+              }`}
+            >
+              <QrCode className="h-4 w-4" aria-hidden />
+              <span>Event Menu &amp; Catering Quote Standee</span>
+            </button>
+          )}
           {supportsClinicPortal && (
             <button
               type="button"
@@ -598,6 +660,7 @@ export function QRCodeManager({ business, defaultMode }: Props) {
             type="button"
             onClick={() => setQrMode('review')}
             className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-bold transition-all cursor-pointer ${
+              !isCateringMode &&
               !isClinicMode &&
               !isCafeMode &&
               !isQueueMode &&
@@ -618,7 +681,9 @@ export function QRCodeManager({ business, defaultMode }: Props) {
       <div className="flex flex-col gap-4 rounded-2xl border border-[#DDE4DC] bg-[#FFFFFF] p-5 sm:flex-row sm:items-center sm:justify-between shadow-2xs">
         <div className="space-y-1">
           <p className="text-[12px] font-semibold uppercase tracking-wider text-[#626B65]">
-            {isClinicMode
+            {isCateringMode
+              ? 'Event Menu Configurator & Instant Catering Quote URL (Encoded in QR)'
+              : isClinicMode
               ? 'Clinic Reception Live Queue & Digital Prescription URL (Encoded in QR)'
               : isCafeMode
                 ? 'Counter Coffee Stamp Card & Quick Menu URL (Encoded in QR)'
@@ -760,7 +825,9 @@ export function QRCodeManager({ business, defaultMode }: Props) {
                   type="text"
                   maxLength={70}
                   value={
-                    isClinicMode
+                    isCateringMode
+                      ? cateringHeading
+                      : isClinicMode
                       ? clinicHeading
                       : isCafeMode
                         ? cafeHeading
@@ -775,7 +842,9 @@ export function QRCodeManager({ business, defaultMode }: Props) {
                                 : settings.heading
                   }
                   onChange={(e) => {
-                    if (isClinicMode) {
+                    if (isCateringMode) {
+                      setCateringHeading(e.target.value);
+                    } else if (isClinicMode) {
                       setClinicHeading(e.target.value);
                     } else if (isCafeMode) {
                       setCafeHeading(e.target.value);
@@ -810,7 +879,9 @@ export function QRCodeManager({ business, defaultMode }: Props) {
                   type="text"
                   maxLength={90}
                   value={
-                    isClinicMode
+                    isCateringMode
+                      ? cateringInstruction
+                      : isClinicMode
                       ? clinicInstruction
                       : isCafeMode
                         ? cafeInstruction
@@ -825,7 +896,9 @@ export function QRCodeManager({ business, defaultMode }: Props) {
                                 : settings.instruction
                   }
                   onChange={(e) => {
-                    if (isClinicMode) {
+                    if (isCateringMode) {
+                      setCateringInstruction(e.target.value);
+                    } else if (isClinicMode) {
                       setClinicInstruction(e.target.value);
                     } else if (isCafeMode) {
                       setCafeInstruction(e.target.value);

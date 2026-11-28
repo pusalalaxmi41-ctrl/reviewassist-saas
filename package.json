@@ -32,6 +32,7 @@
     "test:loyalty-os": "deno run --allow-read --allow-env tests/verify-loyalty-ai-review-os.ts",
     "test:clinic-os": "deno run --allow-read --allow-env tests/verify-clinic-os.ts",
     "test:loyalty-toggle": "deno run --allow-read --allow-env tests/verify-loyalty-toggle-and-review-flow.ts",
+    "test:catering-os": "deno run --allow-read --allow-env tests/verify-catering-banquet-os.ts",
     "preview": "vite preview"
   },
   "dependencies": {

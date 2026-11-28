@@ -6,7 +6,8 @@ export type IndustryWorkspaceType =
   | 'barber'
   | 'gym'
   | 'loyalty'
-  | 'clinic';
+  | 'clinic'
+  | 'catering';
 
 export type GymMemberStatus =
   | 'pending_approval'
