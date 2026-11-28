@@ -1212,9 +1212,11 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     businessId: string,
     options?: AIConfigAccessOptions,
   ): Promise<Business> {
+    const cloudBiz = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(businessId)
+      ? await this.getBusinessById(businessId)
+      : null;
     const biz =
-      (await this.getBusinessById(businessId)) ??
-      (await mockBusinessRepository.getBusinessById(businessId));
+      cloudBiz ?? (await mockBusinessRepository.getBusinessById(businessId));
 
     if (!biz) {
       throw new Error(`Business with ID "${businessId}" not found.`);
@@ -1230,15 +1232,18 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
       );
     }
 
-    const client = this.requireClient();
-    const {
-      data: { user },
-    } = await client.auth.getUser();
+    // Enforce live Supabase Auth UUID match strictly for real cloud tenants (not local browser demo fixtures like biz-royal-banquet-7)
+    if (cloudBiz) {
+      const client = this.requireClient();
+      const {
+        data: { user },
+      } = await client.auth.getUser();
 
-    if (user && biz.ownerId && user.id !== biz.ownerId) {
-      throw new Error(
-        `Unauthorized: Authenticated user cannot access or modify AI configuration for business "${biz.id}".`,
-      );
+      if (user && cloudBiz.ownerId && user.id !== cloudBiz.ownerId) {
+        throw new Error(
+          `Unauthorized: Authenticated user cannot access or modify AI configuration for business "${cloudBiz.id}".`,
+        );
+      }
     }
 
     return biz;
@@ -8228,6 +8233,9 @@ export class SupabaseBusinessRepository implements IBusinessRepository {
     if (err) throw new Error(err);
     const cleanId = businessId.trim();
     const biz = await this.verifyBusinessOwnership(cleanId, options);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(cleanId)) {
+      return mockBusinessRepository.getCateringOwnerDashboard(cleanId, options);
+    }
     const client = this.requireClient();
 
     await this.ensureSupabaseCateringStarterCatalog(cleanId).catch(() => {});
