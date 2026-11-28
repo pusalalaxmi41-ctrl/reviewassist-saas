@@ -17,17 +17,23 @@ import {
   businessRepository,
   PLACEHOLDER_GOOGLE_REVIEW_URL,
 } from '../services/storage';
-import { aiProvider, AIProviderError } from '../services/ai';
+import { aiProvider } from '../services/ai';
 import {
   composeExperienceText,
   getCategoryExperience,
 } from '../config/reviewExperience';
+import {
+  buildNaturalHumanReview,
+  formatDisplayBusinessName,
+  hasRoboticReviewCliche,
+} from '../lib/naturalReviewCopy';
 import { loadBusinessQRSettings } from '../services/qr/qrGenerator';
 import { classifyEstimatedSentiment } from '../utils/sentimentClassifier';
 import { copyText } from '../utils/clipboard';
 
-const SLOW_RESPONSE_THRESHOLD_MS = 3500;
-const REQUEST_TIMEOUT_MS = 22000;
+const TYPEWRITER_TICK_MS = 18;
+const TYPEWRITER_CHARS_PER_TICK = 3;
+const REQUEST_TIMEOUT_MS = 16000;
 
 const EXPERIENCE_PILLS: ReadonlyArray<{
   id: ExperienceRating;
@@ -40,6 +46,20 @@ const EXPERIENCE_PILLS: ReadonlyArray<{
   { id: 'not_good', emoji: '😞', label: 'Needs work' },
 ];
 
+function buildSelectionSignature(
+  rating: ExperienceRating,
+  likedIds: string[],
+  improveIds: string[],
+  note: string,
+): string {
+  return JSON.stringify({
+    rating,
+    liked: [...likedIds].sort(),
+    improve: [...improveIds].sort(),
+    note: note.trim(),
+  });
+}
+
 export default function CustomerReviewPage() {
   const { businessSlug } = useParams();
   const [searchParams] = useSearchParams();
@@ -47,35 +67,51 @@ export default function CustomerReviewPage() {
   const [business, setBusiness] = useState<Business | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
 
-  // Unified Single-Screen State (100% Text Mode — Zero Wizards, Zero Speak/Text Chooser)
+  // Phase 1: Customer selects rating, highlights & optional note first
   const [rating, setRating] = useState<ExperienceRating>('excellent');
   const [likedIds, setLikedIds] = useState<string[]>([]);
   const [improveIds, setImproveIds] = useState<string[]>([]);
   const [note, setNote] = useState('');
+
+  // Phase 2: Intentional AI Draft Generation + Left-to-Right Streaming Reveal
+  const [hasGeneratedDraft, setHasGeneratedDraft] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [displayedDraft, setDisplayedDraft] = useState('');
   const [review, setReview] = useState('');
   const [attempt, setAttempt] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [slowResponse, setSlowResponse] = useState(false);
+  const [generatedSignature, setGeneratedSignature] = useState<string | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [copiedToast, setCopiedToast] = useState<string | null>(null);
 
   const trackedScanRef = useRef(false);
-  const initialDraftTriggeredRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const chipDebounceTimerRef = useRef<number | null>(null);
+  const streamTimerRef = useRef<number | null>(null);
+  const draftSectionRef = useRef<HTMLElement | null>(null);
+
+  const clearStreamTimer = useCallback(() => {
+    if (streamTimerRef.current !== null) {
+      window.clearInterval(streamTimerRef.current);
+      streamTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     return () => {
       abortControllerRef.current?.abort();
-      if (chipDebounceTimerRef.current !== null) {
-        window.clearTimeout(chipDebounceTimerRef.current);
-      }
+      clearStreamTimer();
     };
-  }, []);
+  }, [clearStreamTimer]);
 
   const categoryExp = useMemo(
     () => getCategoryExperience(business?.category),
     [business?.category],
+  );
+
+  const displayName = useMemo(
+    () => (business ? formatDisplayBusinessName(business.name) : ''),
+    [business],
   );
 
   const logoDataUrl = useMemo(() => {
@@ -87,138 +123,16 @@ export default function CustomerReviewPage() {
     }
   }, [business]);
 
-  const buildPromptText = useCallback(
-    (
-      nextRating: ExperienceRating,
-      nextLikedIds: string[],
-      nextImproveIds: string[],
-      nextNote: string,
-      targetBiz: Business,
-    ): string => {
-      const cat = getCategoryExperience(targetBiz.category);
-      const liked = cat.liked.filter((o) => nextLikedIds.includes(o.id));
-      const improve = cat.improve.filter((o) => nextImproveIds.includes(o.id));
-      const composed = composeExperienceText({
-        rating: nextRating,
-        liked,
-        improve,
-        note: nextNote,
-      }).trim();
-      return (
-        composed ||
-        `Overall, my visit to ${targetBiz.name} in ${targetBiz.city} was ${nextRating.replace('_', ' ')}.`
-      );
-    },
-    [],
+  const currentSignature = useMemo(
+    () => buildSelectionSignature(rating, likedIds, improveIds, note),
+    [rating, likedIds, improveIds, note],
   );
 
-  const generateDraftInPlace = useCallback(
-    async (params: {
-      targetBiz: Business;
-      promptText: string;
-      nextAttempt: number;
-      recordFeedbackEvent?: boolean;
-    }) => {
-      const { targetBiz, promptText, nextAttempt, recordFeedbackEvent = false } =
-        params;
-
-      abortControllerRef.current?.abort();
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-
-      setLoading(true);
-      setSlowResponse(false);
-      setError(null);
-      setCopiedToast(null);
-
-      if (recordFeedbackEvent) {
-        void businessRepository.trackEvent({
-          businessId: targetBiz.id,
-          eventType: 'feedback_submitted',
-          metadata: { mode: 'text', length: promptText.length },
-        });
-      }
-
-      const slowTimer = window.setTimeout(() => {
-        setSlowResponse(true);
-      }, SLOW_RESPONSE_THRESHOLD_MS);
-
-      const timeoutTimer = window.setTimeout(() => {
-        controller.abort('timeout');
-      }, REQUEST_TIMEOUT_MS);
-
-      try {
-        const draft = await aiProvider.generateReviewDraft({
-          business: targetBiz,
-          experience: promptText,
-          attempt: nextAttempt,
-          mode: 'text',
-          signal: controller.signal,
-          onToken: (_delta, accumulated) => {
-            setReview(accumulated);
-          },
-        });
-
-        if (controller.signal.aborted) return;
-
-        const finalText = draft.text.trim();
-        if (!finalText) {
-          setError(
-            'We received an empty draft. Tap Regenerate to write a fresh version.',
-          );
-          return;
-        }
-
-        setReview(finalText);
-        setAttempt(nextAttempt);
-
-        void businessRepository.trackEvent({
-          businessId: targetBiz.id,
-          eventType: 'ai_generation',
-          metadata: {
-            attempt: nextAttempt,
-            streamed: Boolean(draft.streamed),
-            source: draft.generationSource ?? 'unknown',
-          },
-        });
-
-        const sentiment = classifyEstimatedSentiment(promptText);
-        void businessRepository.recordDraft({
-          businessId: targetBiz.id,
-          originalInput: promptText,
-          generatedReview: finalText,
-          mode: 'text',
-          sentiment,
-        });
-      } catch (err) {
-        if (controller.signal.aborted) {
-          if (controller.signal.reason === 'timeout') {
-            setError(
-              'Generating your review took longer than expected. Tap Regenerate to try again.',
-            );
-          }
-          return;
-        }
-
-        if (err instanceof AIProviderError) {
-          setError(err.message);
-        } else {
-          setError(
-            (err as Error)?.message ||
-              "We couldn't prepare your review right now. Please tap Regenerate.",
-          );
-        }
-      } finally {
-        window.clearTimeout(slowTimer);
-        window.clearTimeout(timeoutTimer);
-        if (abortControllerRef.current === controller) {
-          setLoading(false);
-          setSlowResponse(false);
-        }
-      }
-    },
-    [],
-  );
+  const selectionsChangedAfterDraft =
+    hasGeneratedDraft &&
+    !isStreaming &&
+    generatedSignature !== null &&
+    currentSignature !== generatedSignature;
 
   useEffect(() => {
     let active = true;
@@ -242,117 +156,213 @@ export default function CustomerReviewPage() {
           metadata: { source, slug: found.slug },
         });
       }
-
-      if (found && initialDraftTriggeredRef.current !== found.id) {
-        initialDraftTriggeredRef.current = found.id;
-        const initialPrompt = buildPromptText('excellent', [], [], '', found);
-        void generateDraftInPlace({
-          targetBiz: found,
-          promptText: initialPrompt,
-          nextAttempt: 0,
-          recordFeedbackEvent: false,
-        });
-      }
     }
 
     void init();
     return () => {
       active = false;
     };
-  }, [businessSlug, searchParams, buildPromptText, generateDraftInPlace]);
+  }, [businessSlug, searchParams]);
 
-  function scheduleDebouncedGeneration(
-    nextRating: ExperienceRating,
-    nextLikedIds: string[],
-    nextImproveIds: string[],
-    nextNote: string,
-  ) {
-    if (!business) return;
-    if (chipDebounceTimerRef.current !== null) {
-      window.clearTimeout(chipDebounceTimerRef.current);
-    }
-    const targetBiz = business;
-    chipDebounceTimerRef.current = window.setTimeout(() => {
-      const promptText = buildPromptText(
-        nextRating,
-        nextLikedIds,
-        nextImproveIds,
-        nextNote,
-        targetBiz,
+  const startLeftToRightTypewriter = useCallback(
+    (fullText: string, onComplete?: () => void) => {
+      clearStreamTimer();
+      setDisplayedDraft('');
+      setIsStreaming(true);
+
+      let cursor = 0;
+      streamTimerRef.current = window.setInterval(() => {
+        cursor = Math.min(fullText.length, cursor + TYPEWRITER_CHARS_PER_TICK);
+        setDisplayedDraft(fullText.slice(0, cursor));
+
+        if (cursor >= fullText.length) {
+          clearStreamTimer();
+          setReview(fullText);
+          setIsStreaming(false);
+          onComplete?.();
+        }
+      }, TYPEWRITER_TICK_MS);
+    },
+    [clearStreamTimer],
+  );
+
+  const handleGenerateReview = useCallback(
+    async (isRegenerate = false) => {
+      if (!business) return;
+
+      const nextAttempt = isRegenerate ? attempt + 1 : hasGeneratedDraft ? attempt + 1 : 0;
+      const signatureAtTrigger = buildSelectionSignature(
+        rating,
+        likedIds,
+        improveIds,
+        note,
       );
-      void generateDraftInPlace({
-        targetBiz,
-        promptText,
-        nextAttempt: 0,
-        recordFeedbackEvent: true,
+
+      abortControllerRef.current?.abort();
+      clearStreamTimer();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      setHasGeneratedDraft(true);
+      setIsStreaming(true);
+      setDisplayedDraft('');
+      setError(null);
+      setCopiedToast(null);
+      setGeneratedSignature(signatureAtTrigger);
+
+      window.requestAnimationFrame(() => {
+        draftSectionRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+        });
       });
-    }, 320);
-  }
+
+      const cat = getCategoryExperience(business.category);
+      const liked = cat.liked.filter((o) => likedIds.includes(o.id));
+      const improve = cat.improve.filter((o) => improveIds.includes(o.id));
+      const composedPrompt =
+        composeExperienceText({
+          rating,
+          liked,
+          improve,
+          note,
+        }).trim() ||
+        `Visited ${formatDisplayBusinessName(business.name)} in ${business.city}.`;
+
+      const naturalCandidate = buildNaturalHumanReview({
+        business,
+        rating,
+        liked,
+        improve,
+        note,
+        attempt: nextAttempt,
+        previousText: review,
+      });
+
+      void businessRepository.trackEvent({
+        businessId: business.id,
+        eventType: 'feedback_submitted',
+        metadata: { mode: 'text', length: composedPrompt.length },
+      });
+
+      const timeoutTimer = window.setTimeout(() => {
+        controller.abort('timeout');
+      }, REQUEST_TIMEOUT_MS);
+
+      try {
+        let finalText = naturalCandidate;
+        let generationSource = 'natural_template';
+
+        try {
+          const draft = await aiProvider.generateReviewDraft({
+            business: {
+              ...business,
+              name: formatDisplayBusinessName(business.name),
+            },
+            experience: composedPrompt,
+            attempt: nextAttempt,
+            mode: 'text',
+            signal: controller.signal,
+          });
+
+          if (controller.signal.aborted) return;
+
+          const candidateAiText = draft.text.trim();
+          if (
+            draft.generationSource === 'ai_live' &&
+            candidateAiText.length >= 20 &&
+            !hasRoboticReviewCliche(candidateAiText) &&
+            candidateAiText !== review.trim()
+          ) {
+            finalText = candidateAiText;
+            generationSource = 'ai_live';
+          }
+        } catch {
+          if (controller.signal.aborted && controller.signal.reason !== 'timeout') {
+            return;
+          }
+          // Graceful fallback to natural human copy so rate limits or offline edge states never block the guest
+          finalText = naturalCandidate;
+        }
+
+        if (controller.signal.aborted && controller.signal.reason !== 'timeout') {
+          return;
+        }
+
+        setAttempt(nextAttempt);
+
+        startLeftToRightTypewriter(finalText, () => {
+          void businessRepository.trackEvent({
+            businessId: business.id,
+            eventType: 'ai_generation',
+            metadata: {
+              attempt: nextAttempt,
+              streamed: true,
+              source: generationSource,
+            },
+          });
+
+          const sentiment = classifyEstimatedSentiment(composedPrompt);
+          void businessRepository.recordDraft({
+            businessId: business.id,
+            originalInput: composedPrompt,
+            generatedReview: finalText,
+            mode: 'text',
+            sentiment,
+          });
+        });
+      } catch (err) {
+        setIsStreaming(false);
+        setError(
+          (err as Error)?.message ||
+            "We couldn't prepare your review right now. Please tap Regenerate.",
+        );
+      } finally {
+        window.clearTimeout(timeoutTimer);
+      }
+    },
+    [
+      attempt,
+      business,
+      clearStreamTimer,
+      hasGeneratedDraft,
+      improveIds,
+      likedIds,
+      note,
+      rating,
+      review,
+      startLeftToRightTypewriter,
+    ],
+  );
 
   function handleSelectRating(nextRating: ExperienceRating) {
     setRating(nextRating);
-    const nextLiked = nextRating === 'not_good' ? [] : likedIds;
-    const nextImprove =
-      nextRating === 'excellent' || nextRating === 'good' ? [] : improveIds;
-    setLikedIds(nextLiked);
-    setImproveIds(nextImprove);
-    if (!business) return;
-    if (chipDebounceTimerRef.current !== null) {
-      window.clearTimeout(chipDebounceTimerRef.current);
+    if (nextRating === 'not_good') {
+      setLikedIds([]);
     }
-    const promptText = buildPromptText(
-      nextRating,
-      nextLiked,
-      nextImprove,
-      note,
-      business,
-    );
-    void generateDraftInPlace({
-      targetBiz: business,
-      promptText,
-      nextAttempt: 0,
-      recordFeedbackEvent: true,
-    });
+    if (nextRating === 'excellent' || nextRating === 'good') {
+      setImproveIds([]);
+    }
   }
 
   function handleToggleLikedChip(chipId: string) {
-    const nextLiked = likedIds.includes(chipId)
-      ? likedIds.filter((id) => id !== chipId)
-      : [...likedIds, chipId];
-    setLikedIds(nextLiked);
-    scheduleDebouncedGeneration(rating, nextLiked, improveIds, note);
+    setLikedIds((prev) =>
+      prev.includes(chipId)
+        ? prev.filter((id) => id !== chipId)
+        : [...prev, chipId],
+    );
   }
 
   function handleToggleImproveChip(chipId: string) {
-    const nextImprove = improveIds.includes(chipId)
-      ? improveIds.filter((id) => id !== chipId)
-      : [...improveIds, chipId];
-    setImproveIds(nextImprove);
-    scheduleDebouncedGeneration(rating, likedIds, nextImprove, note);
-  }
-
-  function handleGenerateExplicit(nextAttempt = 0) {
-    if (!business) return;
-    if (chipDebounceTimerRef.current !== null) {
-      window.clearTimeout(chipDebounceTimerRef.current);
-    }
-    const promptText = buildPromptText(
-      rating,
-      likedIds,
-      improveIds,
-      note,
-      business,
+    setImproveIds((prev) =>
+      prev.includes(chipId)
+        ? prev.filter((id) => id !== chipId)
+        : [...prev, chipId],
     );
-    void generateDraftInPlace({
-      targetBiz: business,
-      promptText,
-      nextAttempt,
-      recordFeedbackEvent: true,
-    });
   }
 
   async function handleCopyAndPostToGoogle() {
-    if (!business) return;
+    if (!business || isStreaming) return;
     const trimmed = review.trim();
     if (!trimmed) return;
 
@@ -426,17 +436,17 @@ export default function CustomerReviewPage() {
 
   return (
     <div className="w-full space-y-4 font-sans antialiased">
-      {/* HEADER CARD: Business Name, Category/City Badge & Logo/Monogram */}
+      {/* HEADER CARD: Smart Title-Cased Business Name, Category/City Badge & Logo/Monogram */}
       <header className="flex items-center gap-3.5 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xs">
         {logoDataUrl ? (
           <img
             src={logoDataUrl}
-            alt={`${business.name} logo`}
+            alt={`${displayName} logo`}
             className="h-12 w-12 shrink-0 rounded-xl border border-slate-200 bg-slate-50 object-contain p-1"
           />
         ) : (
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#1E1B4B] text-sm font-bold text-[#D2DB76]">
-            {business.name.slice(0, 2).toUpperCase()}
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#0F1115] text-sm font-bold text-[#D2DB76]">
+            {displayName.slice(0, 2).toUpperCase()}
           </div>
         )}
         <div className="min-w-0 flex-1 space-y-0.5">
@@ -444,12 +454,12 @@ export default function CustomerReviewPage() {
             {categoryExp.emoji} {categoryExp.label} · {business.city}
           </p>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 truncate">
-            {business.name}
+            {displayName}
           </h1>
         </div>
       </header>
 
-      {/* STEP A: Instant Experience & Highlight Selector (Top Card) */}
+      {/* PHASE 1: Select Rating, Highlights & Optional Detail -> Tap Generate AI Review */}
       <section
         aria-label="Share your experience"
         className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 shadow-2xs space-y-5"
@@ -468,9 +478,9 @@ export default function CustomerReviewPage() {
                   type="button"
                   onClick={() => handleSelectRating(pill.id)}
                   aria-pressed={active}
-                  className={`inline-flex h-11 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-medium transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] ${
+                  className={`inline-flex h-11 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-medium transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F1115] ${
                     active
-                      ? 'border-[#1E1B4B] bg-[#1E1B4B] text-white shadow-2xs'
+                      ? 'border-[#0F1115] bg-[#0F1115] text-white shadow-2xs'
                       : 'border-slate-200 bg-slate-50/70 text-slate-700 hover:border-slate-300 hover:bg-white'
                   }`}
                 >
@@ -499,7 +509,7 @@ export default function CustomerReviewPage() {
                     type="button"
                     onClick={() => handleToggleLikedChip(chip.id)}
                     aria-pressed={active}
-                    className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] ${
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F1115] ${
                       active
                         ? 'border-[#1E1B4B] bg-[#EEF2FF] text-[#1E1B4B]'
                         : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
@@ -536,7 +546,7 @@ export default function CustomerReviewPage() {
                     type="button"
                     onClick={() => handleToggleImproveChip(chip.id)}
                     aria-pressed={active}
-                    className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1E1B4B] ${
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F1115] ${
                       active
                         ? 'border-amber-400 bg-amber-50 text-slate-900'
                         : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
@@ -559,15 +569,15 @@ export default function CustomerReviewPage() {
           </div>
         )}
 
-        {/* Optional Short Custom Note + Explicit Generate AI Review Trigger */}
-        <div className="space-y-2.5">
-          <label
-            htmlFor="customer-short-note"
-            className="block text-xs font-semibold uppercase tracking-wider text-slate-500"
-          >
-            Add a quick detail (optional)
-          </label>
-          <div className="flex flex-col sm:flex-row gap-2">
+        {/* Full-Width Optional Custom Detail Input + Full-Width Primary Generate CTA */}
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <label
+              htmlFor="customer-short-note"
+              className="block text-xs font-semibold uppercase tracking-wider text-slate-500"
+            >
+              Add a quick detail (optional)
+            </label>
             <input
               id="customer-short-note"
               type="text"
@@ -575,126 +585,155 @@ export default function CustomerReviewPage() {
               value={note}
               onChange={(e) => setNote(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
+                if (e.key === 'Enter' && !isStreaming) {
                   e.preventDefault();
-                  handleGenerateExplicit(0);
+                  void handleGenerateReview(false);
                 }
               }}
               placeholder="Anything specific you loved? (optional)"
-              className="h-11 flex-1 rounded-xl border border-slate-200 bg-slate-50/70 px-3.5 font-sans text-sm font-normal text-slate-800 placeholder:text-slate-400 focus:border-[#1E1B4B] focus:bg-white focus:outline-none"
+              className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3.5 font-sans text-sm font-normal text-slate-800 placeholder:text-slate-400 focus:border-[#0F1115] focus:bg-white focus:outline-none"
             />
-            <button
-              type="button"
-              disabled={loading}
-              onClick={() => handleGenerateExplicit(attempt + 1)}
-              className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold tracking-normal text-[#1E1B4B] hover:bg-slate-50 disabled:opacity-60 cursor-pointer"
-            >
-              <Sparkles className="h-4 w-4 text-[#1E1B4B]" aria-hidden />
-              <span>Generate AI Review ✨</span>
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* STEP B: Immediate In-Place AI Review Generation & Direct Google Post (Same Screen!) */}
-      <section
-        aria-label="Your AI Review Draft"
-        className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 shadow-2xs space-y-4"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              Your AI Review Draft
-            </p>
-            {loading ? (
-              <span
-                role="status"
-                aria-live="polite"
-                className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-[#1E1B4B]"
-              >
-                <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-                <span>
-                  {slowResponse ? 'Polishing your draft…' : 'Writing…'}
-                </span>
-              </span>
-            ) : review.trim() ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-                <CheckCircle2 className="h-3 w-3" aria-hidden />
-                <span>Editable</span>
-              </span>
-            ) : null}
           </div>
 
           <button
             type="button"
-            disabled={loading}
-            onClick={() => handleGenerateExplicit(attempt + 1)}
-            className="inline-flex h-8.5 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-semibold tracking-normal text-slate-700 hover:bg-slate-100 disabled:opacity-50 cursor-pointer"
+            disabled={isStreaming}
+            onClick={() => void handleGenerateReview(false)}
+            className="inline-flex w-full items-center justify-center gap-2 py-3.5 px-5 rounded-xl bg-[#0F1115] text-sm font-semibold tracking-normal text-white shadow-sm hover:bg-[#1C2029] active:scale-[0.99] disabled:opacity-60 transition-all cursor-pointer"
           >
-            <RefreshCw
-              className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`}
-              aria-hidden
-            />
-            <span>Regenerate ↻</span>
+            <Sparkles className="h-4 w-4 text-[#D2DB76]" aria-hidden />
+            <span>
+              {isStreaming ? 'Writing your review…' : 'Generate AI Review ✨'}
+            </span>
           </button>
         </div>
-
-        {error && (
-          <div
-            role="alert"
-            className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm text-red-900"
-          >
-            <AlertCircle
-              className="mt-0.5 h-4 w-4 shrink-0 text-red-600"
-              aria-hidden
-            />
-            <span className="flex-1">{error}</span>
-          </div>
-        )}
-
-        <div className="relative">
-          <textarea
-            aria-label="Editable Google review draft"
-            rows={4}
-            value={review}
-            onChange={(e) => {
-              setCopiedToast(null);
-              setReview(e.target.value);
-            }}
-            placeholder={
-              loading
-                ? 'Crafting a natural review from your experience…'
-                : 'Tap an experience pill above or write your review here…'
-            }
-            className="w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 font-sans antialiased text-[15px] leading-relaxed font-normal text-slate-800 placeholder:text-slate-400 focus:border-[#1E1B4B] focus:bg-white focus:outline-none resize-y"
-          />
-        </div>
-
-        {copiedToast && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm font-medium text-emerald-900"
-          >
-            <CheckCircle2
-              className="h-4 w-4 shrink-0 text-emerald-700"
-              aria-hidden
-            />
-            <span>{copiedToast}</span>
-          </div>
-        )}
-
-        <button
-          type="button"
-          disabled={loading || !review.trim()}
-          onClick={() => void handleCopyAndPostToGoogle()}
-          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#1E1B4B] px-5 text-sm font-semibold tracking-normal text-white shadow-xs hover:bg-[#2E2A6E] disabled:opacity-50 transition-colors cursor-pointer"
-        >
-          <span>Copy &amp; Post to Google Review</span>
-          <ArrowRight className="h-4 w-4 text-[#D2DB76]" aria-hidden />
-          <ExternalLink className="h-3.5 w-3.5 opacity-75" aria-hidden />
-        </button>
       </section>
+
+      {/* PHASE 2: Revealed Only After Tapping Generate AI Review ✨ */}
+      {hasGeneratedDraft && (
+        <section
+          ref={draftSectionRef}
+          aria-label="Your AI Review Draft"
+          className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 shadow-2xs space-y-4"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Your AI Review Draft
+              </p>
+              {isStreaming ? (
+                <span
+                  role="status"
+                  aria-live="polite"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-[#1E1B4B]"
+                >
+                  <Sparkles className="h-3 w-3 animate-pulse" aria-hidden />
+                  <span>✨ Writing your review...</span>
+                </span>
+              ) : review.trim() ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+                  <CheckCircle2 className="h-3 w-3" aria-hidden />
+                  <span>✓ Editable</span>
+                </span>
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              disabled={isStreaming}
+              onClick={() => void handleGenerateReview(true)}
+              className="inline-flex h-8.5 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-semibold tracking-normal text-slate-700 hover:bg-slate-100 disabled:opacity-50 cursor-pointer"
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${isStreaming ? 'animate-spin' : ''}`}
+                aria-hidden
+              />
+              <span>Regenerate ↻</span>
+            </button>
+          </div>
+
+          {selectionsChangedAfterDraft && (
+            <div
+              role="status"
+              className="flex items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50/80 px-3.5 py-2 text-xs font-medium text-amber-900"
+            >
+              <span>Selections changed — tap Regenerate ↻ to update</span>
+              <button
+                type="button"
+                onClick={() => void handleGenerateReview(true)}
+                className="shrink-0 font-semibold text-amber-950 underline hover:no-underline cursor-pointer"
+              >
+                Regenerate ↻
+              </button>
+            </div>
+          )}
+
+          {error && (
+            <div
+              role="alert"
+              className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm text-red-900"
+            >
+              <AlertCircle
+                className="mt-0.5 h-4 w-4 shrink-0 text-red-600"
+                aria-hidden
+              />
+              <span className="flex-1">{error}</span>
+            </div>
+          )}
+
+          <div className="relative">
+            {isStreaming ? (
+              <div
+                aria-live="polite"
+                aria-label="Streaming AI review draft"
+                className="min-h-[118px] w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 font-sans antialiased text-[15px] leading-relaxed font-normal text-slate-800 whitespace-pre-wrap"
+              >
+                <span>{displayedDraft}</span>
+                <span
+                  aria-hidden
+                  className="ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[2px] bg-[#0F1115] animate-pulse"
+                />
+              </div>
+            ) : (
+              <textarea
+                aria-label="Editable Google review draft"
+                rows={4}
+                value={review}
+                onChange={(e) => {
+                  setCopiedToast(null);
+                  setReview(e.target.value);
+                }}
+                placeholder="Edit your review before posting to Google…"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 font-sans antialiased text-[15px] leading-relaxed font-normal text-slate-800 placeholder:text-slate-400 focus:border-[#0F1115] focus:bg-white focus:outline-none resize-y"
+              />
+            )}
+          </div>
+
+          {copiedToast && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm font-medium text-emerald-900"
+            >
+              <CheckCircle2
+                className="h-4 w-4 shrink-0 text-emerald-700"
+                aria-hidden
+              />
+              <span>{copiedToast}</span>
+            </div>
+          )}
+
+          <button
+            type="button"
+            disabled={isStreaming || !review.trim()}
+            onClick={() => void handleCopyAndPostToGoogle()}
+            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#1E1B4B] px-5 text-sm font-semibold tracking-normal text-white shadow-xs hover:bg-[#2E2A6E] disabled:opacity-50 transition-colors cursor-pointer"
+          >
+            <span>Copy &amp; Post to Google Review →</span>
+            <ExternalLink className="h-3.5 w-3.5 opacity-75" aria-hidden />
+          </button>
+        </section>
+      )}
 
       {/* CONDITIONAL LOYALTY INTEGRATION (STRICTLY CONTROLLED BY business.loyaltyEnabled) */}
       {isLoyaltyEnabled && (
@@ -711,7 +750,7 @@ export default function CustomerReviewPage() {
                 ✨ Claim +1 Loyalty Star for Your Review
               </p>
               <p className="text-xs text-[#A0A6B1] truncate">
-                Open your digital star card at {business.name} &amp; unlock rewards
+                Open your digital star card at {displayName} &amp; unlock rewards
               </p>
             </div>
           </div>

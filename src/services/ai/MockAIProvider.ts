@@ -9,6 +9,7 @@ import {
   buildBusinessResponsePrompts,
   synthesizeDeterministicBusinessResponse,
 } from './businessResponseGenerator';
+import { formatDisplayBusinessName } from '../../lib/naturalReviewCopy';
 
 const FILLERS = /\b(?:um+|uh+|erm+|hmm+)\b,?\s*/gi;
 
@@ -73,10 +74,12 @@ export class MockAIProvider implements AIProvider {
     });
 
     const sentences = toSentences(trimmed);
+    const displayName = formatDisplayBusinessName(business.name);
     const openers = [
       '',
-      `Sharing my experience at ${business.name}.`,
-      `Visited ${business.name} recently.`,
+      `Stopped by ${displayName} today.`,
+      `Visited ${displayName} recently.`,
+      `Checked out ${displayName} and wanted to share a quick note.`,
     ];
     const opener = openers[Math.abs(attempt) % openers.length];
 

@@ -11,6 +11,11 @@ import {
   composeExperienceText,
   getCategoryExperience,
 } from '../src/config/reviewExperience.ts';
+import {
+  buildNaturalHumanReview,
+  formatDisplayBusinessName,
+  hasRoboticReviewCliche,
+} from '../src/lib/naturalReviewCopy.ts';
 
 let passed = 0;
 let failed = 0;
@@ -292,6 +297,40 @@ async function run() {
     'Single-screen text review draft generates immediately and Regenerate cycles fresh variation',
   );
 
+  // Smart title-casing + natural human Google Maps copy (zero robotic openers)
+  assert(
+    formatDisplayBusinessName('mens hair') === 'Mens Hair' &&
+      formatDisplayBusinessName('ClipAura') === 'ClipAura',
+    'formatDisplayBusinessName title-cases all-lowercase names ("mens hair" -> "Mens Hair") while preserving mixed-case brands ("ClipAura")',
+  );
+
+  const barberExp = getCategoryExperience('barber');
+  const natDraft0 = buildNaturalHumanReview({
+    business: { name: 'mens hair', city: 'Hyderabad', category: 'barber' },
+    rating: 'excellent',
+    liked: barberExp.liked.filter((c) => c.id === 'beard' || c.id === 'hygiene'),
+    improve: [],
+    note: '',
+    attempt: 0,
+  });
+  const natDraft1 = buildNaturalHumanReview({
+    business: { name: 'mens hair', city: 'Hyderabad', category: 'barber' },
+    rating: 'excellent',
+    liked: barberExp.liked.filter((c) => c.id === 'beard' || c.id === 'hygiene'),
+    improve: [],
+    note: '',
+    attempt: 1,
+    previousText: natDraft0,
+  });
+
+  assert(
+    natDraft0.includes('Mens Hair') &&
+      !hasRoboticReviewCliche(natDraft0) &&
+      !hasRoboticReviewCliche(natDraft1) &&
+      natDraft0 !== natDraft1,
+    'buildNaturalHumanReview outputs warm human Google Maps reviews with zero robotic clichés and distinct Regenerate variations',
+  );
+
   const reviewPageSource = await Deno.readTextFile(
     new URL('../src/pages/CustomerReviewPage.tsx', import.meta.url),
   );
@@ -300,6 +339,15 @@ async function run() {
   );
   const indexCssSource = await Deno.readTextFile(
     new URL('../src/index.css', import.meta.url),
+  );
+
+  assert(
+    reviewPageSource.includes('hasGeneratedDraft && (') &&
+      reviewPageSource.includes('isStreaming') &&
+      reviewPageSource.includes('✨ Writing your review...') &&
+      reviewPageSource.includes('Selections changed — tap Regenerate ↻ to update') &&
+      reviewPageSource.includes('w-full rounded-xl border border-slate-200 bg-slate-50/70'),
+    'CustomerReviewPage enforces intentional 2-phase Generate trigger, left-to-right streaming caret, selections-changed badge & full-width input',
   );
 
   assert(
